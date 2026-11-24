@@ -32,7 +32,22 @@ message，再按 throughput 处理用户消息。Mailbox 的 `Open`、`Closed`�
 `VirtualMachineError`、`ThreadDeath` 和 `LinkageError` 继续向外传播。对应上游
 `ActorCell.scala`、`Actor.scala`、`dungeon/FaultHandling.scala` 和 `dungeon/DeathWatch.scala`。
 
-children 等待、重启 survivors、完整的挂起状态转换和所有监督策略仍未移植，不能视为 Pekko 等价实现。
+`ChildrenContainer` 对应 `actor/.../actor/dungeon/ChildrenContainer.scala` 的
+`EmptyChildrenContainer`、`TerminatedChildrenContainer`、`NormalChildrenContainer` 和
+`TerminatingChildrenContainer`。各容器保留上游 `add`、`remove`、`getByName`、`getByRef`、
+`children`、`stats`、`shallDie`、`reserve` 和 `unreserve` 的状态转换；最后一个待终止 child 移除后，
+`ActorCell.handleChildTerminated` 继续 `finishCreate`、`finishRecreate` 或 `finishTerminate`。
+Java 将 Scala companion object 内的类型作为 `ChildrenContainer` 的嵌套类型表达。
+
+`ChildRestartStats` 对应 `actor/.../actor/FaultHandling.scala`，其 `uid`、有限重试计数、无限重试、
+时间窗累计及过期重置逻辑与上游一致。纳秒时间通过 `System.nanoTime()`，时间窗配置按上游转为毫秒。
+`SupervisorStrategy`、`OneForOneStrategy` 和新增的 `AllForOneStrategy` 对齐同文件的
+`handleFailure`、`processFailure`、`logFailure` 和 `restartChild` 职责。Java 使用
+`Function<Throwable, Directive>` 表达 decider，并以负 `Duration` 表示 Pekko `Duration.Inf`。
+未匹配异常返回 `Escalate`，由 `ActorCell.handleFailure` 原样向上抛出；默认策略对
+`ActorInitializationException`、`ActorKilledException` 和 `DeathPactException` 执行 Stop，普通
+`Exception` 执行 Restart。此批仍未移植顶层 guardian 的 strategy configurator 和 Pekko 的所有 Java
+构造重载，也不代表通过 Pekko 完整测试套件。
 
 ## EventStream 与日志
 

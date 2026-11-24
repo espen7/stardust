@@ -37,7 +37,7 @@ public abstract class AbstractActor implements Actor {
         }
     }
 
-    private ActorCell context;
+    private final ActorCell context;
     private LoggingAdapter log;
 
     protected AbstractActor() {
@@ -49,11 +49,6 @@ public abstract class AbstractActor implements Actor {
         }
         context = (ActorCell) stack.peekFirst();
         stack.addFirst(null);
-    }
-
-    // Actor 实例由 ActorCell 创建后立即绑定上下文，用户代码不应自行调用 attach。
-    final void attach(ActorCell context) {
-        this.context = context;
     }
 
     /**
@@ -157,6 +152,10 @@ public abstract class AbstractActor implements Actor {
      */
     @Override
     public void preRestart(Throwable reason, Object message) throws Exception {
+        for (ActorRef child : getContext().getChildren()) {
+            getContext().unwatch(child);
+            getContext().stop(child);
+        }
         postStop();
     }
 

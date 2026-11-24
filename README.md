@@ -10,8 +10,8 @@ Stardust 是一个用 Java 25 阅读并逐步重写 Apache Pekko Classic Actor �
 
 这些部分仍与上游有明显差异：
 
-- `ChildrenContainer` 只覆盖名字预留、child 注册和基础终止状态。Pekko 的等待子 Actor、重启 survivors 和完整状态转换尚未移植。
-- 监督路径已按 child 向 parent 发送 `Failed` 的方式组织，但 Pekko 的递归 suspend、失败状态、重启期间等待 children、异常分类和重试策略尚未完整实现。
+- `ChildrenContainer` 已按 Pekko 的空、普通、等待终止和已终止状态容器拆分，并在 restart/termination 后继续 lifecycle。`ChildRestartStats` 已实现 child UID 与重试次数/时间窗统计。
+- 监督路径已支持 Pekko 默认异常分类、One-for-One 与 All-for-One、重试限制、升级和失败日志；ActorSystem 完整 guardian 监督生命周期仍未移植。
 - `Scheduler` 目前使用 `ScheduledExecutorService`。Pekko 的 `LightArrayRevolverScheduler` 时间轮、tick 和关闭语义尚未移植。
 - `Patterns.ask` 使用独立计时器和临时 `PromiseActorRef`，尚未接入 Provider 的 temp path 注册与回收。
 - EventStream 已使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发；终止订阅者的自动清理和 Pekko 的完整日志服务管理尚未移植。DeadLetter event、receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未完成。

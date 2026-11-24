@@ -7,9 +7,17 @@ import java.io.Serializable;
  */
 public final class Terminated implements Serializable {
     private final ActorRef actor;
+    private final boolean existenceConfirmed;
+    private final boolean addressTerminated;
 
     public Terminated(ActorRef actor) {
+        this(actor, true, false);
+    }
+
+    public Terminated(ActorRef actor, boolean existenceConfirmed, boolean addressTerminated) {
         this.actor = actor;
+        this.existenceConfirmed = existenceConfirmed;
+        this.addressTerminated = addressTerminated;
     }
 
     public ActorRef actor() {
@@ -18,6 +26,14 @@ public final class Terminated implements Serializable {
 
     public ActorRef getActor() {
         return actor;
+    }
+
+    public boolean existenceConfirmed() {
+        return existenceConfirmed;
+    }
+
+    public boolean addressTerminated() {
+        return addressTerminated;
     }
 
     @Override

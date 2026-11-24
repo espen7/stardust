@@ -1,43 +1,125 @@
 package io.github.espen7.stardust.actor;
 
+import io.github.espen7.stardust.actor.dungeon.ChildRestartStats;
+
 import java.time.Duration;
+import java.util.Collection;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * 每次只对失败的 child 应用监督指令，对应 Pekko OneForOneStrategy。
+ * 仅对失败 child 应用监督指令的策略。
  */
 public class OneForOneStrategy extends SupervisorStrategy {
-
     private final int maxNrOfRetries;
     private final Duration withinTimeRange;
     private final Function<Throwable, Directive> decider;
+    private final boolean loggingEnabled;
+
+    /**
+     * 创建启用失败日志的 OneForOneStrategy。
+     *
+     * @param maxNrOfRetries 时间窗内允许的最大重试数，负数表示不限制重试数
+     * @param withinTimeRange 重试计数时间窗，负 duration 表示不使用时间窗
+     * @param decider 将失败异常映射为监督指令的函数
+     */
+    public OneForOneStrategy(int maxNrOfRetries, Duration withinTimeRange,
+                             Function<Throwable, Directive> decider) {
+        this(maxNrOfRetries, withinTimeRange, decider, true);
+    }
 
     /**
      * 创建 OneForOneStrategy。
      *
-     * <p>maxNrOfRetries 和 withinTimeRange 保留 Pekko 的 API 概念。当前版本只保存
-     * 参数，重试窗口的计数和限制逻辑尚未移植。</p>
+     * @param maxNrOfRetries 时间窗内允许的最大重试数，负数表示不限制重试数
+     * @param withinTimeRange 重试计数时间窗，负 duration 表示不使用时间窗
+     * @param decider 将失败异常映射为监督指令的函数
+     * @param loggingEnabled 是否通过 EventStream 发布失败日志
      */
-    public OneForOneStrategy(int maxNrOfRetries, Duration withinTimeRange, Function<Throwable, Directive> decider) {
+    public OneForOneStrategy(int maxNrOfRetries, Duration withinTimeRange,
+                             Function<Throwable, Directive> decider, boolean loggingEnabled) {
         this.maxNrOfRetries = maxNrOfRetries;
-        this.withinTimeRange = withinTimeRange;
-        this.decider = decider;
+        this.withinTimeRange = Objects.requireNonNull(withinTimeRange, "withinTimeRange");
+        this.decider = Objects.requireNonNull(decider, "decider");
+        this.loggingEnabled = loggingEnabled;
     }
 
+    /**
+     * 创建不限制重试次数和重试时间窗、启用失败日志的策略。
+     *
+     * @param decider 将失败异常映射为监督指令的函数
+     */
     public OneForOneStrategy(Function<Throwable, Directive> decider) {
-        this(-1, Duration.ZERO, decider);
+        this(-1, Duration.ofNanos(-1), decider);
     }
 
+    /**
+     * 返回时间窗内允许的最大重试数。
+     *
+     * @return 配置的重试数，负数表示不限制
+     */
     public int maxNrOfRetries() {
         return maxNrOfRetries;
     }
 
+    /**
+     * 返回重试计数时间窗。
+     *
+     * @return 配置的时间窗，负 duration 表示无时间窗
+     */
     public Duration withinTimeRange() {
         return withinTimeRange;
     }
 
+    /**
+     * 返回此策略使用的 decider。
+     *
+     * @return 监督决策函数
+     */
+    @Override
+    public Function<Throwable, Directive> decider() {
+        return decider;
+    }
+
+    /**
+     * 根据失败原因计算监督指令。
+     *
+     * @param cause child failure 原因
+     * @return decider 产生的监督指令
+     */
     @Override
     public Directive handle(Throwable cause) {
         return decider.apply(cause);
     }
+
+    /**
+     * 返回失败日志是否启用。
+     *
+     * @return 启用时为 {@code true}
+     */
+    @Override
+    public boolean loggingEnabled() {
+        return loggingEnabled;
+    }
+
+    /**
+     * 按 One-for-One 规则处理 child failure。
+     *
+     * @param context 当前 supervisor 的 ActorContext
+     * @param restart 是否执行 restart
+     * @param child 失败的 child
+     * @param cause 失败原因
+     * @param stats 失败 child 的重启统计
+     * @param children 当前所有 child 的重启统计
+     */
+    @Override
+    public void processFailure(ActorContext context, boolean restart, ActorRef child, Throwable cause,
+                               ChildRestartStats stats, Collection<ChildRestartStats> children) {
+        if (restart && stats.requestRestartPermission(maxNrOfRetries, windowMillis(withinTimeRange))) {
+            restartChild(child, cause, false);
+        } else {
+            context.stop(child);
+        }
+    }
+
 }
