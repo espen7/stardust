@@ -92,10 +92,11 @@ public class ActorSystemImpl extends ActorSystem {
         this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
         this.log = Logging.getLogger(eventStream, "pekko://" + name, getClass());
         this.dispatchers = new Dispatchers(settings, this);
+        Dispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
         CoordinatedShutdown startedShutdown = null;
         try {
-            this.dispatcher = dispatchers.defaultGlobalDispatcher();
+            this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
             this.scheduler = startedScheduler = createScheduler();
             this.coordinatedShutdown = startedShutdown = new CoordinatedShutdown(this);
             this.provider = new LocalActorRefProvider(this);
@@ -120,7 +121,7 @@ public class ActorSystemImpl extends ActorSystem {
             } catch (RuntimeException closeError) {
                 error.addSuppressed(closeError);
             } finally {
-                dispatchers.close();
+                if (startedDispatcher != null) startedDispatcher.close();
             }
             throw error;
         }
@@ -269,7 +270,6 @@ public class ActorSystemImpl extends ActorSystem {
         } catch (RuntimeException error) {
             log.error(error, "Error during actor system termination");
         }
-        dispatchers.close();
         whenTerminated.complete(new Terminated(actor));
     }
 

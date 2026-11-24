@@ -25,11 +25,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * 按配置 ID 查找或创建 Dispatcher。普通 Dispatcher 及其别名共享同一个实例，
  * 生命周期由所属 ActorSystem 管理。
  */
-public final class Dispatchers implements AutoCloseable {
+public final class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
     public static final String DefaultDispatcherId = "pekko.actor.default-dispatcher";
     /** Pekko 内部 Dispatcher 的配置路径。 */
-    public static final String InternalDispatcherId = "pekko.actor.internal-dispatcher";
+    static final String InternalDispatcherId = "pekko.actor.internal-dispatcher";
     private static final int MaxDispatcherAliasDepth = 20;
 
     private final ActorSystem.Settings settings;
@@ -49,6 +49,7 @@ public final class Dispatchers implements AutoCloseable {
         this.system = system;
         this.defaultDispatcherConfig = idConfig(DefaultDispatcherId)
                 .withFallback(settings.config().getConfig(DefaultDispatcherId));
+        system.getWhenTerminated().whenComplete((ignored, error) -> shutdown());
     }
 
     /**
@@ -142,9 +143,9 @@ public final class Dispatchers implements AutoCloseable {
                 + "], defined in [" + config.getString("id") + "]");
     }
 
-    /** 停止所有已创建的 Dispatcher。通常由所属 ActorSystem 在终止时调用。 */
-    @Override
-    public void close() {
+    /** 停止所有已创建的 Dispatcher。由所属 ActorSystem 的终止 stage 触发。 */
+    private void shutdown() {
+        if (closed) return;
         closed = true;
         for (DispatcherConfigurator configurator : dispatcherConfigurators.values()) {
             configurator.dispatcher().close();

@@ -38,6 +38,7 @@ import java.util.concurrent.CompletionStage;
  * {@link CompletionStage}。</p>
  */
 public abstract class ActorSystem implements AutoCloseable {
+    private static final String INTERNAL_DISPATCHER_ID = "pekko.actor.internal-dispatcher";
     /** 创建 ActorSystem 抽象实例。 */
     protected ActorSystem() {
     }
@@ -114,7 +115,7 @@ public abstract class ActorSystem implements AutoCloseable {
 
         Settings(ClassLoader classLoader, Config cfg, String name) {
             cfg.checkValid(ConfigFactory.defaultReference(classLoader)
-                    .withoutPath(Dispatchers.InternalDispatcherId), "pekko");
+                    .withoutPath(INTERNAL_DISPATCHER_ID), "pekko");
             this.config = cfg;
             this.name = name;
             LogLevel = config.getString("pekko.loglevel");
