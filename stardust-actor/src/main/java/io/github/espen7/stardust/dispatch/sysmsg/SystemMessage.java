@@ -84,6 +84,17 @@ public abstract class SystemMessage {
         }
     }
 
+    /** 通知 supervisor 新 child 已建立。 */
+    public static final class Supervise extends SystemMessage {
+        public final ActorRef child;
+        public final boolean async;
+
+        public Supervise(ActorRef child, boolean async) {
+            this.child = child;
+            this.async = async;
+        }
+    }
+
     /**
      * DeathWatch 建立、解除和终止通知。
      */

@@ -33,7 +33,6 @@ public class LocalActorRefProvider extends ActorRefProvider {
         String base = parent == null ? rootGuardian.path().toString() : parent.path().toString();
         LocalActorRef result = new LocalActorRef(system, props, system.dispatcher(), parent == null ? rootGuardian : parent,
                 new ActorPath(base + "/" + name, uidGenerator.getAndIncrement()), name);
-        if (parent instanceof LocalActorRef localParent) localParent.underlying().childCreated(name, result);
         return result;
     }
 

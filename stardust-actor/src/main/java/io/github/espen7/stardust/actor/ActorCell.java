@@ -16,6 +16,7 @@ import java.util.ArrayDeque;
 import java.util.Collection;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.util.LinkedList;
 import java.util.Set;
 
 /**
@@ -52,7 +53,7 @@ public class ActorCell implements ActorContext {
     // behaviorStack 对应 become/unbecome 的当前行为栈。
     private final ArrayDeque<AbstractActor.Receive> behaviorStack = new ArrayDeque<>();
     // newActor 时暂存 ActorContext，使构造阶段的上下文语义与 Pekko 一致。
-    private static final ThreadLocal<ArrayDeque<ActorContext>> contextStack = ThreadLocal.withInitial(ArrayDeque::new);
+    static final ThreadLocal<LinkedList<ActorContext>> contextStack = ThreadLocal.withInitial(LinkedList::new);
     private volatile Actor actor;
     // currentMessage 只在 invoke 期间有效，Actor 可以通过 sender() 读取它。
     private volatile Envelope currentMessage;
@@ -135,24 +136,33 @@ public class ActorCell implements ActorContext {
         }
     }
 
-    /**
-     * 将已预留的 child name 替换为新 ActorRef。
-     *
-     * @param name  parent 下的 child name
-     * @param child 已创建的 child 引用
-     * @throws IllegalStateException 当 name 尚未预留时
-     */
-    public void childCreated(String name, ActorRef child) {
+    private void supervise(ActorRef child, boolean async) {
+        if (childrenRefs().isTerminating()) return;
+        ChildRestartStats childStats = initChild(child);
+        if (childStats != null) {
+            handleSupervise(child, async);
+            publishLifecycle("now supervising " + child);
+        } else {
+            system.eventStream().publish(new Error(self.path().toString(), actorClass(),
+                    "received Supervise from unregistered child " + child + ", this will not end well"));
+        }
+    }
+
+    private ChildRestartStats initChild(ActorRef child) {
+        if (!(child instanceof LocalActorRef localChild)) return null;
+        String name = localChild.name();
         for (; ; ) {
             ChildrenContainer current = childrenRefs();
+            if (current.isTerminating()) return null;
             if (current.getByName(name) != ChildNameReserved.INSTANCE) {
-                throw new IllegalStateException("child name was not reserved: " + name);
+                return null;
             }
-            if (swapChildrenRefs(current, current.add(name, new ChildRestartStats(child)))) {
-                publishLifecycle("now supervising " + child);
-                return;
-            }
+            ChildRestartStats childStats = new ChildRestartStats(child);
+            if (swapChildrenRefs(current, current.add(name, childStats))) return childStats;
         }
+    }
+
+    protected void handleSupervise(ActorRef child, boolean async) {
     }
 
     private void childTerminated(ActorRef child) {
@@ -194,10 +204,14 @@ public class ActorCell implements ActorContext {
     /**
      * 初始化 ActorCell，并向 Mailbox 放入 Create 系统消息。
      *
-     * @param sendSupervise 保留 Pekko init 签名；当前本地实现尚未使用此参数
+     * @param sendSupervise 是否向 parent 发送 Supervise 系统消息
      */
     public void init(boolean sendSupervise) {
-        dispatcher.systemDispatch(this, new SystemMessage.Create(null));
+        mailbox.systemEnqueue(self, new SystemMessage.Create(null));
+        if (sendSupervise && parent != null) {
+            ((LocalActorRef) parent).underlying().sendSystemMessage(new SystemMessage.Supervise(self, false));
+        }
+        dispatcher.registerForExecution(mailbox, false, true);
     }
 
     /**
@@ -233,29 +247,35 @@ public class ActorCell implements ActorContext {
      * 形成 DeathWatch 主线。
      */
     public void systemInvoke(SystemMessage message) {
-        if (message instanceof SystemMessage.Create create) create(create.failure);
-        else if (message instanceof SystemMessage.Recreate recreate) recreate(recreate.cause);
-        else if (message instanceof SystemMessage.Terminate) finishTerminate();
-        else if (message instanceof SystemMessage.Suspend) mailbox.suspend();
-        else if (message instanceof SystemMessage.Resume) mailbox.resume();
-        else if (message instanceof SystemMessage.Watch watch) {
-            if (!terminated) {
+        try {
+            if (message instanceof SystemMessage.Create create) create(create.failure);
+            else if (message instanceof SystemMessage.Recreate recreate) recreate(recreate.cause);
+            else if (message instanceof SystemMessage.Terminate) finishTerminate();
+            else if (message instanceof SystemMessage.Suspend) mailbox.suspend();
+            else if (message instanceof SystemMessage.Resume) mailbox.resume();
+            else if (message instanceof SystemMessage.Watch watch) {
+                if (!terminated) {
+                    int previousSize = watchedBy.size();
+                    watchedBy = addWatcher(watchedBy, watch.watcher);
+                    if (watchedBy.size() != previousSize) publishLifecycle("now watched by " + watch.watcher);
+                }
+                else if (watch.watcher instanceof LocalActorRef localWatcher) {
+                    localWatcher.underlying().sendSystemMessage(
+                            new SystemMessage.DeathWatchNotification(watch.watchee, true, false));
+                }
+            } else if (message instanceof SystemMessage.Unwatch unwatch) {
                 int previousSize = watchedBy.size();
-                watchedBy = addWatcher(watchedBy, watch.watcher);
-                if (watchedBy.size() != previousSize) publishLifecycle("now watched by " + watch.watcher);
+                watchedBy = removeWatcher(watchedBy, unwatch.watcher);
+                if (watchedBy.size() != previousSize) publishLifecycle("no longer watched by " + unwatch.watcher);
             }
-            else if (watch.watcher instanceof LocalActorRef localWatcher) {
-                localWatcher.underlying().sendSystemMessage(
-                        new SystemMessage.DeathWatchNotification(watch.watchee, true, false));
-            }
-        } else if (message instanceof SystemMessage.Unwatch unwatch) {
-            int previousSize = watchedBy.size();
-            watchedBy = removeWatcher(watchedBy, unwatch.watcher);
-            if (watchedBy.size() != previousSize) publishLifecycle("no longer watched by " + unwatch.watcher);
+            else if (message instanceof SystemMessage.Failed failed) handleFailure(failed);
+            else if (message instanceof SystemMessage.DeathWatchNotification notification)
+                watchedActorTerminated(notification);
+            else if (message instanceof SystemMessage.Supervise supervise) supervise(supervise.child, supervise.async);
+        } catch (Throwable error) {
+            rethrowIfFatal(error);
+            handleInvokeFailure(error);
         }
-        else if (message instanceof SystemMessage.Failed failed) handleFailure(failed);
-        else if (message instanceof SystemMessage.DeathWatchNotification notification)
-            watchedActorTerminated(notification);
     }
 
     /**
@@ -270,6 +290,7 @@ public class ActorCell implements ActorContext {
             newActor().preStart();
             publishLifecycle("started (" + actor + ")");
         } catch (Throwable error) {
+            rethrowIfFatal(error);
             handleInvokeFailure(error);
         }
     }
@@ -281,8 +302,8 @@ public class ActorCell implements ActorContext {
      * restart 会复用这条路径，所以 Actor 实例会更换，而 ActorRef 和 ActorCell 不变。</p>
      */
     protected Actor newActor() {
-        ArrayDeque<ActorContext> stack = contextStack.get();
-        stack.push(this);
+        LinkedList<ActorContext> stack = contextStack.get();
+        stack.addFirst(this);
         try {
             behaviorStack.clear();
             Actor instance = initialProps.newActor();
@@ -293,7 +314,8 @@ public class ActorCell implements ActorContext {
             behaviorStack.push(instance.receive());
             return instance;
         } finally {
-            stack.pop();
+            if (!stack.isEmpty() && stack.peekFirst() == null) stack.removeFirst();
+            if (!stack.isEmpty()) stack.removeFirst();
         }
     }
 
@@ -315,9 +337,17 @@ public class ActorCell implements ActorContext {
         try {
             behaviorStack.peek().apply(messageHandle.message(), this);
         } catch (Throwable error) {
+            rethrowIfFatal(error);
             handleInvokeFailure(error);
         } finally {
             currentMessage = null;
+        }
+    }
+
+    @SuppressWarnings("removal")
+    private static void rethrowIfFatal(Throwable error) {
+        if (error instanceof VirtualMachineError || error instanceof ThreadDeath || error instanceof LinkageError) {
+            throw (java.lang.Error) error;
         }
     }
 
@@ -348,6 +378,7 @@ public class ActorCell implements ActorContext {
         try {
             actor.preRestart(cause, failedMessage == null ? null : failedMessage.message());
         } catch (Throwable error) {
+            rethrowIfFatal(error);
             publishError(error, error.getMessage());
         }
         try {
@@ -356,6 +387,7 @@ public class ActorCell implements ActorContext {
             mailbox.resume();
             publishLifecycle("restarted");
         } catch (Throwable error) {
+            rethrowIfFatal(error);
             handleInvokeFailure(error);
         }
     }

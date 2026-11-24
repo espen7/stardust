@@ -1,27 +1,33 @@
 package io.github.espen7.stardust.event;
 
+import io.github.espen7.stardust.actor.AbstractActor;
 import io.github.espen7.stardust.actor.UnhandledMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.function.Consumer;
 
 /**
  * 将 EventStream 中的日志事件桥接到应用选择的 SLF4J provider。
  */
-final class Slf4jLogger implements Consumer<Object>, AutoCloseable {
-    private final EventStream eventStream;
+final class Slf4jLogger extends AbstractActor {
+    private final LogEvent.Level logLevel;
     private final boolean debugUnhandled;
 
-    Slf4jLogger(EventStream eventStream, boolean debugUnhandled) {
-        this.eventStream = eventStream;
+    Slf4jLogger(LogEvent.Level logLevel, boolean debugUnhandled) {
+        this.logLevel = logLevel;
         this.debugUnhandled = debugUnhandled;
     }
 
     @Override
-    public void accept(Object event) {
-        if (event instanceof LogEvent logEvent) publish(logEvent);
-        else if (debugUnhandled && event instanceof UnhandledMessage unhandled) publishUnhandled(unhandled);
+    public Receive createReceive() {
+        return receiveBuilder()
+                .match(LogEvent.class, event -> {
+                    if (event.level().ordinal() >= logLevel.ordinal()) publish(event);
+                })
+                .match(UnhandledMessage.class, event -> {
+                    if (debugUnhandled) publishUnhandled(event);
+                })
+                .build();
     }
 
     private static void publish(LogEvent event) {
@@ -47,10 +53,5 @@ final class Slf4jLogger implements Consumer<Object>, AutoCloseable {
                 : event.recipient().getClass();
         String message = "unhandled message from " + event.sender() + ": " + event.message();
         publish(new Debug(event.recipient().path().toString(), actorClass, message));
-    }
-
-    @Override
-    public void close() {
-        eventStream.unsubscribe(this);
     }
 }

@@ -36,7 +36,10 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
     }
 
     public String toStringWithoutAddress() {
-        return value;
+        int scheme = value.indexOf("://");
+        if (scheme < 0) return value;
+        int firstElement = value.indexOf('/', scheme + 3);
+        return firstElement < 0 ? "/" : value.substring(firstElement);
     }
 
     @Override

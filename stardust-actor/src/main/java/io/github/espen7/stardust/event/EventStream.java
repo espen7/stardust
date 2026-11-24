@@ -1,98 +1,117 @@
 package io.github.espen7.stardust.event;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.concurrent.*;
-import java.util.function.Consumer;
+import io.github.espen7.stardust.actor.ActorRef;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * ActorSystem 的事件发布和订阅入口。
  *
- * <p>日志 subscriber 收到达到系统 log level 的 {@link LogEvent}；其他事件仍可由应用订阅。
- * 事件按发布顺序在独立线程中分发，subscriber 不会占用 Actor 的 mailbox 线程。</p>
+ * <p>订阅者是 ActorRef，channel 是事件 class。订阅父类型时也会收到其子类型事件，
+ * 发布通过 ActorRef.tell 投递，不会在发布线程中执行 subscriber 的业务逻辑。</p>
  */
-public final class EventStream implements AutoCloseable {
-    private final CopyOnWriteArrayList<Consumer<Object>> subscribers = new CopyOnWriteArrayList<>();
+public final class EventStream {
+    private final Map<Class<?>, Set<ActorRef>> subscriptions = new HashMap<>();
     private final LogEvent.Level logLevel;
-    private final ExecutorService executor;
+    private volatile Map<Class<?>, Set<ActorRef>> cache = Map.of();
 
     public EventStream(LogEvent.Level logLevel) {
-        this.logLevel = Objects.requireNonNull(logLevel, "logLevel");
-        this.executor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "stardust-eventstream");
-            thread.setDaemon(true);
-            return thread;
-        });
+        this.logLevel = logLevel;
     }
 
     /**
-     * 订阅 EventStream 中发布的事件。
+     * 订阅指定 class 及其子类型的事件。
      *
-     * @param subscriber 接收事件的 callback
-     * @return 本次调用新增订阅时返回 {@code true}
+     * @return 新增订阅时返回 {@code true}
      */
-    public boolean subscribe(Consumer<Object> subscriber) {
-        return subscribers.addIfAbsent(Objects.requireNonNull(subscriber, "subscriber"));
+    public boolean subscribe(ActorRef subscriber, Class<?> channel) {
+        if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
+        if (channel == null) throw new IllegalArgumentException("channel is null");
+        synchronized (subscriptions) {
+            boolean added = subscriptions.computeIfAbsent(channel, ignored -> new HashSet<>()).add(subscriber);
+            if (added) updateCache();
+            return added;
+        }
     }
 
     /**
-     * 移除指定订阅。
+     * 取消指定 channel 的订阅。
      */
-    public boolean unsubscribe(Consumer<Object> subscriber) {
-        return subscribers.remove(subscriber);
+    public boolean unsubscribe(ActorRef subscriber, Class<?> channel) {
+        if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
+        if (channel == null) throw new IllegalArgumentException("channel is null");
+        synchronized (subscriptions) {
+            Set<ActorRef> channelSubscribers = subscriptions.get(channel);
+            if (channelSubscribers == null) return false;
+            boolean removed = channelSubscribers.remove(subscriber);
+            if (channelSubscribers.isEmpty()) subscriptions.remove(channel);
+            if (removed) updateCache();
+            return removed;
+        }
     }
 
     /**
-     * 发布一个事件。
-     *
-     * <p>低于系统 log level 的 LogEvent 会被过滤；其他事件不经过日志级别过滤。</p>
+     * 取消 subscriber 的全部订阅。
+     */
+    public void unsubscribe(ActorRef subscriber) {
+        if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
+        synchronized (subscriptions) {
+            boolean removed = false;
+            for (Set<ActorRef> channelSubscribers : subscriptions.values()) {
+                removed |= channelSubscribers.remove(subscriber);
+            }
+            subscriptions.values().removeIf(Set::isEmpty);
+            if (removed) updateCache();
+        }
+    }
+
+    /**
+     * 向订阅了事件 class 或其父类型 channel 的 Actor 投递事件。
      */
     public void publish(Object event) {
-        Objects.requireNonNull(event, "event");
-        if (event instanceof LogEvent logEvent && !isEnabled(logEvent.level())) return;
-        List<Consumer<Object>> currentSubscribers = List.copyOf(subscribers);
-        try {
-            executor.execute(() -> dispatch(event, currentSubscribers));
-        } catch (RejectedExecutionException ignored) {
-            // ActorSystem shutdown has stopped accepting events.
-        }
-    }
-
-    private static void dispatch(Object event, List<Consumer<Object>> currentSubscribers) {
-        for (Consumer<Object> subscriber : currentSubscribers) {
-            try {
-                subscriber.accept(event);
-            } catch (RuntimeException ignored) {
-                // 日志或事件订阅者不能让 Actor 的消息处理失败。
+        if (event == null) throw new IllegalArgumentException("event is null");
+        Class<?> eventClass = event.getClass();
+        Map<Class<?>, Set<ActorRef>> currentCache = cache;
+        Set<ActorRef> recipients = currentCache.get(eventClass);
+        if (recipients == null) {
+            synchronized (subscriptions) {
+                currentCache = cache;
+                recipients = currentCache.get(eventClass);
+                if (recipients == null) {
+                    recipients = subscribersFor(eventClass);
+                    Map<Class<?>, Set<ActorRef>> updated = new HashMap<>(currentCache);
+                    updated.put(eventClass, recipients);
+                    cache = Map.copyOf(updated);
+                }
             }
         }
+        for (ActorRef recipient : recipients) recipient.tell(event);
     }
 
-    /**
-     * 返回当前系统的最低发布级别。
-     */
+    private void updateCache() {
+        Map<Class<?>, Set<ActorRef>> updated = new HashMap<>();
+        for (Class<?> eventClass : cache.keySet()) {
+            updated.put(eventClass, subscribersFor(eventClass));
+        }
+        cache = Map.copyOf(updated);
+    }
+
+    private Set<ActorRef> subscribersFor(Class<?> eventClass) {
+        Set<ActorRef> result = new HashSet<>();
+        subscriptions.forEach((channel, subscribers) -> {
+            if (channel.isAssignableFrom(eventClass)) result.addAll(subscribers);
+        });
+        return Set.copyOf(result);
+    }
+
     public LogEvent.Level logLevel() {
         return logLevel;
     }
 
-    /**
-     * 判断指定日志级别是否会通过系统级别过滤。
-     */
     public boolean isEnabled(LogEvent.Level level) {
         return level.ordinal() >= logLevel.ordinal();
-    }
-
-    /**
-     * 停止接收事件并等待已发布事件完成分发。
-     */
-    @Override
-    public void close() {
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) executor.shutdownNow();
-        } catch (InterruptedException interrupted) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
     }
 }

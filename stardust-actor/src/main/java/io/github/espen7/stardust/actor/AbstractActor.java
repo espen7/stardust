@@ -5,6 +5,7 @@ import io.github.espen7.stardust.event.LoggingAdapter;
 import io.github.espen7.stardust.japi.pf.ReceiveBuilder;
 
 import java.util.function.BiConsumer;
+import java.util.LinkedList;
 
 /**
  * Classic Actor 的 Java 基类，对应 Pekko AbstractActor。
@@ -39,6 +40,17 @@ public abstract class AbstractActor implements Actor {
     private ActorCell context;
     private LoggingAdapter log;
 
+    protected AbstractActor() {
+        LinkedList<ActorContext> stack = ActorCell.contextStack.get();
+        if (stack.isEmpty() || stack.peekFirst() == null) {
+            throw new ActorInitializationException(
+                    "You cannot create an instance of [" + getClass().getName() + "] explicitly using the constructor (new). "
+                            + "You have to use one of the 'actorOf' factory methods to create a new actor. See the documentation.");
+        }
+        context = (ActorCell) stack.peekFirst();
+        stack.addFirst(null);
+    }
+
     // Actor 实例由 ActorCell 创建后立即绑定上下文，用户代码不应自行调用 attach。
     final void attach(ActorCell context) {
         this.context = context;
@@ -47,7 +59,7 @@ public abstract class AbstractActor implements Actor {
     /**
      * 返回当前 Actor 的上下文。
      *
-     * <p>此对象只应在 Actor 的消息处理线程中使用。</p>
+     * <p>构造期间和 Actor 的消息处理线程中可访问；不要将 context 传递给其他线程使用。</p>
      *
      * @return 当前 ActorContext
      */
@@ -111,9 +123,7 @@ public abstract class AbstractActor implements Actor {
      *
      * @return 该 Actor 创建时使用的 Receive
      */
-    public AbstractActor.Receive createReceive() {
-        return receiveBuilder().build();
-    }
+    public abstract AbstractActor.Receive createReceive();
 
     /**
      * 返回 {@link #createReceive()} 定义的初始 behavior。
@@ -164,12 +174,11 @@ public abstract class AbstractActor implements Actor {
     /**
      * 处理当前 Receive 未匹配的消息。
      *
-     * <p>当前实现不发布 UnhandledMessage event。</p>
+     * <p>未处理的 {@link Terminated} 会抛出 {@link DeathPactException}。</p>
      */
     @Override
     public void unhandled(Object message) {
-        if (context != null) {
-            context.system().eventStream().publish(new UnhandledMessage(message, getSender(), getSelf()));
-        }
+        if (message instanceof Terminated terminated) throw new DeathPactException(terminated.actor());
+        context.system().eventStream().publish(new UnhandledMessage(message, getSender(), getSelf()));
     }
 }

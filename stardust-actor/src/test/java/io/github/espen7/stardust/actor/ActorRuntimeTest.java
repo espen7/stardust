@@ -46,7 +46,8 @@ class ActorRuntimeTest {
     void actorLogPublishesStructuredEventWithPekkoMessageTemplate() throws Exception {
         system = ActorSystem.create("logging");
         BlockingQueue<Object> events = new LinkedBlockingQueue<>();
-        system.eventStream().subscribe(events::add);
+        ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "event-subscriber");
+        system.eventStream().subscribe(subscriber, LogEvent.class);
         ActorRef actor = system.actorOf(Props.create(LoggingActor.class), "logger");
 
         assertEquals("logged", ask(actor, "request-1"));
@@ -65,12 +66,70 @@ class ActorRuntimeTest {
     }
 
     @Test
+    void eventStreamUpdatesCachedClassificationsAfterSubscriptionChanges() throws Exception {
+        system = ActorSystem.create("event-stream-cache");
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "subscriber");
+        Info event = new Info("test", ActorRuntimeTest.class, "cached");
+
+        system.eventStream().publish(event);
+        assertTrue(system.eventStream().subscribe(subscriber, LogEvent.class));
+        system.eventStream().publish(event);
+        assertEquals(event, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+
+        assertTrue(system.eventStream().unsubscribe(subscriber, LogEvent.class));
+        system.eventStream().publish(event);
+        assertEquals(null, events.poll(100, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
     void receiveBuilderMatchesTypeAndUsesFallback() throws Exception {
         system = ActorSystem.create("receive-builder");
         ActorRef actor = system.actorOf(Props.create(ReceiveOrderActor.class), "receiver");
 
         assertEquals("string", ask(actor, "value"));
         assertEquals("fallback", ask(actor, 42));
+    }
+
+    @Test
+    void actorContextIsAvailableDuringConstruction() throws Exception {
+        system = ActorSystem.create("constructor-context");
+        ActorRef actor = system.actorOf(Props.create(ConstructorContextActor.class), "actor");
+
+        assertEquals(actor.path().toString(), ask(actor, "self"));
+        assertThrows(ActorInitializationException.class, ConstructorContextActor::new);
+    }
+
+    @Test
+    void propsSelectsConstructorByArgumentType() throws Exception {
+        system = ActorSystem.create("props-constructor");
+        ActorRef actor = system.actorOf(Props.create(OverloadedActor.class, "selected"), "actor");
+
+        assertEquals("selected", ask(actor, "value"));
+    }
+
+    @Test
+    void unhandledTerminatedTriggersDeathPactRestart() throws Exception {
+        system = ActorSystem.create("death-pact");
+        AtomicInteger instances = new AtomicInteger();
+        ActorRef watched = system.actorOf(Props.create(SilentActor.class), "watched");
+        ActorRef watcher = system.actorOf(Props.create(DeathPactActor.class, instances), "watcher");
+
+        assertEquals("watching", ask(watcher, new Watch(watched)));
+        watched.stop();
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        int observed = 0;
+        while (System.nanoTime() < deadline && observed != 2) {
+            observed = (int) ask(watcher, "instance");
+            if (observed != 2) Thread.yield();
+        }
+        assertEquals(2, observed);
+    }
+
+    @Test
+    void actorPathWithoutAddressReturnsOnlyPathElements() {
+        assertEquals("/user/worker", new ActorPath("pekko://system/user/worker").toStringWithoutAddress());
     }
 
     @Test
@@ -154,6 +213,66 @@ class ActorRuntimeTest {
                 log().info("handled {}", message);
                 getSender().tell("logged", getSelf());
             }).build();
+        }
+    }
+
+    public static class EventSubscriberActor extends AbstractActor {
+        private final BlockingQueue<Object> events;
+
+        public EventSubscriberActor(BlockingQueue<Object> events) {
+            this.events = events;
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder().matchAny(events::add).build();
+        }
+    }
+
+    public static class ConstructorContextActor extends AbstractActor {
+        private final String selfPath = getSelf().path().toString();
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder().match(String.class, ignored -> getSender().tell(selfPath, getSelf())).build();
+        }
+    }
+
+    public static class OverloadedActor extends AbstractActor {
+        private final String value;
+
+        public OverloadedActor(String value) {
+            this.value = value;
+        }
+
+        public OverloadedActor(Integer value) {
+            this.value = value.toString();
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder().match(String.class, ignored -> getSender().tell(value, getSelf())).build();
+        }
+    }
+
+    public static class DeathPactActor extends AbstractActor {
+        private final int instance;
+
+        public DeathPactActor(AtomicInteger instances) {
+            instance = instances.incrementAndGet();
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder()
+                    .match(Watch.class, request -> {
+                        getContext().watch(request.actor());
+                        getSender().tell("watching", getSelf());
+                    })
+                    .match(String.class, message -> {
+                        if (message.equals("instance")) getSender().tell(instance, getSelf());
+                    })
+                    .build();
         }
     }
 

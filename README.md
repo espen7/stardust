@@ -14,7 +14,7 @@ Stardust 是一个用 Java 25 阅读并逐步重写 Apache Pekko Classic Actor �
 - 监督路径已按 child 向 parent 发送 `Failed` 的方式组织，但 Pekko 的递归 suspend、失败状态、重启期间等待 children、异常分类和重试策略尚未完整实现。
 - `Scheduler` 目前使用 `ScheduledExecutorService`。Pekko 的 `LightArrayRevolverScheduler` 时间轮、tick 和关闭语义尚未移植。
 - `Patterns.ask` 使用独立计时器和临时 `PromiseActorRef`，尚未接入 Provider 的 temp path 注册与回收。
-- EventStream 目前只提供基本订阅和日志事件发布；Pekko 的 DeadLetter event、receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未完成。
+- EventStream 已使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发；终止订阅者的自动清理和 Pekko 的完整日志服务管理尚未移植。DeadLetter event、receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未完成。
 
 每个上游概念的源码位置和 Java 对应关系记录在 [docs/actor-porting.md](docs/actor-porting.md)。
 
@@ -33,7 +33,7 @@ mvn test
 
 ## Logging
 
-`ActorSystem` 和 `AbstractActor` 提供 `log()`，支持 `debug`、`info`、`warning`、`error` 和 `{}` 参数模板。日志先成为带 source path、source class、level、message 和 cause 的 `LogEvent`，再发布到 `ActorSystem.eventStream()`。默认 SLF4J bridge 将 source path 加在消息前；应用可自行订阅结构化事件。
+`ActorSystem` 和 `AbstractActor` 提供 `log()`，支持 `debug`、`info`、`warning`、`error` 和 `{}` 参数模板。日志先成为带 source path、source class、level、message 和 cause 的 `LogEvent`，再发布到 `ActorSystem.eventStream()`。默认 SLF4J logger Actor 将 source path 加在消息前；应用可以用 ActorRef 和 `LogEvent.class` 订阅结构化事件。
 
 运行库只依赖 `slf4j-api`，不捆绑日志实现。应用需要在运行时添加一个 SLF4J provider（例如 Logback、Log4j2、SLF4J Simple 或 JUL provider），并由应用配置其级别和输出格式。未添加 provider 时，SLF4J 会提示并使用 NOP logger。
 

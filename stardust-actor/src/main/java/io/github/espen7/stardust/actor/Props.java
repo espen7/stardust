@@ -45,15 +45,57 @@ public final class Props {
      * @throws ActorInitializationException 当反射调用 constructor 失败
      */
     public static Props create(Class<? extends Actor> clazz, Object... args) {
+        Object[] constructorArgs = args.clone();
         return new Props(clazz, () -> {
+            Constructor<?> selected = null;
             for (Constructor<?> constructor : clazz.getDeclaredConstructors()) {
-                if (constructor.getParameterCount() == args.length) {
-                    constructor.setAccessible(true);
-                    return clazz.cast(constructor.newInstance(args));
+                if (!matches(constructor.getParameterTypes(), constructorArgs)) continue;
+                if (selected != null) {
+                    throw new IllegalArgumentException("multiple matching constructors found on " + clazz
+                            + " for arguments [" + argumentTypes(constructorArgs) + "]");
                 }
+                selected = constructor;
             }
-            throw new IllegalArgumentException("No constructor for " + clazz.getName());
+            if (selected == null) {
+                throw new IllegalArgumentException("no matching constructor found on " + clazz
+                        + " for arguments [" + argumentTypes(constructorArgs) + "]");
+            }
+            selected.setAccessible(true);
+            return clazz.cast(selected.newInstance(constructorArgs));
         });
+    }
+
+    private static boolean matches(Class<?>[] parameterTypes, Object[] arguments) {
+        if (parameterTypes.length != arguments.length) return false;
+        for (int i = 0; i < parameterTypes.length; i++) {
+            Class<?> parameterType = parameterTypes[i];
+            Object argument = arguments[i];
+            if (argument == null) {
+                if (parameterType.isPrimitive()) return false;
+            } else if (!box(parameterType).isInstance(argument)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Class<?> box(Class<?> type) {
+        if (!type.isPrimitive()) return type;
+        if (type == boolean.class) return Boolean.class;
+        if (type == byte.class) return Byte.class;
+        if (type == short.class) return Short.class;
+        if (type == char.class) return Character.class;
+        if (type == int.class) return Integer.class;
+        if (type == long.class) return Long.class;
+        if (type == float.class) return Float.class;
+        if (type == double.class) return Double.class;
+        return Void.class;
+    }
+
+    private static String argumentTypes(Object[] arguments) {
+        return java.util.Arrays.stream(arguments)
+                .map(argument -> argument == null ? "null" : argument.getClass().getName())
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     /**

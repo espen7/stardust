@@ -26,7 +26,6 @@ public class ActorSystemImpl extends ActorSystem {
     private final Scheduler scheduler;
     private final EventStream eventStream;
     private final LoggingAdapter log;
-    private final AutoCloseable slf4jLogger;
     private final LocalActorRefProvider provider;
     private final CompletableFuture<Terminated> whenTerminated = new CompletableFuture<>();
 
@@ -36,9 +35,9 @@ public class ActorSystemImpl extends ActorSystem {
         this.dispatcher = new Dispatcher(config.getInt("pekko.actor.default-dispatcher.throughput"));
         this.scheduler = new Scheduler();
         this.eventStream = new EventStream(LogEvent.Level.parse(config.getString("pekko.actor.loglevel")));
-        this.slf4jLogger = Logging.installSlf4jLogger(eventStream, debugUnhandled());
         this.log = Logging.getLogger(eventStream, "pekko://" + name, getClass());
         this.provider = new LocalActorRefProvider(this);
+        Logging.installSlf4jLogger(this, debugUnhandled());
     }
 
     public String name() {
@@ -107,11 +106,6 @@ public class ActorSystemImpl extends ActorSystem {
     void actorTerminated(ActorRef actor) {
         scheduler.close();
         dispatcher.close();
-        eventStream.close();
-        try {
-            slf4jLogger.close();
-        } catch (Exception ignored) {
-        }
         whenTerminated.complete(new Terminated(actor));
     }
 }
