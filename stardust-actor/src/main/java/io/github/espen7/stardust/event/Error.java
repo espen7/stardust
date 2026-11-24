@@ -1,0 +1,14 @@
+package io.github.espen7.stardust.event;
+
+/**
+ * ERROR 级别的结构化日志事件。
+ */
+public final class Error extends LogEvent {
+    public Error(String source, Class<?> sourceClass, String message) {
+        this(source, sourceClass, message, null);
+    }
+
+    public Error(String source, Class<?> sourceClass, String message, Throwable cause) {
+        super(Level.ERROR, source, sourceClass, message, cause);
+    }
+}

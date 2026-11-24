@@ -1,0 +1,107 @@
+package io.github.espen7.stardust.dispatch;
+
+import io.github.espen7.stardust.actor.ActorCell;
+import io.github.espen7.stardust.dispatch.sysmsg.SystemMessage;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
+
+/**
+ * Dispatcher 将 Envelope 或 SystemMessage 放入目标 Actor 的 Mailbox，并把 Mailbox
+ * 提交给 Executor。它不直接调用 Actor，Actor 的串行执行由 Mailbox 的 Scheduled
+ * 状态保证。
+ */
+public class Dispatcher implements AutoCloseable {
+    private final ExecutorService executorService;
+    private final MessageQueue deadLetters;
+    private final int throughput;
+
+    /** 创建使用默认 throughput 5 的 Dispatcher。 */
+    public Dispatcher() {
+        this(5);
+    }
+
+    /**
+     * 创建使用指定 mailbox throughput 的 Dispatcher。
+     *
+     * @param throughput 每次 mailbox task 最多连续处理的普通消息数
+     */
+    public Dispatcher(int throughput) {
+        this.throughput = throughput;
+        this.executorService = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
+        this.deadLetters = new UnboundedMailbox();
+    }
+
+    /** @return 每次 mailbox task 的普通消息处理上限 */
+    /** @return 每个 mailbox task 连续处理普通消息的上限 */
+    public int throughput() {
+        return throughput;
+    }
+
+    /**
+     * 返回当前实现用作 dead letters sink 的消息队列。
+     *
+     * @return dead letters message queue
+     */
+    public MessageQueue deadLetters() {
+        return deadLetters;
+    }
+
+    /**
+     * 普通消息入口，对应 Pekko Dispatcher.dispatch。
+     *
+     * @param receiver 接收消息的 ActorCell
+     * @param invocation 包含用户消息和 sender 的 Envelope
+     */
+    public void dispatch(ActorCell receiver, Envelope invocation) {
+        Mailbox mailbox = receiver.mailbox();
+        mailbox.enqueue(receiver.self(), invocation);
+        registerForExecution(mailbox, true, false);
+    }
+
+    /**
+     * 系统消息入口，对应 Pekko Dispatcher.systemDispatch。
+     *
+     * @param receiver 接收系统消息的 ActorCell
+     * @param invocation 生命周期或 runtime 控制消息
+     */
+    public void systemDispatch(ActorCell receiver, SystemMessage invocation) {
+        Mailbox mailbox = receiver.mailbox();
+        mailbox.systemEnqueue(receiver.self(), invocation);
+        registerForExecution(mailbox, false, true);
+    }
+
+    /**
+     * 尝试把 Mailbox 变成 Scheduled 并提交给 Executor。
+     * has*Hint 是发送方已知的快速路径，真正的队列状态仍由 Mailbox 再次检查。
+     *
+     * @param mailbox 待调度的 Mailbox
+     * @param hasMessageHint 调用方是否确认普通消息队列非空
+     * @param hasSystemMessageHint 调用方是否确认系统消息队列非空
+     * @return 本次调用成功提交 task 时返回 {@code true}
+     * @throws java.util.concurrent.RejectedExecutionException Executor 两次拒绝提交时
+     */
+    public boolean registerForExecution(Mailbox mailbox, boolean hasMessageHint, boolean hasSystemMessageHint) {
+        if (!mailbox.canBeScheduledForExecution(hasMessageHint, hasSystemMessageHint)) return false;
+        if (!mailbox.setAsScheduled()) return false;
+        try {
+            executorService.execute(mailbox);
+            return true;
+        } catch (java.util.concurrent.RejectedExecutionException firstFailure) {
+            try {
+                executorService.execute(mailbox);
+                return true;
+            } catch (java.util.concurrent.RejectedExecutionException secondFailure) {
+                mailbox.setAsIdle();
+                throw secondFailure;
+            }
+        }
+    }
+
+    /** 关闭 Executor，停止接收新的 mailbox task。 */
+    /** 关闭底层 Executor。 */
+    @Override
+    public void close() {
+        executorService.shutdown();
+    }
+}
