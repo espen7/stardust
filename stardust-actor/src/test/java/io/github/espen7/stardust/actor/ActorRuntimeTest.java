@@ -13,7 +13,12 @@
  */
 package io.github.espen7.stardust.actor;
 
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
+import io.github.espen7.stardust.ConfigurationException;
 import io.github.espen7.stardust.Done;
+import io.github.espen7.stardust.dispatch.Dispatcher;
+import io.github.espen7.stardust.dispatch.Dispatchers;
 import io.github.espen7.stardust.event.Info;
 import io.github.espen7.stardust.event.LogEvent;
 import io.github.espen7.stardust.pattern.AskTimeoutException;
@@ -31,6 +36,69 @@ class ActorRuntimeTest {
     private static final long WAIT_SECONDS = 3;
 
     private ActorSystem system;
+
+    @Test
+    void settingsAndDefaultDispatcherUseApplicationConfig() throws Exception {
+        Config config = ConfigFactory.parseString("""
+                pekko.actor.default-dispatcher.throughput = 11
+                pekko.loglevel = "WARNING"
+                pekko.actor.loglevel = "DEBUG"
+                pekko.log-dead-letters = off
+                """);
+        system = ActorSystem.create("configured-dispatcher", config);
+
+        assertEquals("configured-dispatcher", system.settings().name());
+        assertEquals(0, system.settings().LogDeadLetters);
+        assertEquals(LogEvent.Level.WARNING, system.eventStream().logLevel());
+        assertSame(system.dispatcher(), system.dispatchers().defaultGlobalDispatcher());
+        assertEquals(11, system.dispatcher().throughput());
+        assertEquals("reply", ask(system.actorOf(Props.create(EchoActor.class), "echo"), "reply"));
+    }
+
+    @Test
+    void settingsRetainLegacyLogLevelAsFallback() {
+        system = ActorSystem.create("legacy-loglevel", ConfigFactory.parseString("pekko.actor.loglevel = DEBUG"));
+
+        assertEquals(LogEvent.Level.DEBUG, system.eventStream().logLevel());
+        assertEquals(5, system.dispatcher().throughput());
+    }
+
+    @Test
+    void settingsRejectConflictingShutdownConfig() {
+        Config config = ConfigFactory.parseString("pekko.coordinated-shutdown.terminate-actor-system = off");
+
+        ConfigurationException error = assertThrows(ConfigurationException.class,
+                () -> ActorSystem.create("invalid-shutdown", config));
+        assertTrue(error.getMessage().contains("run-by-actor-system-terminate=on"));
+    }
+
+    @Test
+    void dispatchersLookupResolvesAliasesAndInheritsDefaultConfig() {
+        Config config = ConfigFactory.parseString("""
+                pekko.actor.default-dispatcher.throughput = 9
+                dispatchers.shared {}
+                dispatchers.alias = "dispatchers.shared"
+                dispatchers.next = "dispatchers.alias"
+                dispatchers.loop = "dispatchers.loop"
+                dispatchers.invalid = 1
+                """);
+        system = ActorSystem.create("dispatcher-lookup", config);
+        Dispatchers dispatchers = system.dispatchers();
+
+        assertTrue(dispatchers.hasDispatcher("dispatchers.alias"));
+        assertFalse(dispatchers.hasDispatcher("dispatchers.missing"));
+        Dispatcher shared = dispatchers.lookup("dispatchers.next");
+        assertEquals(9, shared.throughput());
+        assertNotSame(system.dispatcher(), shared);
+        assertSame(shared, dispatchers.lookup("dispatchers.shared"));
+        assertSame(shared, dispatchers.lookup("dispatchers.alias"));
+        assertThrows(ConfigurationException.class, () -> dispatchers.lookup("dispatchers.missing"));
+        assertThrows(ConfigurationException.class, () -> dispatchers.lookup("dispatchers.loop"));
+        assertThrows(ConfigurationException.class, () -> dispatchers.lookup("dispatchers.invalid"));
+        assertSame(system.dispatcher(), dispatchers.lookup(Dispatchers.DefaultDispatcherId));
+        system.close();
+        assertThrows(IllegalStateException.class, () -> dispatchers.lookup("dispatchers.shared"));
+    }
 
     @Test
     void actorSystemNameUsesPekkoNameRules() {

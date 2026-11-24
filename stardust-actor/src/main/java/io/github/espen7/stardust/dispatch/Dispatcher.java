@@ -13,10 +13,12 @@
  */
 package io.github.espen7.stardust.dispatch;
 
+import com.typesafe.config.ConfigFactory;
 import io.github.espen7.stardust.actor.ActorCell;
 import io.github.espen7.stardust.actor.ActorSystem;
 import io.github.espen7.stardust.dispatch.sysmsg.SystemMessage;
 
+import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 
@@ -29,10 +31,11 @@ public class Dispatcher implements AutoCloseable {
     private final ExecutorService executorService;
     private final DeadLetterMailbox deadLetterMailbox;
     private final int throughput;
+    private final Duration throughputDeadlineTime;
 
-    /** 创建使用默认 throughput 5 的 Dispatcher。 */
+    /** 创建使用 Pekko reference.conf 默认 throughput 的 Dispatcher。 */
     public Dispatcher() {
-        this(5);
+        this(ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId).getInt("throughput"));
     }
 
     /**
@@ -51,7 +54,12 @@ public class Dispatcher implements AutoCloseable {
      * @param system 接收 dead-letter 事件的 ActorSystem。为 {@code null} 时使用本地消息队列
      */
     public Dispatcher(int throughput, ActorSystem system) {
+        this(throughput, Duration.ZERO, system);
+    }
+
+    Dispatcher(int throughput, Duration throughputDeadlineTime, ActorSystem system) {
         this.throughput = throughput;
+        this.throughputDeadlineTime = throughputDeadlineTime;
         this.executorService = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
         this.deadLetterMailbox = new DeadLetterMailbox(system);
     }
@@ -63,6 +71,14 @@ public class Dispatcher implements AutoCloseable {
      */
     public int throughput() {
         return throughput;
+    }
+
+    Duration throughputDeadlineTime() {
+        return throughputDeadlineTime;
+    }
+
+    boolean isThroughputDeadlineTimeDefined() {
+        return throughputDeadlineTime.toMillis() > 0;
     }
 
     /**

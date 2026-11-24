@@ -273,17 +273,18 @@ public class Mailbox implements Runnable {
      */
     private void processMailbox() {
         int left = Math.max(dispatcher.throughput(), 1);
+        boolean deadlineDefined = dispatcher.isThroughputDeadlineTimeDefined();
+        long deadlineNs = deadlineDefined ? System.nanoTime() + dispatcher.throughputDeadlineTime().toNanos() : 0L;
         while (left-- > 0 && shouldProcessMessage()) {
             Envelope next = dequeue();
             if (next == null) break;
             actor.invoke(next);
             processAllSystemMessages();
+            if (deadlineDefined && System.nanoTime() - deadlineNs >= 0) break;
         }
     }
 
-    /**
-     * 摘取并反转系统消息链表，再逐条调用 ActorCell.systemInvoke。
-     */
+
     /**
      * 摘取系统消息队列并按入队顺序调用 ActorCell.systemInvoke。
      */

@@ -32,6 +32,15 @@ mvn test
 
 单元测试覆盖本地运行时的基础调用路径，不代表行为已通过 Pekko 测试套件验证。打包模块可执行 `mvn -DskipTests package`。
 
+## ActorSystem 配置
+
+`ActorSystem.create(name)` 加载 `application.conf` 和 `reference.conf`。`ActorSystem.create(name, config)`
+使用传入的配置，并由 `reference.conf` 补齐默认值。有效配置可通过 `system.settings().config()` 读取。
+
+`pekko.actor.default-dispatcher.throughput` 默认是 `5`，控制一次 Mailbox 调度处理的普通消息数。
+`pekko.actor.default-dispatcher.throughput-deadline-time` 默认是 `0ms`，表示关闭批次时间限制。
+`system.dispatchers().lookup(id)` 支持查找命名的普通 Dispatcher，多个别名指向同一个实例。Actor 创建目前使用默认 Dispatcher。
+
 ## Logging
 
 `ActorSystem` 和 `AbstractActor` 提供 `log()`，支持 `debug`、`info`、`warning`、`error` 和 `{}` 参数模板。日志先成为带 source path、source class、level、message 和 cause 的 `LogEvent`，再发布到 `ActorSystem.eventStream()`。默认 SLF4J logger Actor 将 source path 加在消息前；应用可以用 ActorRef 和 `LogEvent.class` 订阅结构化事件。
@@ -41,12 +50,12 @@ mvn test
 ActorSystem 从 `application.conf` 读取 Pekko 对齐的日志设置：
 
 ```hocon
-pekko.actor.loglevel = "DEBUG"
+pekko.loglevel = "DEBUG"
 pekko.actor.debug.lifecycle = on
 pekko.actor.debug.unhandled = on
 ```
 
-要输出生命周期和未处理消息的 DEBUG 日志，还需将 `pekko.actor.loglevel` 设为 `DEBUG`，并在所选 SLF4J provider 中启用相应 logger 的 DEBUG 级别。生命周期日志包括 Actor 创建、监督、restart、stop 和 DeathWatch 变化，默认关闭。未处理消息始终作为 `UnhandledMessage` 发布；设为 `debug.unhandled = on` 后才会转成 DEBUG 日志。`debug.receive` 和 `debug.autoreceive` 键已保留，相关 receive decorator 和 AutoReceive API 尚未移植。
+要输出生命周期和未处理消息的 DEBUG 日志，还需将 `pekko.loglevel` 设为 `DEBUG`，并在所选 SLF4J provider 中启用相应 logger 的 DEBUG 级别。旧版 Stardust 的 `pekko.actor.loglevel` 仍可作为回退值。生命周期日志包括 Actor 创建、监督、restart、stop 和 DeathWatch 变化，默认关闭。未处理消息始终作为 `UnhandledMessage` 发布；设为 `debug.unhandled = on` 后才会转成 DEBUG 日志。`debug.receive` 和 `debug.autoreceive` 键已保留，相关 receive decorator 和 AutoReceive API 尚未移植。
 
 ## 模块结构
 

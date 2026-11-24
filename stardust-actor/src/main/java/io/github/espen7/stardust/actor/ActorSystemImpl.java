@@ -17,14 +17,13 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.stardust.Done;
 import io.github.espen7.stardust.dispatch.Dispatcher;
+import io.github.espen7.stardust.dispatch.Dispatchers;
 import io.github.espen7.stardust.event.EventStream;
 import io.github.espen7.stardust.event.LogEvent;
 import io.github.espen7.stardust.event.Logging;
 import io.github.espen7.stardust.event.LoggingAdapter;
 import io.github.espen7.stardust.event.DeadLetterListener;
 
-import java.time.Duration;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
@@ -43,15 +42,29 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class ActorSystemImpl extends ActorSystem {
 
+    private static final String ACTOR_NAME_PATTERN = "^[a-zA-Z0-9][a-zA-Z0-9-_]*$";
+
+    /** ActorSystem 的逻辑名称，同时用于生成 ActorPath 和线程名称。 */
     private final String name;
-    private final Config config;
+    /** 保存合并后的系统配置和值已解析的 runtime 设置。 */
+    private final Settings settings;
+    /** 根据配置创建并管理此系统的 Dispatcher。 */
+    private final Dispatchers dispatchers;
+    /** 负责提交 Actor mailbox 任务的共享 Dispatcher。 */
     private final Dispatcher dispatcher;
+    /** 负责一次性调度和关闭阶段定时任务的共享 Scheduler。 */
     private final Scheduler scheduler;
+    /** 当前系统的 EventStream，承载日志和 dead-letter 事件。 */
     private final EventStream eventStream;
+    /** 绑定系统 source 的 LoggingAdapter。 */
     private final LoggingAdapter log;
+    /** 创建本地 ActorRef、guardian 和临时引用的 Provider。 */
     private final LocalActorRefProvider provider;
+    /** 系统级 dead-letter listener；关闭期间可按配置保留或停止。 */
     private final ActorRef logDeadLetterListener;
+    /** 管理阶段化关闭任务和 JVM shutdown hook。 */
     private final CoordinatedShutdown coordinatedShutdown;
+    /** ActorSystem 完成终止时完成的通知。 */
     private final CompletableFuture<Terminated> whenTerminated = new CompletableFuture<>();
 
     /**
@@ -61,50 +74,53 @@ public class ActorSystemImpl extends ActorSystem {
      * @throws IllegalArgumentException 当名称不符合 Pekko 命名规则时
      */
     public ActorSystemImpl(String name) {
-        if (name == null || !name.matches("^[a-zA-Z0-9][a-zA-Z0-9-_]*$")) {
+        this(name, null);
+    }
+
+    ActorSystemImpl(String name, Config applicationConfig) {
+        if (name == null || !name.matches(ACTOR_NAME_PATTERN)) {
             throw new IllegalArgumentException(
                     "invalid ActorSystem name [" + name
                             + "], must contain only word characters (i.e. [a-zA-Z0-9] plus non-leading '-' or '_')");
         }
         this.name = name;
-        this.config = ConfigFactory.load();
-        this.dispatcher = new Dispatcher(config.getInt("pekko.actor.default-dispatcher.throughput"), this);
-        this.eventStream = new EventStream(LogEvent.Level.parse(config.getString("pekko.actor.loglevel")));
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        if (classLoader == null) classLoader = ActorSystem.class.getClassLoader();
+        Config config = applicationConfig == null ? ConfigFactory.load(classLoader)
+                : applicationConfig.withFallback(ConfigFactory.defaultReferenceUnresolved(classLoader)).resolve();
+        this.settings = new Settings(classLoader, config, name);
+        this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
         this.log = Logging.getLogger(eventStream, "pekko://" + name, getClass());
-        this.scheduler = createScheduler();
-        this.coordinatedShutdown = new CoordinatedShutdown(this);
+        this.dispatchers = new Dispatchers(settings, this);
+        Scheduler startedScheduler = null;
+        CoordinatedShutdown startedShutdown = null;
         try {
+            this.dispatcher = dispatchers.defaultGlobalDispatcher();
+            this.scheduler = startedScheduler = createScheduler();
+            this.coordinatedShutdown = startedShutdown = new CoordinatedShutdown(this);
             this.provider = new LocalActorRefProvider(this);
             Logging.installSlf4jLogger(this, debugUnhandled());
-            String configured = config.getString("pekko.log-dead-letters").toLowerCase(Locale.ROOT);
-            int maxCount = switch (configured) {
-                case "on", "true" -> Integer.MAX_VALUE;
-                case "off", "false" -> 0;
-                default -> Integer.parseInt(configured);
-            };
-            if (maxCount > 0) {
-                String suspend = config.getString("pekko.log-dead-letters-suspend-duration");
-                Duration duration = suspend.equalsIgnoreCase("infinite") ? null
-                        : config.getDuration("pekko.log-dead-letters-suspend-duration");
-                this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class, maxCount, duration, suspend),
-                        "deadLetterListener");
+            if (settings.LogDeadLetters > 0) {
+                this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class,
+                        settings.LogDeadLetters, settings.LogDeadLettersSuspendDuration,
+                        settings.logDeadLettersSuspendDurationDescription), "deadLetterListener");
             } else {
                 this.logDeadLetterListener = null;
             }
-            if (config.getBoolean("pekko.coordinated-shutdown.terminate-actor-system")) {
+            if (settings.CoordinatedShutdownTerminateActorSystem) {
                 coordinatedShutdown.addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-system", () -> {
                     finalTerminate();
                     return whenTerminated.thenApply(ignored -> Done.done());
                 });
             }
         } catch (RuntimeException error) {
-            coordinatedShutdown.cancelJvmShutdownHook();
+            if (startedShutdown != null) startedShutdown.cancelJvmShutdownHook();
             try {
-                scheduler.close();
+                if (startedScheduler != null) startedScheduler.close();
             } catch (RuntimeException closeError) {
                 error.addSuppressed(closeError);
             } finally {
-                dispatcher.close();
+                dispatchers.close();
             }
             throw error;
         }
@@ -117,9 +133,9 @@ public class ActorSystemImpl extends ActorSystem {
      * @throws IllegalArgumentException 无法加载或构造所配置的调度器
      */
     protected Scheduler createScheduler() {
-        String className = config.getString("pekko.scheduler.implementation");
+        String className = settings.SchedulerClass;
         ThreadFactory defaultFactory = Executors.defaultThreadFactory();
-        boolean daemonic = config.getBoolean("pekko.daemonic");
+        boolean daemonic = settings.Daemonicity;
         AtomicLong threadNumber = new AtomicLong();
         ThreadFactory threadFactory = runnable -> {
             Thread thread = defaultFactory.newThread(runnable);
@@ -130,7 +146,7 @@ public class ActorSystemImpl extends ActorSystem {
         try {
             return Class.forName(className).asSubclass(Scheduler.class)
                     .getConstructor(Config.class, LoggingAdapter.class, ThreadFactory.class)
-                    .newInstance(config, log, threadFactory);
+                    .newInstance(settings.config(), log, threadFactory);
         } catch (java.lang.reflect.InvocationTargetException error) {
             if (error.getCause() instanceof RuntimeException runtimeError) throw runtimeError;
             if (error.getCause() instanceof Error fatal) throw fatal;
@@ -168,8 +184,9 @@ public class ActorSystemImpl extends ActorSystem {
         return provider.systemActorOf(props, name);
     }
 
-    Config config() {
-        return config;
+    @Override
+    public Settings settings() {
+        return settings;
     }
 
     /** 返回此 ActorSystem 的 CoordinatedShutdown。 */
@@ -188,6 +205,11 @@ public class ActorSystemImpl extends ActorSystem {
     }
 
     @Override
+    public Dispatchers dispatchers() {
+        return dispatchers;
+    }
+
+    @Override
     public Scheduler scheduler() {
         return scheduler;
     }
@@ -203,11 +225,11 @@ public class ActorSystemImpl extends ActorSystem {
     }
 
     boolean debugLifecycle() {
-        return config.getBoolean("pekko.actor.debug.lifecycle");
+        return settings.DebugLifecycle;
     }
 
     boolean debugUnhandled() {
-        return config.getBoolean("pekko.actor.debug.unhandled");
+        return settings.DebugUnhandledMessage;
     }
 
     /**
@@ -218,7 +240,7 @@ public class ActorSystemImpl extends ActorSystem {
      */
     @Override
     public CompletionStage<Terminated> terminate() {
-        if (config.getBoolean("pekko.coordinated-shutdown.run-by-actor-system-terminate")) {
+        if (settings.CoordinatedShutdownRunByActorSystemTerminate) {
             coordinatedShutdown.runAll(CoordinatedShutdown.actorSystemTerminateReason());
         } else {
             finalTerminate();
@@ -247,12 +269,12 @@ public class ActorSystemImpl extends ActorSystem {
         } catch (RuntimeException error) {
             log.error(error, "Error during actor system termination");
         }
-        dispatcher.close();
+        dispatchers.close();
         whenTerminated.complete(new Terminated(actor));
     }
 
     void finalTerminate() {
-        if (!config.getBoolean("pekko.log-dead-letters-during-shutdown") && logDeadLetterListener != null) {
+        if (!settings.LogDeadLettersDuringShutdown && logDeadLetterListener != null) {
             logDeadLetterListener.stop();
         }
         provider.rootGuardian().stop();
@@ -264,7 +286,7 @@ public class ActorSystemImpl extends ActorSystem {
     public void close() {
         terminate();
         try {
-            whenTerminated.get(config.getDuration("pekko.coordinated-shutdown.close-actor-system-timeout")
+            whenTerminated.get(settings.config().getDuration("pekko.coordinated-shutdown.close-actor-system-timeout")
                     .toNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();

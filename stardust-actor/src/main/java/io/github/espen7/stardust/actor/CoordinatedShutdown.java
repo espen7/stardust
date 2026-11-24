@@ -105,12 +105,13 @@ public final class CoordinatedShutdown {
      */
     public CoordinatedShutdown(ActorSystemImpl system) {
         this.system = system;
-        this.phases = phasesFromConfig(system.config());
-        if (system.config().getBoolean("pekko.coordinated-shutdown.run-by-jvm-shutdown-hook")) {
+        Config config = system.settings().config();
+        this.phases = phasesFromConfig(config);
+        if (config.getBoolean("pekko.coordinated-shutdown.run-by-jvm-shutdown-hook")) {
             this.jvmShutdownHook = addCancellableJvmShutdownHook(() -> {
                 try {
                     runAll(jvmExitReason()).toCompletableFuture().get(
-                            system.config().getDuration("pekko.coordinated-shutdown.close-actor-system-timeout")
+                            config.getDuration("pekko.coordinated-shutdown.close-actor-system-timeout")
                                     .toNanos(), TimeUnit.NANOSECONDS);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();

@@ -22,10 +22,35 @@ Java `ArrayDeque` 不允许 null，不能承载 Pekko 在 Actor constructor 中�
 `ActorRefProvider`，创建失败时释放预留名称。`ActorSystemImpl` 构造期间按
 `^[a-zA-Z0-9][a-zA-Z0-9-_]*$` 校验 system name，并保留上游的异常消息。
 
+## 系统配置及 Dispatcher 创建
+
+`ActorSystemImpl` 在初始化 runtime 组件前创建 `ActorSystem.Settings`，由后者调用
+`Config.checkValid` 并解析日志、Scheduler 和系统终止使用的设置。关闭任务配置要求
+`run-by-actor-system-terminate=on` 时同时启用 `terminate-actor-system`。对应上游
+`actor/src/main/scala/org/apache/pekko/actor/ActorSystem.scala` 的 `Settings` 和 `ActorSystemImpl`，
+以及 `actor/src/main/scala/org/apache/pekko/PekkoException.scala` 的 `ConfigurationException`。
+Java 版本保留本地 runtime 已消费的 Settings 字段。旧键 `pekko.actor.loglevel` 通过
+`reference.conf` 提供 `pekko.loglevel` 的回退值。有限的 dead-letter 暂停配置按上游转换为毫秒，
+无限期以 `null` 表示。日志沿用原配置文本，Pekko 使用 Scala Duration 的 `pretty` 格式。
+
+系统 Dispatcher 通过 `Dispatchers.defaultGlobalDispatcher`、`lookup` 和
+`DispatcherConfigurator.dispatcher` 创建。命名配置继承默认配置段，别名解析以 20 层为限。
+按上游用 `ConcurrentHashMap.putIfAbsent` 缓存 configurator。Stardust 的 Dispatcher
+在构造时创建 ForkJoinPool，因此竞争中落败的实例会关闭。ActorSystem 终止时关闭注册表中的实例。
+对应上游 `actor/src/main/scala/org/apache/pekko/dispatch/Dispatchers.scala`、
+`dispatch/Dispatcher.scala`、`dispatch/AbstractDispatcher.scala` 和
+`actor/src/main/resources/reference.conf`。
+
+当前支持普通 `Dispatcher` 的 `throughput` 与 `throughput-deadline-time`。Actor 创建统一使用系统默认
+Dispatcher。独立的 internal dispatcher、`Props.withDispatcher` 绑定、PinnedDispatcher、自定义 configurator、
+executor 配置、按空闲超时释放线程池和 `CachingConfig` 优化仍待移植。现有 Java 无参 Dispatcher
+构造器从 `reference.conf` 读取默认 throughput。
+
 ## 消息分发
 
 `ActorRef.tell` 创建 `Envelope`，`Dispatcher.dispatch` 将它入队，`Mailbox.run` 优先处理 system
-message，再按 throughput 处理用户消息。Mailbox 的 `Open`、`Closed`、`Scheduled` 和 suspend 位
+message，再按 throughput 批量处理用户消息。每条普通消息处理完并清理系统消息后，Mailbox 检查批次截止时间。
+Mailbox 的 `Open`、`Closed`、`Scheduled` 和 suspend 位
 布局与 Pekko 对齐。对应上游 `dispatch/Dispatcher.scala`、`dispatch/Mailbox.scala` 和
 `dispatch/AbstractMailbox.scala`。
 

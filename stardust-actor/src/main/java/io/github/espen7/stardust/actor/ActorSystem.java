@@ -13,11 +13,16 @@
  */
 package io.github.espen7.stardust.actor;
 
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
+import io.github.espen7.stardust.ConfigurationException;
 import io.github.espen7.stardust.dispatch.Dispatcher;
+import io.github.espen7.stardust.dispatch.Dispatchers;
 import io.github.espen7.stardust.event.EventStream;
 import io.github.espen7.stardust.event.LoggingAdapter;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -61,6 +66,103 @@ public abstract class ActorSystem implements AutoCloseable {
     }
 
     /**
+     * 创建使用指定配置的本地 ActorSystem。缺少的配置从 {@code reference.conf} 补齐。
+     *
+     * @param name 用于 ActorPath 的系统名称
+     * @param config 应用配置。为 {@code null} 时按 {@link #create(String)} 加载配置
+     * @return 新建的 ActorSystem
+     * @throws IllegalArgumentException 当系统名称无效时
+     * @throws ConfigurationException 当关闭配置相互冲突时
+     * @throws com.typesafe.config.ConfigException 当配置缺失、类型错误或无法解析时
+     */
+    public static ActorSystem create(String name, Config config) {
+        return new ActorSystemImpl(name, config);
+    }
+
+    /**
+     * 保存 ActorSystem 的有效配置，以及本地 runtime 使用的已解析设置。
+     *
+     * <p>每个 ActorSystem 在启动时创建一份不可变的 Settings。</p>
+     */
+    public static final class Settings {
+        private final String name;
+        private final Config config;
+
+        /** 系统日志级别，默认 {@code INFO}。 */
+        public final String LogLevel;
+        /** 每轮记录的 dead letters 上限。{@code 0} 表示关闭，{@link Integer#MAX_VALUE} 表示不限。 */
+        public final int LogDeadLetters;
+        /** 系统终止期间是否继续记录 dead letters，默认关闭。 */
+        public final boolean LogDeadLettersDuringShutdown;
+        /** 达到日志上限后的暂停时间。{@code null} 对应 Pekko 的无限期暂停。 */
+        public final Duration LogDeadLettersSuspendDuration;
+        /** 是否记录 Actor 生命周期的 DEBUG 日志，默认关闭。 */
+        public final boolean DebugLifecycle;
+        /** 是否将未处理消息转为 DEBUG 日志，默认关闭。 */
+        public final boolean DebugUnhandledMessage;
+        /** Scheduler 实现的全限定类名。 */
+        public final String SchedulerClass;
+        /** runtime 创建的线程是否为 daemon，默认关闭。 */
+        public final boolean Daemonicity;
+        /** CoordinatedShutdown 是否终止 ActorSystem，默认开启。 */
+        public final boolean CoordinatedShutdownTerminateActorSystem;
+        /** 调用 {@link ActorSystem#terminate()} 时是否运行 CoordinatedShutdown，默认开启。 */
+        public final boolean CoordinatedShutdownRunByActorSystemTerminate;
+
+        /** DeadLetterListener 日志中沿用的配置文本。 */
+        final String logDeadLettersSuspendDurationDescription;
+
+        Settings(ClassLoader classLoader, Config cfg, String name) {
+            cfg.checkValid(ConfigFactory.defaultReference(classLoader)
+                    .withoutPath(Dispatchers.InternalDispatcherId), "pekko");
+            this.config = cfg;
+            this.name = name;
+            LogLevel = config.getString("pekko.loglevel");
+            LogDeadLetters = switch (config.getString("pekko.log-dead-letters").toLowerCase(Locale.ROOT)) {
+                case "off", "false" -> 0;
+                case "on", "true" -> Integer.MAX_VALUE;
+                default -> config.getInt("pekko.log-dead-letters");
+            };
+            LogDeadLettersDuringShutdown = config.getBoolean("pekko.log-dead-letters-during-shutdown");
+            String key = "pekko.log-dead-letters-suspend-duration";
+            logDeadLettersSuspendDurationDescription = config.getString(key);
+            LogDeadLettersSuspendDuration = logDeadLettersSuspendDurationDescription.equalsIgnoreCase("infinite")
+                    ? null : Duration.ofMillis(config.getDuration(key).toMillis());
+            DebugLifecycle = config.getBoolean("pekko.actor.debug.lifecycle");
+            DebugUnhandledMessage = config.getBoolean("pekko.actor.debug.unhandled");
+            SchedulerClass = config.getString("pekko.scheduler.implementation");
+            Daemonicity = config.getBoolean("pekko.daemonic");
+            CoordinatedShutdownTerminateActorSystem =
+                    config.getBoolean("pekko.coordinated-shutdown.terminate-actor-system");
+            CoordinatedShutdownRunByActorSystemTerminate =
+                    config.getBoolean("pekko.coordinated-shutdown.run-by-actor-system-terminate");
+            if (CoordinatedShutdownRunByActorSystemTerminate && !CoordinatedShutdownTerminateActorSystem) {
+                throw new ConfigurationException(
+                        "pekko.coordinated-shutdown.run-by-actor-system-terminate=on and "
+                                + "pekko.coordinated-shutdown.terminate-actor-system=off is not a supported configuration combination.");
+            }
+        }
+
+        /**
+         * 返回系统名称。
+         *
+         * @return 此 Settings 对应的 ActorSystem 名称
+         */
+        public String name() {
+            return name;
+        }
+
+        /**
+         * 返回已合并并解析的系统配置。
+         *
+         * @return 不可变的 Typesafe Config
+         */
+        public Config config() {
+            return config;
+        }
+    }
+
+    /**
      * 在 user guardian 下创建顶层 Actor。
      *
      * <p>创建会注册 child 名称并返回其 ActorRef。Actor 实例的初始化通过 mailbox
@@ -101,6 +203,20 @@ public abstract class ActorSystem implements AutoCloseable {
      * @return 此系统的 Dispatcher
      */
     public abstract Dispatcher dispatcher();
+
+    /**
+     * 返回此系统的 Dispatcher 注册表。注册表与系统同生命周期。
+     *
+     * @return 此系统的 Dispatchers
+     */
+    public abstract Dispatchers dispatchers();
+
+    /**
+     * 返回此系统的运行时设置。
+     *
+     * @return 系统启动时创建的 Settings
+     */
+    public abstract Settings settings();
 
     /**
      * 返回此系统共享的 Scheduler。
