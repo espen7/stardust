@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import io.github.espen7.stardust.dispatch.sysmsg.SystemMessage;
@@ -16,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class LocalActorRefProvider extends ActorRefProvider {
     private final ActorSystemImpl system;
-    // UID 区分同一路径上的不同 Actor incarnation。
+    /** UID 区分同一路径上的不同 Actor incarnation。 */
     private final AtomicInteger uidGenerator = new AtomicInteger(1);
     private final LocalActorRef rootGuardian;
     private final LocalActorRef systemGuardian;

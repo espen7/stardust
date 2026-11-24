@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor.dungeon;
 
 import io.github.espen7.stardust.actor.ActorRef;
@@ -19,9 +32,16 @@ public interface ChildrenContainer {
     }
 
     /** 表示由用户请求引起的 child 停止等待状态。 */
-    enum UserRequest implements SuspendReason {INSTANCE}
+    enum UserRequest implements SuspendReason {
+        /** 用户请求实例。 */
+        INSTANCE
+    }
 
-    /** 表示 ActorCell 正在等待停止 children 后重建自身。 */
+    /**
+     * 表示 ActorCell 正在等待停止 children 后重建自身。
+     *
+     * @param cause restart 原因
+     */
     record Recreation(Throwable cause) implements SuspendReason {
     }
 
@@ -30,7 +50,10 @@ public interface ChildrenContainer {
     }
 
     /** 表示 ActorCell 正在等待 children 全部终止。 */
-    enum Termination implements SuspendReason {INSTANCE}
+    enum Termination implements SuspendReason {
+        /** 终止实例。 */
+        INSTANCE
+    }
 
     /** 标记正在等待至少一个 child 终止的容器。 */
     interface WaitingForChildren {
@@ -149,6 +172,10 @@ public interface ChildrenContainer {
 
     /** 表示没有已注册 children 的状态。 */
     class EmptyChildrenContainer implements ChildrenContainer {
+        /** 创建空 children 容器。 */
+        public EmptyChildrenContainer() {
+        }
+
         /** {@inheritDoc} */
         @Override
         public ChildrenContainer add(String name, ChildRestartStats stats) {
@@ -222,6 +249,10 @@ public interface ChildrenContainer {
 
     /** 表示停止流程完成后的终止状态。 */
     final class TerminatedChildrenContainer extends EmptyChildrenContainer {
+        /** 创建已终止 children 容器。 */
+        public TerminatedChildrenContainer() {
+        }
+
         /** {@inheritDoc} */
         @Override
         public ChildrenContainer add(String name, ChildRestartStats stats) {

@@ -71,7 +71,7 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
         Node<T> current = (Node<T>) tailHandle.getAcquire(this);
         Node<T> next = current.next();
         if (next == null && get() != current) {
-            // 生产者已经交换队首，等待它发布链指针。
+            /* 生产者已经交换队首，等待它发布链指针。 */
             do {
                 Thread.onSpinWait();
                 next = current.next();

@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import io.github.espen7.stardust.event.Logging;
@@ -40,6 +53,7 @@ public abstract class AbstractActor implements Actor {
     private final ActorCell context;
     private LoggingAdapter log;
 
+    /** 创建 Actor，并从当前 ActorCell 上下文取得运行时绑定。 */
     protected AbstractActor() {
         LinkedList<ActorContext> stack = ActorCell.contextStack.get();
         if (stack.isEmpty() || stack.peekFirst() == null) {
@@ -63,6 +77,8 @@ public abstract class AbstractActor implements Actor {
     }
 
     /**
+     * 返回当前 Actor 的 ActorRef。
+     *
      * @return 当前 Actor 的 ActorRef
      */
     public ActorRef getSelf() {
@@ -107,7 +123,9 @@ public abstract class AbstractActor implements Actor {
     }
 
     /**
-     * @return 一个新的空 ReceiveBuilder
+     * 返回一个新的空 ReceiveBuilder。
+     *
+     * @return 可继续添加消息匹配的 ReceiveBuilder
      */
     public ReceiveBuilder receiveBuilder() {
         return ReceiveBuilder.create();

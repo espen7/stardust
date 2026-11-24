@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import com.typesafe.config.Config;
@@ -41,6 +54,12 @@ public class ActorSystemImpl extends ActorSystem {
     private final CoordinatedShutdown coordinatedShutdown;
     private final CompletableFuture<Terminated> whenTerminated = new CompletableFuture<>();
 
+    /**
+     * 创建本地 ActorSystem。
+     *
+     * @param name system name
+     * @throws IllegalArgumentException 当名称不符合 Pekko 命名规则时
+     */
     public ActorSystemImpl(String name) {
         if (name == null || !name.matches("^[a-zA-Z0-9][a-zA-Z0-9-_]*$")) {
             throw new IllegalArgumentException(
@@ -121,10 +140,20 @@ public class ActorSystemImpl extends ActorSystem {
         }
     }
 
+    /**
+     * 返回 system name。
+     *
+     * @return system name
+     */
     public String name() {
         return name;
     }
 
+    /**
+     * 返回本地 ActorRefProvider。
+     *
+     * @return 当前系统的 Provider
+     */
     public LocalActorRefProvider provider() {
         return provider;
     }

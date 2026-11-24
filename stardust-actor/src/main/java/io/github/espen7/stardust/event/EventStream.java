@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.event;
 
 import io.github.espen7.stardust.actor.ActorRef;
@@ -18,6 +31,11 @@ public final class EventStream {
     private final LogEvent.Level logLevel;
     private volatile Map<Class<?>, Set<ActorRef>> cache = Map.of();
 
+    /**
+     * 创建 EventStream。
+     *
+     * @param logLevel 低于此级别的日志事件不会发送给默认 logger
+     */
     public EventStream(LogEvent.Level logLevel) {
         this.logLevel = logLevel;
     }
@@ -25,6 +43,8 @@ public final class EventStream {
     /**
      * 订阅指定 class 及其子类型的事件。
      *
+     * @param subscriber 订阅者 ActorRef
+     * @param channel 事件 channel class
      * @return 新增订阅时返回 {@code true}
      */
     public boolean subscribe(ActorRef subscriber, Class<?> channel) {
@@ -39,6 +59,10 @@ public final class EventStream {
 
     /**
      * 取消指定 channel 的订阅。
+     *
+     * @param subscriber 订阅者 ActorRef
+     * @param channel 事件 channel class
+     * @return 存在并移除订阅时返回 {@code true}
      */
     public boolean unsubscribe(ActorRef subscriber, Class<?> channel) {
         if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
@@ -55,6 +79,8 @@ public final class EventStream {
 
     /**
      * 取消 subscriber 的全部订阅。
+     *
+     * @param subscriber 要取消订阅的 ActorRef
      */
     public void unsubscribe(ActorRef subscriber) {
         if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
@@ -70,6 +96,8 @@ public final class EventStream {
 
     /**
      * 向订阅了事件 class 或其父类型 channel 的 Actor 投递事件。
+     *
+     * @param event 要发布的事件
      */
     public void publish(Object event) {
         if (event == null) throw new IllegalArgumentException("event is null");
@@ -107,10 +135,21 @@ public final class EventStream {
         return Set.copyOf(result);
     }
 
+    /**
+     * 返回当前日志级别阈值。
+     *
+     * @return 日志级别阈值
+     */
     public LogEvent.Level logLevel() {
         return logLevel;
     }
 
+    /**
+     * 判断指定日志级别是否启用。
+     *
+     * @param level 待判断的日志级别
+     * @return 启用时返回 {@code true}
+     */
     public boolean isEnabled(LogEvent.Level level) {
         return level.ordinal() >= logLevel.ordinal();
     }

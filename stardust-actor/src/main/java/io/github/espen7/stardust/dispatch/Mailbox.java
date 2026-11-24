@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.dispatch;
 
 import io.github.espen7.stardust.actor.ActorCell;
@@ -25,9 +38,9 @@ public class Mailbox implements Runnable {
     public static final int suspendUnit = 4;
 
     private final MessageQueue messageQueue;
-    // status 低位表示 Open/Closed，Scheduled 表示已经提交给 Executor。
+    /* status 低位表示 Open/Closed，Scheduled 表示已经提交给 Executor。 */
     private final AtomicInteger status = new AtomicInteger(Open);
-    // 只保存系统消息链表的 head，消息本身就是链表节点，避免额外 node 分配。
+    /* 只保存系统消息链表的 head，消息本身就是链表节点，避免额外 node 分配。 */
     private final AtomicReference<SystemMessage> systemMessage = new AtomicReference<>();
     private volatile ActorCell actor;
     private Dispatcher dispatcher;

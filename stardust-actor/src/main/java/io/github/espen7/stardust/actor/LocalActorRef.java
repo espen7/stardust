@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import io.github.espen7.stardust.dispatch.Dispatcher;
@@ -17,6 +30,13 @@ public class LocalActorRef extends InternalActorRef {
 
     /**
      * 构造完成后立即创建 ActorCell，并触发异步初始化。
+     *
+     * @param system 所属 ActorSystem
+     * @param props Actor 创建配置
+     * @param dispatcher 所属 Dispatcher
+     * @param supervisor supervisor ActorRef
+     * @param path ActorPath
+     * @param name parent 下的 child name
      */
     public LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher, ActorRef supervisor, ActorPath path, String name) {
         this.system = system;
@@ -28,15 +48,32 @@ public class LocalActorRef extends InternalActorRef {
 
     /**
      * 可覆写的 ActorCell factory，对应 Pekko LocalActorRef.newActorCell。
+     *
+     * @param system 所属 ActorSystem
+     * @param ref 待绑定的 LocalActorRef
+     * @param props Actor 创建配置
+     * @param dispatcher 所属 Dispatcher
+     * @param supervisor supervisor ActorRef
+     * @return 新 ActorCell
      */
     protected ActorCell newActorCell(ActorSystemImpl system, LocalActorRef ref, Props props, Dispatcher dispatcher, ActorRef supervisor) {
         return new ActorCell(system, ref, props, dispatcher, supervisor);
     }
 
+    /**
+     * 返回底层 ActorCell。
+     *
+     * @return 此引用对应的 ActorCell
+     */
     public ActorCell underlying() {
         return actorCell;
     }
 
+    /**
+     * 返回 child name。
+     *
+     * @return child name
+     */
     public String name() {
         return name;
     }

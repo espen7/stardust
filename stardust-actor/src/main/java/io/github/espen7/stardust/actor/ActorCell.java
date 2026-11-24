@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import io.github.espen7.stardust.dispatch.Dispatcher;
@@ -91,6 +104,8 @@ public class ActorCell implements ActorContext {
     }
 
     /**
+     * 返回此 ActorCell 的 Mailbox。
+     *
      * @return 此 ActorCell 的 Mailbox
      */
     public Mailbox mailbox() {
@@ -110,13 +125,17 @@ public class ActorCell implements ActorContext {
     }
 
     /**
-     * @return 此 ActorCell 对应的 ActorRef
+     * 返回此 ActorCell 对应的 ActorRef。
+     *
+     * @return 此 ActorCell 的 ActorRef
      */
     public LocalActorRef self() {
         return self;
     }
 
     /**
+     * 返回当前 Actor 实例。
+     *
      * @return 当前 Actor 实例；Create 完成前可能为 {@code null}
      */
     public Actor actor() {
@@ -124,6 +143,8 @@ public class ActorCell implements ActorContext {
     }
 
     /**
+     * 返回 parent ActorRef。
+     *
      * @return parent ActorRef；root guardian 没有 parent
      */
     public ActorRef parent() {
@@ -185,6 +206,12 @@ public class ActorCell implements ActorContext {
         }
     }
 
+    /**
+     * 处理 parent 对 child 的监督注册。
+     *
+     * @param child 已注册的 child
+     * @param async 是否异步确认监督关系
+     */
     protected void handleSupervise(ActorRef child, boolean async) {
     }
 
@@ -259,7 +286,9 @@ public class ActorCell implements ActorContext {
     }
 
     /**
-     * @return 当此 ActorCell 已进入终止状态时返回 {@code true}
+     * 返回此 ActorCell 是否已进入终止状态。
+     *
+     * @return 已终止时返回 {@code true}
      */
     public boolean isTerminated() {
         return terminated;
@@ -301,6 +330,8 @@ public class ActorCell implements ActorContext {
 
     /**
      * 将 runtime 控制消息投递到独立的 system message queue。
+     *
+     * @param message 要投递的 system message
      */
     public void sendSystemMessage(SystemMessage message) {
         dispatcher.systemDispatch(this, message);
@@ -310,6 +341,8 @@ public class ActorCell implements ActorContext {
      * 处理系统消息。系统消息使用独立队列，优先于普通消息执行。
      * Create、Recreate、Terminate 形成生命周期主线，Watch 和 DeathWatchNotification
      * 形成 DeathWatch 主线。
+     *
+     * @param message 待处理的 system message
      */
     public void systemInvoke(SystemMessage message) {
         Envelope previousMessage = currentMessage;
@@ -363,6 +396,8 @@ public class ActorCell implements ActorContext {
      *
      * <p>先清空旧 behavior，再调用 Props.newActor，最后把 receive 放入栈顶。
      * restart 会复用这条路径，所以 Actor 实例会更换，而 ActorRef 和 ActorCell 不变。</p>
+     *
+     * @return 新创建的 Actor 实例
      */
     protected Actor newActor() {
         LinkedList<ActorContext> stack = contextStack.get();
@@ -381,10 +416,6 @@ public class ActorCell implements ActorContext {
         }
     }
 
-    /**
-     * 处理一条用户消息。currentMessage 在回调前设置，在回调后清除，避免 sender
-     * 泄漏到下一条消息。回调抛出的异常交给 SupervisorStrategy。
-     */
     /**
      * 在 mailbox 执行线程中调用当前 receive behavior。
      *
@@ -759,7 +790,7 @@ public class ActorCell implements ActorContext {
         if (watching.add(actor)) {
             ((InternalActorRef) actor).sendSystemMessage(new SystemMessage.Watch(actor, self));
         }
-        return actor;
+            return actor;
     }
 
     /**

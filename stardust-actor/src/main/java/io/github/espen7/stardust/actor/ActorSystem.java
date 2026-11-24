@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import io.github.espen7.stardust.dispatch.Dispatcher;
@@ -20,6 +33,10 @@ import java.util.concurrent.CompletionStage;
  * {@link CompletionStage}。</p>
  */
 public abstract class ActorSystem implements AutoCloseable {
+    /** 创建 ActorSystem 抽象实例。 */
+    protected ActorSystem() {
+    }
+
     /**
      * 创建一个使用默认名称 {@code default} 的本地 ActorSystem。
      *
@@ -57,7 +74,13 @@ public abstract class ActorSystem implements AutoCloseable {
      */
     public abstract ActorRef actorOf(Props props, String name);
 
-    /** 创建挂在 system guardian 下的系统 Actor。 */
+    /**
+     * 创建挂在 system guardian 下的系统 Actor。
+     *
+     * @param props Actor 创建配置
+     * @param name system guardian 下唯一的 child name
+     * @return 新系统 ActorRef
+     */
     public abstract ActorRef systemActorOf(Props props, String name);
 
     /**
@@ -127,7 +150,11 @@ public abstract class ActorSystem implements AutoCloseable {
      */
     public abstract CompletionStage<Terminated> getWhenTerminated();
 
-    /** 返回此 ActorSystem 的 CoordinatedShutdown。 */
+    /**
+     * 返回此 ActorSystem 的 CoordinatedShutdown。
+     *
+     * @return 此系统的 CoordinatedShutdown
+     */
     public abstract CoordinatedShutdown coordinatedShutdown();
 
     /**

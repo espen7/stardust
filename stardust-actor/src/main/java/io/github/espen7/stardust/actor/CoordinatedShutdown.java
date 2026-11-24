@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.github.espen7.stardust.actor;
 
 import com.typesafe.config.Config;
@@ -27,17 +40,29 @@ import java.util.function.Supplier;
  * 按 Pekko 阶段图执行 ActorSystem 关闭任务。
  */
 public final class CoordinatedShutdown {
+    /** 首个服务解绑前阶段。 */
     public static final String PhaseBeforeServiceUnbind = "before-service-unbind";
+    /** 停止接受新的服务请求阶段。 */
     public static final String PhaseServiceUnbind = "service-unbind";
+    /** 等待服务请求完成阶段。 */
     public static final String PhaseServiceRequestsDone = "service-requests-done";
+    /** 停止服务端点阶段。 */
     public static final String PhaseServiceStop = "service-stop";
+    /** 集群关闭前阶段。 */
     public static final String PhaseBeforeClusterShutdown = "before-cluster-shutdown";
+    /** Cluster Sharding region 关闭阶段。 */
     public static final String PhaseClusterShardingShutdownRegion = "cluster-sharding-shutdown-region";
+    /** 发出 cluster leave 命令阶段。 */
     public static final String PhaseClusterLeave = "cluster-leave";
+    /** 关闭 cluster singleton 阶段。 */
     public static final String PhaseClusterExiting = "cluster-exiting";
+    /** 等待 cluster exiting 完成阶段。 */
     public static final String PhaseClusterExitingDone = "cluster-exiting-done";
+    /** 关闭 cluster extension 阶段。 */
     public static final String PhaseClusterShutdown = "cluster-shutdown";
+    /** ActorSystem 终止前阶段。 */
     public static final String PhaseBeforeActorSystemTerminate = "before-actor-system-terminate";
+    /** 最后一个 ActorSystem 终止阶段。 */
     public static final String PhaseActorSystemTerminate = "actor-system-terminate";
 
     /** CoordinatedShutdown 的关闭原因。 */
@@ -73,6 +98,11 @@ public final class CoordinatedShutdown {
     private final CompletableFuture<Done> runPromise = new CompletableFuture<>();
     private final Cancellable jvmShutdownHook;
 
+    /**
+     * 创建并读取当前 ActorSystem 的关闭阶段配置。
+     *
+     * @param system 所属 ActorSystem
+     */
     public CoordinatedShutdown(ActorSystemImpl system) {
         this.system = system;
         this.phases = phasesFromConfig(system.config());
@@ -85,7 +115,7 @@ public final class CoordinatedShutdown {
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException | TimeoutException ignored) {
-                    // JVM shutdown is already in progress; the phase timeout is authoritative.
+                    /* JVM shutdown is already in progress; the phase timeout is authoritative. */
                 }
             });
         } else {
@@ -97,22 +127,42 @@ public final class CoordinatedShutdown {
         jvmShutdownHook.cancel();
     }
 
-    /** @return 未知关闭原因 singleton */
+    /**
+     * 返回未知关闭原因 singleton。
+     *
+     * @return 未知关闭原因
+     */
     public static Reason unknownReason() {
         return UNKNOWN_REASON;
     }
 
-    /** @return ActorSystem.terminate() 关闭原因 singleton */
+    /**
+     * 返回 ActorSystem.terminate() 关闭原因 singleton。
+     *
+     * @return ActorSystem terminate 关闭原因
+     */
     public static Reason actorSystemTerminateReason() {
         return ACTOR_SYSTEM_TERMINATE_REASON;
     }
 
-    /** @return JVM 退出关闭原因 singleton */
+    /**
+     * 返回 JVM 退出关闭原因 singleton。
+     *
+     * @return JVM exit 关闭原因
+     */
     public static Reason jvmExitReason() {
         return JVM_EXIT_REASON;
     }
 
-    /** 注册可取消的异步关闭任务。 */
+    /**
+     * 注册可取消的异步关闭任务。
+     *
+     * @param phase 任务所属阶段
+     * @param taskName 任务名称
+     * @param task 返回完成 stage 的任务
+     * @return 可取消的任务句柄
+     * @throws IllegalArgumentException 阶段未知或任务名称为空时抛出
+     */
     public Cancellable addCancellableTask(String phase, String taskName,
                                           Supplier<CompletionStage<Done>> task) {
         requirePhaseAndName(phase, taskName);
@@ -122,12 +172,25 @@ public final class CoordinatedShutdown {
         return definition;
     }
 
-    /** 注册异步关闭任务。 */
+    /**
+     * 注册异步关闭任务。
+     *
+     * @param phase 任务所属阶段
+     * @param taskName 任务名称
+     * @param task 返回完成 stage 的任务
+     */
     public void addTask(String phase, String taskName, Supplier<CompletionStage<Done>> task) {
         addCancellableTask(phase, taskName, task);
     }
 
-    /** 注册等待 Actor 终止的关闭任务。 */
+    /**
+     * 注册等待 Actor 终止的关闭任务。
+     *
+     * @param phase 任务所属阶段
+     * @param taskName 任务名称
+     * @param actor 要停止并等待终止的 Actor
+     * @param stopMsg 可选的停止消息
+     */
     public void addActorTerminationTask(String phase, String taskName, ActorRef actor,
                                         Optional<Object> stopMsg) {
         addTask(phase, taskName, () -> {
@@ -154,17 +217,29 @@ public final class CoordinatedShutdown {
         system.scheduler().scheduleOnce(Duration.ZERO, poll[0]);
     }
 
-    /** 返回当前已确定的关闭原因。 */
+    /**
+     * 返回当前已确定的关闭原因。
+     *
+     * @return 已启动时包含关闭原因，否则为空
+     */
     public Optional<Reason> shutdownReason() {
         return Optional.ofNullable(runStarted.get());
     }
 
-    /** Java API：返回当前已确定的关闭原因。 */
+    /**
+     * Java API：返回当前已确定的关闭原因。
+     *
+     * @return 已启动时包含关闭原因，否则为空
+     */
     public Optional<Reason> getShutdownReason() {
         return shutdownReason();
     }
 
-    /** 注册在 JVM 退出阶段运行的 hook。 */
+    /**
+     * 注册在 JVM 退出阶段运行的 hook。
+     *
+     * @param hook JVM 退出时执行的回调
+     */
     public void addJvmShutdownHook(Runnable hook) {
         addCancellableJvmShutdownHook(hook);
     }
@@ -218,12 +293,23 @@ public final class CoordinatedShutdown {
         };
     }
 
-    /** 运行所有配置阶段。 */
+    /**
+     * 运行所有配置阶段。
+     *
+     * @param reason 关闭原因
+     * @return 所有阶段完成时的 stage
+     */
     public CompletionStage<Done> runAll(Reason reason) {
         return run(reason, Optional.empty());
     }
 
-    /** 从指定阶段开始运行关闭流程。 */
+    /**
+     * 从指定阶段开始运行关闭流程。
+     *
+     * @param reason 关闭原因
+     * @param fromPhase 要开始执行的阶段；为空时从第一阶段开始
+     * @return 阶段完成时的 stage
+     */
     public CompletionStage<Done> run(Reason reason, Optional<String> fromPhase) {
         Objects.requireNonNull(reason, "reason");
         Objects.requireNonNull(fromPhase, "fromPhase");
@@ -248,14 +334,24 @@ public final class CoordinatedShutdown {
         return runPromise;
     }
 
-    /** 返回配置阶段的超时时间。 */
+    /**
+     * 返回配置阶段的超时时间。
+     *
+     * @param phase 阶段名称
+     * @return 阶段超时时间
+     * @throws IllegalArgumentException 阶段未知时抛出
+     */
     public Duration timeout(String phase) {
         Phase value = phases.get(phase);
         if (value == null) throw new IllegalArgumentException("Unknown phase [" + phase + "]");
         return value.timeout;
     }
 
-    /** 返回已注册任务阶段的超时总和。 */
+    /**
+     * 返回已注册任务阶段的超时总和。
+     *
+     * @return 已注册任务所属阶段的超时时间总和
+     */
     public Duration totalTimeout() {
         Duration total = Duration.ZERO;
         for (String phase : tasks.keySet()) total = total.plus(timeout(phase));
