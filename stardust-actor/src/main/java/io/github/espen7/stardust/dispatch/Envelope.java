@@ -2,6 +2,7 @@ package io.github.espen7.stardust.dispatch;
 
 import io.github.espen7.stardust.actor.ActorRef;
 import io.github.espen7.stardust.actor.ActorSystem;
+import io.github.espen7.stardust.actor.InvalidMessageException;
 
 /**
  * 一条用户消息及其 sender，等价于 Pekko dispatch.Envelope。
@@ -17,10 +18,10 @@ public record Envelope(Object message, ActorRef sender) {
      * @param sender  消息发送者，可以为 {@code null}
      * @param system  接收者所属的 ActorSystem
      * @return 可放入 Mailbox 的 Envelope
-     * @throws IllegalArgumentException 当 message 为 {@code null}
+     * @throws InvalidMessageException 当 message 为 {@code null}
      */
     public static Envelope apply(Object message, ActorRef sender, ActorSystem system) {
-        if (message == null) throw new IllegalArgumentException("Message is null");
+        if (message == null) throw new InvalidMessageException("Message is null");
         return new Envelope(message, sender == null ? system.deadLetters() : sender);
     }
 }

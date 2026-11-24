@@ -5,7 +5,7 @@ import java.util.Objects;
 /**
  * Actor 未处理的用户消息，由 ActorSystem EventStream 发布。
  */
-public record UnhandledMessage(Object message, ActorRef sender, ActorRef recipient) {
+public record UnhandledMessage(Object message, ActorRef sender, ActorRef recipient) implements AllDeadLetters {
     public UnhandledMessage {
         Objects.requireNonNull(message, "message");
         Objects.requireNonNull(sender, "sender");

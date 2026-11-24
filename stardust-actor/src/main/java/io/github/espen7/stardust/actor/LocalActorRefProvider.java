@@ -1,6 +1,11 @@
 package io.github.espen7.stardust.actor;
 
+import io.github.espen7.stardust.dispatch.sysmsg.SystemMessage;
+
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 本地 ActorRefProvider。
@@ -14,13 +19,28 @@ public class LocalActorRefProvider extends ActorRefProvider {
     // UID 区分同一路径上的不同 Actor incarnation。
     private final AtomicInteger uidGenerator = new AtomicInteger(1);
     private final LocalActorRef rootGuardian;
+    private final LocalActorRef systemGuardian;
     private final DeadLetterActorRef deadLetters;
+    private final AtomicLong tempNumber = new AtomicLong();
+    private final ActorPath tempNode;
+    private final VirtualPathContainer tempContainer;
 
+    /**
+     * 创建本地 Provider，并初始化临时引用容器、dead letters 和 user guardian。
+     *
+     * @param system 此 Provider 所属的 ActorSystem
+     */
     public LocalActorRefProvider(ActorSystemImpl system) {
         this.system = system;
-        this.deadLetters = new DeadLetterActorRef(new ActorPath("pekko://" + system.name() + "/deadLetters"));
-        this.rootGuardian = new LocalActorRef(system, Props.create(EmptyActor.class), system.dispatcher(), null,
+        this.tempNode = new ActorPath("pekko://" + system.name() + "/temp");
+        this.tempContainer = new VirtualPathContainer(this, tempNode, system.log());
+        this.deadLetters = new DeadLetterActorRef(this,
+                new ActorPath("pekko://" + system.name() + "/deadLetters"), system.eventStream());
+        this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class), system.dispatcher(), null,
                 new ActorPath("pekko://" + system.name() + "/user", uidGenerator.getAndIncrement()), "user");
+        this.systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, rootGuardian),
+                system.dispatcher(), null,
+                new ActorPath("pekko://" + system.name() + "/system", uidGenerator.getAndIncrement()), "system");
     }
 
     /**
@@ -42,14 +62,113 @@ public class LocalActorRefProvider extends ActorRefProvider {
     }
 
     @Override
+    public ActorRef systemGuardian() {
+        return systemGuardian;
+    }
+
+    @Override
+    public ActorRef systemActorOf(Props props, String name) {
+        return systemGuardian.underlying().attachChild(props, name, true);
+    }
+
+    @Override
     public ActorRef deadLetters() {
         return deadLetters;
     }
 
-    private static final class EmptyActor extends AbstractActor {
+    @Override
+    public Scheduler scheduler() {
+        return system.scheduler();
+    }
+
+    @Override
+    public ActorPath tempPath(String prefix) {
+        String alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+~";
+        StringBuilder name = new StringBuilder(prefix).append('$');
+        long number = tempNumber.getAndIncrement();
+        do {
+            name.append(alphabet.charAt((int) number & 63));
+            number >>>= 6;
+        } while (number != 0);
+        return new ActorPath(tempNode, name.toString());
+    }
+
+    @Override
+    public InternalActorRef tempContainer() {
+        return tempContainer;
+    }
+
+    @Override
+    public void registerTempActor(InternalActorRef actorRef, ActorPath path) {
+        assert path.parent() == tempNode : "cannot registerTempActor() with anything not obtained from tempPath()";
+        tempContainer.addChild(path.name(), actorRef);
+    }
+
+    @Override
+    public void unregisterTempActor(ActorPath path) {
+        assert path.parent() == tempNode : "cannot unregisterTempActor() with anything not obtained from tempPath()";
+        tempContainer.removeChild(path.name());
+    }
+
+    private static class Guardian extends AbstractActor {
+        @Override
+        public void preRestart(Throwable reason, Object message) {
+        }
+
         @Override
         public Receive createReceive() {
-            return receiveBuilder().build();
+            return receiveBuilder()
+                    .match(Terminated.class, ignored -> getContext().stop(getSelf()))
+                    .match(SystemMessage.StopChild.class, stop -> getContext().stop(stop.child))
+                    .build();
+        }
+    }
+
+    private static final class SystemGuardian extends Guardian {
+        private final ActorRef guardian;
+        private final Set<ActorRef> terminationHooks = new HashSet<>();
+        private boolean terminating;
+
+        private SystemGuardian(ActorRef guardian) {
+            this.guardian = guardian;
+        }
+
+        @Override
+        public void preStart() {
+            getContext().watch(guardian);
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder()
+                    .match(Terminated.class, terminated -> {
+                        if (terminated.actor().equals(guardian)) {
+                            terminating = true;
+                            for (ActorRef hook : Set.copyOf(terminationHooks)) {
+                                hook.tell(new SystemMessage.TerminationHook(), getSelf());
+                            }
+                            stopWhenAllTerminationHooksDone();
+                        } else {
+                            terminationHooks.remove(terminated.actor());
+                            stopWhenAllTerminationHooksDone();
+                        }
+                    })
+                    .match(SystemMessage.StopChild.class, stop -> getContext().stop(stop.child))
+                    .match(SystemMessage.RegisterTerminationHook.class, register -> {
+                        if (!terminating && register.hook != null) {
+                            terminationHooks.add(register.hook);
+                            getContext().watch(register.hook);
+                        }
+                    })
+                    .match(SystemMessage.TerminationHookDone.class, ignored -> {
+                        terminationHooks.remove(getSender());
+                        stopWhenAllTerminationHooksDone();
+                    })
+                    .build();
+        }
+
+        private void stopWhenAllTerminationHooksDone() {
+            if (terminating && terminationHooks.isEmpty()) getContext().stop(getSelf());
         }
     }
 }

@@ -1,57 +1,63 @@
 package io.github.espen7.stardust.actor;
 
 import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executor;
 
 /**
- * ActorSystem 使用的调度入口，支持一次性 Runnable 和 Actor 消息投递。
+ * {@link ActorSystem} 的一次性调度入口。
  */
-public class Scheduler implements AutoCloseable {
-
-    // 单独的 timer thread 只负责触发任务，Actor 消息仍通过 ActorRef.tell 进入 Mailbox。
-    private final ScheduledExecutorService executor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
-
+public abstract class Scheduler implements AutoCloseable {
     /**
-     * 在 delay 到期后运行任务，返回的 Cancellable 可取消尚未执行的任务。
+     * 调度一次任务，在触发任务的线程运行。
+     *
+     * @param delay 任务延迟。非正时在调用线程直接运行
+     * @param runnable 到期任务
+     * @return 用于取消尚未执行的任务
+     * @throws IllegalStateException 调度器已关闭
+     * @throws IllegalArgumentException 延迟大于调度器支持的最大值
      */
-    public Cancellable scheduleOnce(Duration delay, Runnable runnable) {
-        ScheduledFuture<?> future = executor.schedule(runnable, delay.toNanos(), TimeUnit.NANOSECONDS);
-        return new Cancellable() {
-            @Override
-            public boolean cancel() {
-                return future.cancel(false);
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return future.isCancelled();
-            }
-        };
+    public final Cancellable scheduleOnce(Duration delay, Runnable runnable) {
+        return scheduleOnce(delay, runnable, Runnable::run);
     }
 
     /**
-     * 在 delay 到期后向 receiver 投递 message。
+     * 在指定延迟后将任务交给 executor 执行。非正延迟直接提交给 executor。
+     *
+     * @param delay 任务延迟
+     * @param runnable 到期任务
+     * @param executor 执行任务的 Executor
+     * @return 用于取消任务的句柄
+     * @throws IllegalStateException 调度器已关闭
+     * @throws IllegalArgumentException 延迟大于调度器支持的最大值
      */
-    public Cancellable scheduleOnce(Duration delay, ActorRef receiver, Object message, ActorRef sender) {
-        ScheduledFuture<?> future = executor.schedule(() -> receiver.tell(message, sender), delay.toNanos(), TimeUnit.NANOSECONDS);
-        return new Cancellable() {
-            public boolean cancel() {
-                return future.cancel(false);
-            }
+    public abstract Cancellable scheduleOnce(Duration delay, Runnable runnable, Executor executor);
 
-            public boolean isCancelled() {
-                return future.isCancelled();
-            }
-        };
+    /**
+     * 在指定延迟后向 Actor 投递一条消息。
+     *
+     * @param delay 投递延迟。非正时在调用线程发起投递
+     * @param receiver 目标 Actor 引用
+     * @param message 要投递的消息
+     * @param sender 消息发送者，可以为 {@link ActorRef#noSender}
+     * @return 用于取消尚未执行的投递任务
+     * @throws IllegalStateException 调度器已关闭
+     * @throws IllegalArgumentException 延迟大于调度器支持的最大值
+     */
+    public final Cancellable scheduleOnce(Duration delay, ActorRef receiver, Object message, ActorRef sender) {
+        return scheduleOnce(delay, () -> receiver.tell(message, sender));
     }
 
     /**
-     * 停止接收新任务，并让已提交的任务按 ScheduledExecutorService 规则收尾。
+     * 关闭调度器并停止接收新任务。
+     *
+     * <p>仍待执行的 {@link TaskRunOnClose} 任务会在关闭时运行。
      */
     @Override
-    public void close() {
-        executor.shutdown();
+    public abstract void close();
+
+    /**
+     * 关闭调度器时仍需执行的 runtime 内部任务。
+     */
+    public interface TaskRunOnClose extends Runnable {
     }
 }

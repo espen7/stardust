@@ -9,6 +9,11 @@ import io.github.espen7.stardust.actor.ActorRef;
  * 的设计。每个消息只能进入一个 Mailbox，处理前会调用 unlink。</p>
  */
 public abstract class SystemMessage {
+    /**
+     * 标记系统消息队列已关闭的哨兵。
+     */
+    public static final SystemMessage NoMessage = new SystemMessage() {};
+
     private SystemMessage next;
 
     public SystemMessage next() {
@@ -64,6 +69,36 @@ public abstract class SystemMessage {
     }
 
     public static final class Terminate extends SystemMessage {
+    }
+
+    /** 请求 guardian 停止指定 child。 */
+    public static final class StopChild extends SystemMessage {
+        public final ActorRef child;
+
+        public StopChild(ActorRef child) {
+            this.child = child;
+        }
+    }
+
+    /** system guardian 终止阶段使用的消息。 */
+    public static final class RegisterTerminationHook extends SystemMessage {
+        public final ActorRef hook;
+
+        public RegisterTerminationHook() {
+            this(null);
+        }
+
+        public RegisterTerminationHook(ActorRef hook) {
+            this.hook = hook;
+        }
+    }
+
+    /** system guardian 通知 termination hook 开始关闭。 */
+    public static final class TerminationHook extends SystemMessage {
+    }
+
+    /** termination hook 完成关闭。 */
+    public static final class TerminationHookDone extends SystemMessage {
     }
 
 

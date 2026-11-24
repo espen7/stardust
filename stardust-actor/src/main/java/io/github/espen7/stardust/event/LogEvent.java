@@ -8,7 +8,7 @@ import java.util.Objects;
  * <p>source、sourceClass 和 message 分开保存，日志后端可以决定如何展示 source 元数据，
  * 同时订阅者也能在不解析格式化文本的情况下检查事件。</p>
  */
-public abstract class LogEvent {
+public abstract class LogEvent implements LogEventWithMarker {
     public enum Level {
         DEBUG,
         INFO,
@@ -32,13 +32,20 @@ public abstract class LogEvent {
     private final Class<?> sourceClass;
     private final String message;
     private final Throwable cause;
+    private final LogMarker marker;
 
     protected LogEvent(Level level, String source, Class<?> sourceClass, String message, Throwable cause) {
+        this(level, source, sourceClass, message, cause, null);
+    }
+
+    protected LogEvent(Level level, String source, Class<?> sourceClass, String message, Throwable cause,
+                       LogMarker marker) {
         this.level = Objects.requireNonNull(level, "level");
         this.source = Objects.requireNonNull(source, "source");
         this.sourceClass = Objects.requireNonNull(sourceClass, "sourceClass");
         this.message = Objects.requireNonNull(message, "message");
         this.cause = cause;
+        this.marker = marker;
     }
 
     public final Level level() {
@@ -59,5 +66,10 @@ public abstract class LogEvent {
 
     public final Throwable cause() {
         return cause;
+    }
+
+    @Override
+    public final LogMarker marker() {
+        return marker;
     }
 }

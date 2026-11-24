@@ -56,6 +56,10 @@ public class Mailbox implements Runnable {
         return actor;
     }
 
+    MessageQueue messageQueue() {
+        return messageQueue;
+    }
+
     /**
      * 将 Envelope 放入普通消息队列。
      */
@@ -184,20 +188,38 @@ public class Mailbox implements Runnable {
     public void systemEnqueue(ActorRef receiver, SystemMessage message) {
         for (; ; ) {
             SystemMessage old = systemMessage.get();
+            if (old == SystemMessage.NoMessage) {
+                dispatcher.deadLetterMailbox().systemEnqueue(receiver, message);
+                break;
+            }
             message.next(old);
             if (systemMessage.compareAndSet(old, message)) break;
+            message.unlink();
         }
     }
 
-    private SystemMessage systemDrain() {
-        return systemMessage.getAndSet(null);
+    private SystemMessage systemDrain(SystemMessage newContents) {
+        for (;;) {
+            SystemMessage current = systemMessage.get();
+            if (current == SystemMessage.NoMessage) return null;
+            if (!systemMessage.compareAndSet(current, newContents)) continue;
+            SystemMessage reversed = null;
+            while (current != null) {
+                SystemMessage next = current.next();
+                current.next(reversed);
+                reversed = current;
+                current = next;
+            }
+            return reversed;
+        }
     }
 
     /**
      * @return 系统消息队列非空时返回 {@code true}
      */
     public boolean hasMessages() {
-        return systemMessage.get() != null;
+        SystemMessage head = systemMessage.get();
+        return head != null && head != SystemMessage.NoMessage;
     }
 
     /**
@@ -253,27 +275,30 @@ public class Mailbox implements Runnable {
      * 摘取系统消息队列并按入队顺序调用 ActorCell.systemInvoke。
      */
     public void processAllSystemMessages() {
-        SystemMessage current = systemDrain();
-        SystemMessage reversed = null;
-        while (current != null) {
-            SystemMessage next = current.next();
-            current.next(reversed);
-            reversed = current;
-            current = next;
-        }
-        current = reversed;
+        SystemMessage current = systemDrain(null);
         while (current != null && !isClosed()) {
             SystemMessage next = current.next();
             current.unlink();
             actor.systemInvoke(current);
             current = next;
         }
+        forwardSystemMessages(current);
+    }
+
+    private void forwardSystemMessages(SystemMessage current) {
+        while (current != null) {
+            SystemMessage next = current.next();
+            current.unlink();
+            dispatcher.deadLetterMailbox().systemEnqueue(actor.self(), current);
+            current = next;
+        }
     }
 
     /**
-     * 关闭后将尚未处理的普通消息转交给 dead letters 队列。
+     * 关闭后将尚未处理的系统消息和普通消息转交给 dead letters。
      */
     public void cleanUp() {
+        forwardSystemMessages(systemDrain(SystemMessage.NoMessage));
         messageQueue.cleanUp(actor.self(), dispatcher.deadLetters());
     }
 

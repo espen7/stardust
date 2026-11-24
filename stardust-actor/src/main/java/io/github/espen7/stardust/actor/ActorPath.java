@@ -10,6 +10,7 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
     public static final int UndefinedUid = 0;
     private final String value;
     private final int uid;
+    private final ActorPath parent;
 
     public ActorPath(String value) {
         this(value, UndefinedUid);
@@ -18,6 +19,28 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
     public ActorPath(String value, int uid) {
         this.value = value;
         this.uid = uid;
+        this.parent = null;
+    }
+
+    /**
+     * 在已有路径下创建未定义 UID 的子路径。
+     *
+     * @param parent 父级路径
+     * @param name 子路径的最后一段
+     */
+    ActorPath(ActorPath parent, String name) {
+        this.value = parent + "/" + name;
+        this.uid = UndefinedUid;
+        this.parent = parent;
+    }
+
+    /**
+     * 返回构造时关联的父级路径。
+     *
+     * @return 关联的父级路径，直接从文本构造时为 {@code null}
+     */
+    ActorPath parent() {
+        return parent;
     }
 
     /**

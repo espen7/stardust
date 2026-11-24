@@ -8,13 +8,14 @@ Stardust 是一个用 Java 25 阅读并逐步重写 Apache Pekko Classic Actor �
 
 当前模块为 `stardust-actor`，包含本地 Actor 创建、消息 Envelope、Mailbox 和 Dispatcher、基础生命周期、基础 One-for-One 监督、DeathWatch 消息、`Patterns.ask`、一次性调度和初步日志事件支持。
 
+
 这些部分仍与上游有明显差异：
 
 - `ChildrenContainer` 已按 Pekko 的空、普通、等待终止和已终止状态容器拆分，并在 restart/termination 后继续 lifecycle。`ChildRestartStats` 已实现 child UID 与重试次数/时间窗统计。
 - 监督路径已支持 Pekko 默认异常分类、One-for-One 与 All-for-One、重试限制、升级和失败日志；ActorSystem 完整 guardian 监督生命周期仍未移植。
-- `Scheduler` 目前使用 `ScheduledExecutorService`。Pekko 的 `LightArrayRevolverScheduler` 时间轮、tick 和关闭语义尚未移植。
-- `Patterns.ask` 使用独立计时器和临时 `PromiseActorRef`，尚未接入 Provider 的 temp path 注册与回收。
-- EventStream 已使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发；终止订阅者的自动清理和 Pekko 的完整日志服务管理尚未移植。DeadLetter event、receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未完成。
+- 一次性调度使用 `LightArrayRevolverScheduler`，配置位于 `pekko.scheduler`。周期调度 API 尚未移植。
+- 本地 `Patterns.ask` 使用系统 Scheduler 和临时 `PromiseActorRef`，支持 Classic `Status.Success` / `Status.Failure`、临时引用的 DeathWatch 和迟到回复的 dead letters。毫秒重载返回 Java `CompletionStage`。
+- EventStream 已使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发。默认 dead letters 日志订阅器支持计数和暂停；system guardian、`systemActorOf`、`CoordinatedShutdown` 阶段关闭、JVM shutdown hook 和 `LogMarker`/MDC bridge 已加入本地 runtime。System.exit、集群任务和完整日志服务仍未移植。receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未完成。
 
 每个上游概念的源码位置和 Java 对应关系记录在 [docs/actor-porting.md](docs/actor-porting.md)。
 

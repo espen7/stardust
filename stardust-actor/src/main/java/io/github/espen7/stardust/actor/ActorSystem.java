@@ -57,6 +57,9 @@ public abstract class ActorSystem implements AutoCloseable {
      */
     public abstract ActorRef actorOf(Props props, String name);
 
+    /** 创建挂在 system guardian 下的系统 Actor。 */
+    public abstract ActorRef systemActorOf(Props props, String name);
+
     /**
      * 返回该系统的 dead letters 引用。
      *
@@ -124,11 +127,14 @@ public abstract class ActorSystem implements AutoCloseable {
      */
     public abstract CompletionStage<Terminated> getWhenTerminated();
 
+    /** 返回此 ActorSystem 的 CoordinatedShutdown。 */
+    public abstract CoordinatedShutdown coordinatedShutdown();
+
     /**
      * 发起 ActorSystem 关闭。
      *
-     * <p>此方法满足 {@link AutoCloseable}，其行为等同于调用 {@link #terminate()}，
-     * 但不会等待异步关闭完成。需要等待时，请等待 {@link #getWhenTerminated()}。</p>
+     * <p>此方法满足 {@link AutoCloseable}，并等待 Pekko 配置的
+     * {@code close-actor-system-timeout}。超时或关闭失败会抛出 unchecked 异常。</p>
      */
     @Override
     public void close() {

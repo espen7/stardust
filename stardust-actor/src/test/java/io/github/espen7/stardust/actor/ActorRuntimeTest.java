@@ -1,5 +1,6 @@
 package io.github.espen7.stardust.actor;
 
+import io.github.espen7.stardust.Done;
 import io.github.espen7.stardust.event.Info;
 import io.github.espen7.stardust.event.LogEvent;
 import io.github.espen7.stardust.pattern.AskTimeoutException;
@@ -18,6 +19,55 @@ class ActorRuntimeTest {
 
     private ActorSystem system;
 
+    @Test
+    void actorSystemNameUsesPekkoNameRules() {
+        assertThrows(IllegalArgumentException.class, () -> ActorSystem.create("-leading"));
+        assertThrows(IllegalArgumentException.class, () -> ActorSystem.create("with space"));
+        assertThrows(IllegalArgumentException.class, () -> ActorSystem.create("with/slash"));
+        assertThrows(IllegalArgumentException.class, () -> ActorSystem.create(""));
+
+        ActorSystem valid = ActorSystem.create("a-system_2");
+        assertDoesNotThrow(() -> valid.terminate().toCompletableFuture().join());
+    }
+
+    @Test
+    void systemActorOfUsesSystemGuardianPath() throws Exception {
+        system = ActorSystem.create("system-actors");
+        ActorRef actor = system.systemActorOf(Props.create(EchoActor.class), "service");
+
+        assertEquals("/system/service", actor.path().toStringWithoutAddress());
+        assertEquals("service", actor.path().name());
+        assertEquals("reply", ask(actor, "reply"));
+    }
+
+    @Test
+    void coordinatedShutdownRunsRegisteredTaskBeforeTermination() throws Exception {
+        system = ActorSystem.create("coordinated-shutdown");
+        BlockingQueue<Object> completed = new LinkedBlockingQueue<>();
+        system.coordinatedShutdown().addTask(
+                CoordinatedShutdown.PhaseBeforeActorSystemTerminate,
+                "test-task",
+                () -> {
+                    completed.add("done");
+                    return CompletableFuture.completedFuture(Done.done());
+                });
+
+        system.terminate().toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertEquals("done", completed.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(CoordinatedShutdown.ActorSystemTerminateReason.class,
+                system.coordinatedShutdown().shutdownReason().orElseThrow().getClass());
+    }
+
+    @Test
+    void topLevelActorOfAttachesChildToUserGuardian() throws Exception {
+        system = ActorSystem.create("attach-child");
+        ActorRef actor = system.actorOf(Props.create(EchoActor.class), "echo");
+
+        assertEquals("/user/echo", actor.path().toStringWithoutAddress());
+        assertEquals("echo", actor.path().name());
+        assertEquals("hello", ask(actor, "hello"));
+    }
+
     @AfterEach
     void stopActorSystem() throws Exception {
         if (system != null) system.terminate().toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS);
@@ -32,6 +82,66 @@ class ActorRuntimeTest {
                 .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS);
 
         assertEquals("hello", response);
+    }
+
+    @Test
+    void identifyRepliesForLiveAndDeadLetterReferences() throws Exception {
+        system = ActorSystem.create("identify");
+        ActorRef actor = system.actorOf(Props.create(SilentActor.class), "actor");
+        ActorIdentity live = (ActorIdentity) ask(actor, new Identify("live"));
+        assertEquals("live", live.correlationId());
+        assertEquals(actor, live.getActorRef().orElseThrow());
+
+        BlockingQueue<Object> replies = new LinkedBlockingQueue<>();
+        ActorRef probe = system.actorOf(Props.create(EventSubscriberActor.class, replies), "probe");
+        system.deadLetters().tell(new Identify("missing"), probe);
+        ActorIdentity missing = (ActorIdentity) replies.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(missing);
+        assertEquals("missing", missing.correlationId());
+        assertTrue(missing.getActorRef().isEmpty());
+    }
+
+    @Test
+    void schedulerReportsSubmissionFailureToExecutionContext() throws Exception {
+        system = ActorSystem.create("scheduler-report");
+        BlockingQueue<Throwable> failures = new LinkedBlockingQueue<>();
+        RuntimeException rejection = new RuntimeException("rejected");
+        io.github.espen7.stardust.dispatch.ExecutionContext executionContext =
+                new io.github.espen7.stardust.dispatch.ExecutionContext() {
+                    @Override
+                    public void execute(Runnable runnable) {
+                        throw rejection;
+                    }
+
+                    @Override
+                    public void reportFailure(Throwable cause) {
+                        failures.add(cause);
+                    }
+                };
+        system.scheduler().scheduleOnce(Duration.ofMillis(10), () -> fail("must not execute"), executionContext);
+        assertSame(rejection, failures.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void deadLetterListenerPublishesInfoWithRecipientSource() throws Exception {
+        system = ActorSystem.create("dead-letter-info");
+        BlockingQueue<Object> logs = new LinkedBlockingQueue<>();
+        ActorRef probe = system.actorOf(Props.create(EventSubscriberActor.class, logs), "log-probe");
+        system.eventStream().subscribe(probe, Info.class);
+        ActorRef recipient = system.actorOf(Props.create(SilentActor.class), "recipient");
+        ActorRef listener = system.actorOf(Props.create(io.github.espen7.stardust.event.DeadLetterListener.class,
+                1, null, "infinite"), "test-listener");
+        listener.tell(new DeadLetter("missing", system.deadLetters(), recipient));
+
+        Info info = (Info) logs.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(info);
+        assertEquals(recipient.path().toString(), info.source());
+        assertEquals(recipient.getClass(), info.sourceClass());
+        assertTrue(info.message().contains("Message [java.lang.String] to " + recipient + " was not delivered."));
+        assertTrue(info.message().contains("[1] dead letters encountered, no more dead letters will be logged."));
+        assertNotNull(info.marker());
+        assertEquals("pekkoDeadLetter", info.marker().name());
+        assertEquals("java.lang.String", info.marker().properties().get("pekkoMessageClass"));
     }
 
     @Test
@@ -356,8 +466,168 @@ class ActorRuntimeTest {
                         .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
 
         assertInstanceOf(AskTimeoutException.class, failure.getCause());
-        assertThrows(IllegalArgumentException.class,
-                () -> Patterns.ask(actor, "request", Duration.ZERO));
+        assertEquals("Ask timed out on [" + actor + "] after [50 ms]. "
+                        + "Message of type [java.lang.String]. A typical reason for `AskTimeoutException` is that "
+                        + "the recipient actor didn't send a reply.", failure.getCause().getMessage());
+    }
+
+    @Test
+    void askWithNonPositiveTimeoutReturnsFailedStageWithoutSending() throws Exception {
+        system = ActorSystem.create("ask-invalid-timeout");
+        BlockingQueue<Object> requests = new LinkedBlockingQueue<>();
+        ActorRef actor = system.actorOf(Props.create(EventSubscriberActor.class, requests), "probe");
+
+        for (Duration timeout : new Duration[] {Duration.ZERO, Duration.ofMillis(-1)}) {
+            CompletionStage<Object> result = Patterns.ask(actor, "request", timeout);
+            assertTrue(result.toCompletableFuture().isCompletedExceptionally());
+            CompletionException error = assertThrows(CompletionException.class, () -> result.toCompletableFuture().join());
+            assertInstanceOf(IllegalArgumentException.class, error.getCause());
+        }
+        actor.tell("barrier");
+        assertEquals("barrier", requests.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void askToUnsupportedRecipientReturnsFailedStage() {
+        CompletionStage<Object> result = Patterns.ask(null, 3.14, Duration.ofSeconds(1));
+
+        assertTrue(result.toCompletableFuture().isCompletedExceptionally());
+        CompletionException error = assertThrows(CompletionException.class, () -> result.toCompletableFuture().join());
+        assertInstanceOf(IllegalArgumentException.class, error.getCause());
+        assertEquals("Unsupported recipient type, question not sent to [null]. Message of type [java.lang.Double].",
+                error.getCause().getMessage());
+    }
+
+    @Test
+    void askToTerminatedActorFailsImmediatelyAndPublishesDeadLetter() throws Exception {
+        system = ActorSystem.create("ask-terminated");
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "subscriber");
+        system.eventStream().subscribe(subscriber, DeadLetter.class);
+        ActorRef actor = system.actorOf(Props.create(SilentActor.class), "stopped");
+        ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
+        assertEquals("watching", ask(watcher, new Watch(actor)));
+        actor.stop();
+        assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
+        // DeathWatch 通知先于 Dispatcher 注销，在有上限的等待内确认 Mailbox 已切换。
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        LocalActorRef stopped = (LocalActorRef) actor;
+        while (!stopped.underlying().mailbox().isClosed() && System.nanoTime() < deadline) {
+            Thread.yield();
+        }
+        assertTrue(stopped.underlying().mailbox().isClosed());
+
+        CompletionStage<Object> result = Patterns.ask(actor, "request", Duration.ZERO);
+        assertTrue(result.toCompletableFuture().isCompletedExceptionally());
+        CompletionException error = assertThrows(CompletionException.class, () -> result.toCompletableFuture().join());
+        assertInstanceOf(AskTimeoutException.class, error.getCause());
+        assertEquals("Recipient [" + actor + "] had already been terminated. Message of type [java.lang.String].",
+                error.getCause().getMessage());
+        assertEquals(new DeadLetter("request", system.deadLetters(), actor), events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void askUnwrapsClassicStatusReplies() throws Exception {
+        system = ActorSystem.create("ask-status");
+        ActorRef echo = system.actorOf(Props.create(EchoActor.class), "echo");
+
+        assertEquals("accepted", ask(echo, new Status.Success("accepted")));
+        IllegalStateException cause = new IllegalStateException("rejected");
+        ExecutionException failure = assertThrows(ExecutionException.class, () -> ask(echo, new Status.Failure(cause)));
+        assertSame(cause, failure.getCause());
+    }
+
+    @Test
+    void askReplyRefRegistersNotifiesWatchersAndSendsDuplicateReplyToDeadLetters() throws Exception {
+        system = ActorSystem.create("ask-ref");
+        BlockingQueue<ActorRef> replies = new LinkedBlockingQueue<>();
+        ActorRef actor = system.actorOf(Props.create(AskSenderProbe.class, replies), "probe");
+        ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "subscriber");
+        system.eventStream().subscribe(subscriber, DeadLetter.class);
+        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        VirtualPathContainer temp = (VirtualPathContainer) provider.tempContainer();
+
+        CompletionStage<Object> result = Patterns.ask(actor, "request", Duration.ofSeconds(WAIT_SECONDS));
+        ActorRef replyTo = replies.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(replyTo);
+        ActorPath path = replyTo.path();
+        assertTrue(path.toString().startsWith("pekko://ask-ref/temp/probe$"));
+        assertSame(replyTo, temp.getChild(path.name()));
+        assertEquals("watching", ask(watcher, new Watch(replyTo)));
+
+        replyTo.tell("response", actor);
+        assertEquals("response", result.toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(path.toString(), ask(watcher, "await-termination"));
+        assertTrue(replyTo.isTerminated());
+        assertSame(path, replyTo.path());
+        assertNull(temp.getChild(path.name()));
+
+        replyTo.tell("duplicate", actor);
+        assertEquals(new DeadLetter("duplicate", actor, replyTo), events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void timedOutReplyRefStaysUnregisteredWhenPathIsFirstReadAfterStop() throws Exception {
+        system = ActorSystem.create("ask-late-reply");
+        BlockingQueue<ActorRef> replies = new LinkedBlockingQueue<>();
+        ActorRef actor = system.actorOf(Props.create(AskSenderProbe.class, replies), "probe");
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "subscriber");
+        system.eventStream().subscribe(subscriber, DeadLetter.class);
+
+        CompletionStage<Object> result = Patterns.ask(actor, "request", Duration.ofMillis(50));
+        ActorRef replyTo = replies.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(replyTo);
+        ExecutionException error = assertThrows(ExecutionException.class,
+                () -> result.toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertInstanceOf(AskTimeoutException.class, error.getCause());
+        // 定时器顺序执行，后一项任务运行时 ask 的清理回调已经返回。
+        CompletableFuture<Void> barrier = new CompletableFuture<>();
+        system.scheduleOnce(Duration.ofNanos(1), () -> barrier.complete(null));
+        barrier.get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+        assertTrue(replyTo.isTerminated());
+        ActorPath path = replyTo.path();
+        VirtualPathContainer temp = (VirtualPathContainer) ((ActorSystemImpl) system).provider().tempContainer();
+        assertNull(temp.getChild(path.name()));
+        replyTo.tell("late", actor);
+        assertEquals(new DeadLetter("late", actor, replyTo), events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void schedulerCloseRunsOnlyMarkedPendingTasks() throws Exception {
+        system = ActorSystem.create("scheduler-close");
+        AtomicInteger calls = new AtomicInteger();
+        Scheduler scheduler = system.scheduler();
+        Duration delay = Duration.ofHours(1);
+        ActorRef quietActor = system.actorOf(Props.create(SilentActor.class), "silent");
+        CompletionStage<Object> pendingAsk = Patterns.ask(quietActor, "pending", delay);
+        scheduler.scheduleOnce(delay, () -> calls.addAndGet(100));
+        scheduler.scheduleOnce(delay, (Scheduler.TaskRunOnClose) calls::incrementAndGet);
+        Cancellable cancelled = scheduler.scheduleOnce(delay, (Scheduler.TaskRunOnClose) () -> calls.addAndGet(10));
+        assertTrue(cancelled.cancel());
+        assertTrue(cancelled.isCancelled());
+        assertThrows(IllegalArgumentException.class, () -> scheduler.scheduleOnce(Duration.ofDays(3650), () -> {}));
+
+        system.terminate().toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(1, calls.get());
+        assertFalse(pendingAsk.toCompletableFuture().isDone());
+        assertThrows(IllegalStateException.class, () -> scheduler.scheduleOnce(delay, () -> {}));
+    }
+
+    public static final class AskSenderProbe extends AbstractActor {
+        private final BlockingQueue<ActorRef> replies;
+
+        public AskSenderProbe(BlockingQueue<ActorRef> replies) {
+            this.replies = replies;
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder().matchAny(message -> replies.add(getSender())).build();
+        }
     }
 
     @Test

@@ -30,11 +30,13 @@ import java.util.Set;
  */
 public class ActorCell implements ActorContext {
     private static final VarHandle childrenRefsHandle;
+    private static final VarHandle mailboxHandle;
 
     static {
         try {
             childrenRefsHandle = MethodHandles.lookup().findVarHandle(
                     ActorCell.class, "childrenRefs", ChildrenContainer.class);
+            mailboxHandle = MethodHandles.lookup().findVarHandle(ActorCell.class, "mailbox", Mailbox.class);
         } catch (ReflectiveOperationException error) {
             throw new ExceptionInInitializerError(error);
         }
@@ -50,7 +52,7 @@ public class ActorCell implements ActorContext {
     private final Dispatcher dispatcher;
     /** 此 Actor 的 parent 和 supervisor。 */
     private final ActorRef parent;
-    private final Mailbox mailbox;
+    private volatile Mailbox mailbox;
     /** children 状态快照通过 CAS 更新，供运行时并发读取。 */
     @SuppressWarnings("FieldMayBeFinal")
     private volatile ChildrenContainer childrenRefs = ChildrenContainer.empty();
@@ -93,6 +95,18 @@ public class ActorCell implements ActorContext {
      */
     public Mailbox mailbox() {
         return mailbox;
+    }
+
+    /**
+     * 原子替换此 Actor 的 Mailbox。
+     *
+     * <p>Dispatcher 注销 Actor 时，用此方法切换到共享的 dead-letter Mailbox。
+     *
+     * @param newMailbox 替换后接收消息的 Mailbox
+     * @return 替换前的 Mailbox
+     */
+    public Mailbox swapMailbox(Mailbox newMailbox) {
+        return (Mailbox) mailboxHandle.getAndSet(this, newMailbox);
     }
 
     /**
@@ -238,8 +252,8 @@ public class ActorCell implements ActorContext {
     }
 
     private void sendTerminated(ActorRef watcher) {
-        if (watcher instanceof LocalActorRef localWatcher) {
-            localWatcher.underlying().sendSystemMessage(
+        if (watcher instanceof InternalActorRef internalWatcher) {
+            internalWatcher.sendSystemMessage(
                     new SystemMessage.DeathWatchNotification(self, true, false));
         }
     }
@@ -251,9 +265,7 @@ public class ActorCell implements ActorContext {
         return terminated;
     }
 
-    /**
-     * 初始化 Mailbox，并异步投递 Create 系统消息。
-     */
+
     /**
      * 初始化 ActorCell，并向 Mailbox 放入 Create 系统消息。
      *
@@ -316,6 +328,11 @@ public class ActorCell implements ActorContext {
             else if (message instanceof SystemMessage.DeathWatchNotification notification)
                 watchedActorTerminated(notification);
             else if (message instanceof SystemMessage.Supervise supervise) supervise(supervise.child, supervise.async);
+            else if (message instanceof SystemMessage.StopChild stopChild) {
+                invoke(new Envelope(stopChild, system.deadLetters()));
+            } else if (message instanceof SystemMessage.RegisterTerminationHook register) {
+                invoke(new Envelope(register, register.hook == null ? system.deadLetters() : register.hook));
+            }
         } catch (Throwable error) {
             rethrowIfFatal(error);
             handleInvokeFailure(error);
@@ -375,11 +392,15 @@ public class ActorCell implements ActorContext {
      */
     public void invoke(Envelope messageHandle) {
         if (terminated) {
-            system.deadLetters().tell(messageHandle.message(), messageHandle.sender());
+            dispatcher.deadLetters().enqueue(self, messageHandle);
             return;
         }
         currentMessage = messageHandle;
         try {
+            if (messageHandle.message() instanceof Identify identify) {
+                sender().tell(new ActorIdentity(identify.messageId(), java.util.Optional.of(self)), self);
+                return;
+            }
             behaviorStack.peek().apply(messageHandle.message(), this);
         } catch (Throwable error) {
             rethrowIfFatal(error);
@@ -390,7 +411,7 @@ public class ActorCell implements ActorContext {
     }
 
     @SuppressWarnings("removal")
-    private static void rethrowIfFatal(Throwable error) {
+    static void rethrowIfFatal(Throwable error) {
         if (error instanceof VirtualMachineError || error instanceof ThreadDeath || error instanceof LinkageError) {
             throw (java.lang.Error) error;
         }
@@ -625,18 +646,20 @@ public class ActorCell implements ActorContext {
             }
             watchedBy = Set.of();
             publishLifecycle("stopped");
-            mailbox.close();
-            mailbox.cleanUp();
+            dispatcher.unregister(this);
             actor = null;
             behaviorStack.clear();
-            if (parent == null) system.actorTerminated(self);
+            if (parent == null) {
+                if (self.equals(system.provider().systemGuardian())) system.systemGuardianTerminated(self);
+                else system.actorTerminated(self);
+            }
         }
     }
 
     private void unwatchWatchedActors() {
         for (ActorRef watchee : Set.copyOf(watching)) {
-            if (watchee instanceof LocalActorRef localWatchee) {
-                localWatchee.underlying().sendSystemMessage(new SystemMessage.Unwatch(watchee, self));
+            if (watchee instanceof InternalActorRef internalWatchee) {
+                internalWatchee.sendSystemMessage(new SystemMessage.Unwatch(watchee, self));
             }
         }
         watching.clear();
@@ -691,6 +714,21 @@ public class ActorCell implements ActorContext {
      */
     @Override
     public ActorRef actorOf(Props props, String name) {
+        return attachChild(props, name, false);
+    }
+
+    /**
+     * 在当前 Actor 下挂载 child。
+     *
+     * <p>方法先预留名称，再交给 ActorRefProvider 创建引用。创建失败时会释放名称，
+     * 以便调用者重试同名 child。</p>
+     *
+     * @param props child 的 Actor 创建配置
+     * @param name parent 下唯一的 child name
+     * @param systemService 是否为系统服务 child
+     * @return 新 child 的引用
+     */
+    public ActorRef attachChild(Props props, String name, boolean systemService) {
         reserveChild(name);
         try {
             return system.provider().actorOf(props, name, self);
@@ -719,7 +757,7 @@ public class ActorCell implements ActorContext {
     public ActorRef watch(ActorRef actor) {
         if (actor.equals(self)) return actor;
         if (watching.add(actor)) {
-            ((LocalActorRef) actor).underlying().sendSystemMessage(new SystemMessage.Watch(actor, self));
+            ((InternalActorRef) actor).sendSystemMessage(new SystemMessage.Watch(actor, self));
         }
         return actor;
     }
@@ -730,7 +768,7 @@ public class ActorCell implements ActorContext {
     @Override
     public ActorRef unwatch(ActorRef actor) {
         if (!actor.equals(self) && watching.remove(actor)) {
-            ((LocalActorRef) actor).underlying().sendSystemMessage(new SystemMessage.Unwatch(actor, self));
+            ((InternalActorRef) actor).sendSystemMessage(new SystemMessage.Unwatch(actor, self));
         }
         return actor;
     }

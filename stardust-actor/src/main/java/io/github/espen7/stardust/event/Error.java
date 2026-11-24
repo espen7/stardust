@@ -5,10 +5,20 @@ package io.github.espen7.stardust.event;
  */
 public final class Error extends LogEvent {
     public Error(String source, Class<?> sourceClass, String message) {
-        this(source, sourceClass, message, null);
+        this(source, sourceClass, message, (Throwable) null);
     }
 
     public Error(String source, Class<?> sourceClass, String message, Throwable cause) {
         super(Level.ERROR, source, sourceClass, message, cause);
+    }
+
+    /** 创建带 marker 的 ERROR 事件。 */
+    public Error(String source, Class<?> sourceClass, String message, LogMarker marker) {
+        super(Level.ERROR, source, sourceClass, message, null, marker);
+    }
+
+    /** 创建带 cause 和 marker 的 ERROR 事件。 */
+    public Error(String source, Class<?> sourceClass, String message, Throwable cause, LogMarker marker) {
+        super(Level.ERROR, source, sourceClass, message, cause, marker);
     }
 }

@@ -1,6 +1,7 @@
 package io.github.espen7.stardust.dispatch;
 
 import io.github.espen7.stardust.actor.ActorCell;
+import io.github.espen7.stardust.actor.ActorSystem;
 import io.github.espen7.stardust.dispatch.sysmsg.SystemMessage;
 
 import java.util.concurrent.ExecutorService;
@@ -13,7 +14,7 @@ import java.util.concurrent.ForkJoinPool;
  */
 public class Dispatcher implements AutoCloseable {
     private final ExecutorService executorService;
-    private final MessageQueue deadLetters;
+    private final DeadLetterMailbox deadLetterMailbox;
     private final int throughput;
 
     /** 创建使用默认 throughput 5 的 Dispatcher。 */
@@ -27,9 +28,19 @@ public class Dispatcher implements AutoCloseable {
      * @param throughput 每次 mailbox task 最多连续处理的普通消息数
      */
     public Dispatcher(int throughput) {
+        this(throughput, null);
+    }
+
+    /**
+     * 创建系统 Dispatcher。
+     *
+     * @param throughput 每次 Mailbox 调度最多连续处理的普通消息数
+     * @param system 接收 dead-letter 事件的 ActorSystem。为 {@code null} 时使用本地消息队列
+     */
+    public Dispatcher(int throughput, ActorSystem system) {
         this.throughput = throughput;
         this.executorService = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
-        this.deadLetters = new UnboundedMailbox();
+        this.deadLetterMailbox = new DeadLetterMailbox(system);
     }
 
     /** @return 每次 mailbox task 的普通消息处理上限 */
@@ -44,7 +55,22 @@ public class Dispatcher implements AutoCloseable {
      * @return dead letters message queue
      */
     public MessageQueue deadLetters() {
-        return deadLetters;
+        return deadLetterMailbox.messageQueue();
+    }
+
+    Mailbox deadLetterMailbox() {
+        return deadLetterMailbox;
+    }
+
+    /**
+     * 注销已终止的 Actor，并将旧 Mailbox 中的剩余消息转交给 dead letters。
+     *
+     * @param actor 待注销的 ActorCell
+     */
+    public void unregister(ActorCell actor) {
+        Mailbox mailbox = actor.swapMailbox(deadLetterMailbox);
+        mailbox.close();
+        mailbox.cleanUp();
     }
 
     /**

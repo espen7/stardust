@@ -1,10 +1,40 @@
 package io.github.espen7.stardust.pattern;
 
+import java.util.concurrent.TimeoutException;
+
 /**
- * ask 在指定 timeout 内没有收到回复时使用的异常。
+ * {@link Patterns#ask} 在等待回复超时或请求目标已终止时用于完成结果的异常。
+ *
+ * <p>此异常不采集堆栈跟踪。
  */
-public class AskTimeoutException extends RuntimeException {
+public class AskTimeoutException extends TimeoutException {
+    /**
+     * 创建没有关联原因的 ask 超时异常。
+     *
+     * @param message 描述目标已终止或等待回复超时的诊断消息
+     */
     public AskTimeoutException(String message) {
+        this(message, null);
+    }
+
+    /**
+     * 创建带有关联原因的 ask 超时异常。
+     *
+     * @param message 描述目标已终止或等待回复超时的诊断消息
+     * @param cause 关联原因，可以为 {@code null}
+     */
+    public AskTimeoutException(String message, Throwable cause) {
         super(message);
+        initCause(cause);
+    }
+
+    /**
+     * 直接返回此异常实例。
+     *
+     * @return 此异常实例
+     */
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
     }
 }

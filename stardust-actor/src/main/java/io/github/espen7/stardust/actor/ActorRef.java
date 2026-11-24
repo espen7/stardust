@@ -43,9 +43,15 @@ public abstract class ActorRef implements Comparable<ActorRef>, Serializable {
         return path().compareTo(other.path());
     }
 
+    /**
+     * 计算此引用的哈希码。
+     *
+     * @return 已定义的 Actor incarnation UID，或未定义 UID 时的路径哈希码
+     */
     @Override
     public int hashCode() {
-        return path().hashCode() * 31 + path().uid();
+        ActorPath path = path();
+        return path.uid() == ActorPath.UndefinedUid ? path.hashCode() : path.uid();
     }
 
     /**
@@ -56,8 +62,16 @@ public abstract class ActorRef implements Comparable<ActorRef>, Serializable {
         return other instanceof ActorRef ref && path().equals(ref.path()) && path().uid() == ref.path().uid();
     }
 
+    /**
+     * 返回引用的诊断文本。
+     *
+     * @return Actor 路径及已定义的 incarnation UID
+     */
     @Override
     public String toString() {
-        return "Actor[" + path() + "#" + path().uid() + "]";
+        ActorPath path = path();
+        return path.uid() == ActorPath.UndefinedUid
+                ? "Actor[" + path + "]"
+                : "Actor[" + path + "#" + path.uid() + "]";
     }
 }

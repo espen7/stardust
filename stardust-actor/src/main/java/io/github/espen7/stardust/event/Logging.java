@@ -21,7 +21,7 @@ public final class Logging {
     /** 创建系统 logger Actor，并订阅日志事件。 */
     public static ActorRef installSlf4jLogger(ActorSystemImpl system, boolean debugUnhandled) {
         EventStream eventStream = system.eventStream();
-        ActorRef logger = system.actorOf(
+        ActorRef logger = system.systemActorOf(
                 Props.create(Slf4jLogger.class, eventStream.logLevel(), debugUnhandled), "eventStreamLogger");
         eventStream.subscribe(logger, LogEvent.class);
         if (debugUnhandled) {

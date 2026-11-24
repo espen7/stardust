@@ -37,6 +37,26 @@ public final class LoggingAdapter {
         return eventStream.isEnabled(LogEvent.Level.ERROR);
     }
 
+    /** 返回指定 marker 下 DEBUG 是否启用。 */
+    public boolean isDebugEnabled(LogMarker marker) {
+        return isDebugEnabled();
+    }
+
+    /** 返回指定 marker 下 INFO 是否启用。 */
+    public boolean isInfoEnabled(LogMarker marker) {
+        return isInfoEnabled();
+    }
+
+    /** 返回指定 marker 下 WARNING 是否启用。 */
+    public boolean isWarningEnabled(LogMarker marker) {
+        return isWarningEnabled();
+    }
+
+    /** 返回指定 marker 下 ERROR 是否启用。 */
+    public boolean isErrorEnabled(LogMarker marker) {
+        return isErrorEnabled();
+    }
+
     public void debug(String message) {
         publish(LogEvent.Level.DEBUG, message, null);
     }
@@ -47,6 +67,16 @@ public final class LoggingAdapter {
 
     public void debug(Throwable cause, String template, Object... arguments) {
         publish(LogEvent.Level.DEBUG, template, cause, arguments);
+    }
+
+    /** 使用 marker 发布 DEBUG 日志。 */
+    public void debug(LogMarker marker, String message) {
+        publish(LogEvent.Level.DEBUG, message, null, marker);
+    }
+
+    /** 使用 marker 和 cause 发布 DEBUG 日志。 */
+    public void debug(LogMarker marker, Throwable cause, String template, Object... arguments) {
+        publish(LogEvent.Level.DEBUG, template, cause, marker, arguments);
     }
 
     public void info(String message) {
@@ -61,6 +91,16 @@ public final class LoggingAdapter {
         publish(LogEvent.Level.INFO, template, cause, arguments);
     }
 
+    /** 使用 marker 发布 INFO 日志。 */
+    public void info(LogMarker marker, String message) {
+        publish(LogEvent.Level.INFO, message, null, marker);
+    }
+
+    /** 使用 marker 和 cause 发布 INFO 日志。 */
+    public void info(LogMarker marker, Throwable cause, String template, Object... arguments) {
+        publish(LogEvent.Level.INFO, template, cause, marker, arguments);
+    }
+
     public void warning(String message) {
         publish(LogEvent.Level.WARNING, message, null);
     }
@@ -71,6 +111,16 @@ public final class LoggingAdapter {
 
     public void warning(Throwable cause, String template, Object... arguments) {
         publish(LogEvent.Level.WARNING, template, cause, arguments);
+    }
+
+    /** 使用 marker 发布 WARNING 日志。 */
+    public void warning(LogMarker marker, String message) {
+        publish(LogEvent.Level.WARNING, message, null, marker);
+    }
+
+    /** 使用 marker 和 cause 发布 WARNING 日志。 */
+    public void warning(LogMarker marker, Throwable cause, String template, Object... arguments) {
+        publish(LogEvent.Level.WARNING, template, cause, marker, arguments);
     }
 
     public void error(String message) {
@@ -85,16 +135,31 @@ public final class LoggingAdapter {
         publish(LogEvent.Level.ERROR, template, cause, arguments);
     }
 
+    /** 使用 marker 发布 ERROR 日志。 */
+    public void error(LogMarker marker, String message) {
+        publish(LogEvent.Level.ERROR, message, null, marker);
+    }
+
+    /** 使用 marker 和 cause 发布 ERROR 日志。 */
+    public void error(LogMarker marker, Throwable cause, String template, Object... arguments) {
+        publish(LogEvent.Level.ERROR, template, cause, marker, arguments);
+    }
+
     private void publish(LogEvent.Level level, String template, Throwable cause, Object... arguments) {
+        publish(level, template, cause, null, arguments);
+    }
+
+    private void publish(LogEvent.Level level, String template, Throwable cause, LogMarker marker,
+                         Object... arguments) {
         if (!eventStream.isEnabled(level)) return;
         FormattingTuple formatted = MessageFormatter.arrayFormat(template, arguments);
         String message = formatted.getMessage();
         if (cause == null) cause = formatted.getThrowable();
         LogEvent event = switch (level) {
-            case DEBUG -> new Debug(source, sourceClass, message, cause);
-            case INFO -> new Info(source, sourceClass, message, cause);
-            case WARNING -> new Warning(source, sourceClass, message, cause);
-            case ERROR -> new Error(source, sourceClass, message, cause);
+            case DEBUG -> new Debug(source, sourceClass, message, cause, marker);
+            case INFO -> new Info(source, sourceClass, message, cause, marker);
+            case WARNING -> new Warning(source, sourceClass, message, cause, marker);
+            case ERROR -> new Error(source, sourceClass, message, cause, marker);
         };
         eventStream.publish(event);
     }

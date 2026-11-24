@@ -9,7 +9,7 @@ import io.github.espen7.stardust.dispatch.sysmsg.SystemMessage;
  * <p>LocalActorRef 是公开引用和内部执行状态之间的桥梁。它不直接调用 Actor，
  * tell 和 stop 都转成 ActorCell 的消息或系统消息。</p>
  */
-public class LocalActorRef extends ActorRef {
+public class LocalActorRef extends InternalActorRef {
     private final ActorSystemImpl system;
     private final ActorPath path;
     private final ActorCell actorCell;
@@ -47,11 +47,25 @@ public class LocalActorRef extends ActorRef {
     }
 
     /**
-     * 将用户消息交给 ActorCell，实际执行由 Dispatcher 和 Mailbox 完成。
+     * 将用户消息交给 ActorCell，由 Dispatcher 和 Mailbox 异步处理。
+     *
+     * @param message 待投递的消息
+     * @param sender 消息发送者，可以为 {@link ActorRef#noSender}
+     * @throws InvalidMessageException 消息为 {@code null}
      */
     @Override
     public void tell(Object message, ActorRef sender) {
         actorCell.sendMessage(message, sender);
+    }
+
+    @Override
+    public ActorRefProvider provider() {
+        return system.provider();
+    }
+
+    @Override
+    public void sendSystemMessage(SystemMessage message) {
+        actorCell.sendSystemMessage(message);
     }
 
     @Override
