@@ -16,52 +16,132 @@ package io.github.espen7.tapio.dispatch;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.Scheduler;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.event.Error;
+import io.github.espen7.tapio.event.EventStream;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Dispatcher 将 Envelope 或 SystemMessage 放入目标 Actor 的 Mailbox，并把 Mailbox
  * 提交给 Executor。它不直接调用 Actor，Actor 的串行执行由 Mailbox 的 Scheduled
  * 状态保证。
  */
-public class Dispatcher implements AutoCloseable {
-    private final ExecutorService executorService;
+public class Dispatcher implements ExecutionContext, AutoCloseable {
+    private static final int UNSCHEDULED = 0;
+    private static final int SCHEDULED = 1;
+    private static final int RESCHEDULED = 2;
+
+    private static final VarHandle INHABITANTS_HANDLE;
+    private static final VarHandle SHUTDOWN_SCHEDULE_HANDLE;
+    private static final VarHandle EXECUTOR_SERVICE_DELEGATE_HANDLE;
+
+    static {
+        try {
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            INHABITANTS_HANDLE = lookup.findVarHandle(Dispatcher.class,
+                    "_inhabitantsDoNotCallMeDirectly", long.class);
+            SHUTDOWN_SCHEDULE_HANDLE = lookup.findVarHandle(Dispatcher.class,
+                    "_shutdownScheduleDoNotCallMeDirectly", int.class);
+            EXECUTOR_SERVICE_DELEGATE_HANDLE = lookup.findVarHandle(Dispatcher.class,
+                    "executorServiceDelegate", LazyExecutorServiceDelegate.class);
+        } catch (ReflectiveOperationException error) {
+            throw new ExceptionInInitializerError(error);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    private volatile long _inhabitantsDoNotCallMeDirectly;
+    @SuppressWarnings("unused")
+    private volatile int _shutdownScheduleDoNotCallMeDirectly;
+    @SuppressWarnings("unused")
+    private volatile LazyExecutorServiceDelegate executorServiceDelegate;
+
+    private final EventStream eventStream;
+    private final Scheduler scheduler;
+    private final Duration shutdownTimeout;
     private final DeadLetterMailbox deadLetterMailbox;
     private final int throughput;
     private final Duration throughputDeadlineTime;
 
-    /** 创建使用 Pekko reference.conf 默认 throughput 的 Dispatcher。 */
-    public Dispatcher() {
-        this(ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId).getInt("throughput"));
+    private final Scheduler.TaskRunOnClose shutdownAction = new Scheduler.TaskRunOnClose() {
+        @Override
+        public void run() {
+            for (; ; ) {
+                int schedule = shutdownSchedule();
+                switch (schedule) {
+                    case SCHEDULED -> {
+                        try {
+                            if (inhabitants() == 0) shutdown();
+                        } finally {
+                            while (!updateShutdownSchedule(shutdownSchedule(), UNSCHEDULED)) {
+                                Thread.onSpinWait();
+                            }
+                        }
+                        return;
+                    }
+                    case RESCHEDULED -> {
+                        if (updateShutdownSchedule(RESCHEDULED, SCHEDULED)) {
+                            scheduleShutdownAction();
+                            return;
+                        }
+                    }
+                    case UNSCHEDULED -> {
+                        return;
+                    }
+                    default -> throw new IllegalArgumentException(
+                            "Unexpected shutdown schedule marker: " + schedule);
+                }
+            }
+        }
+    };
+
+    /**
+     * 创建使用 Pekko reference.conf 默认 throughput 的 Dispatcher。
+     *
+     * @param system 所属 ActorSystem
+     */
+    public Dispatcher(ActorSystem system) {
+        this(ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId).getInt("throughput"), system);
     }
 
     /**
      * 创建使用指定 mailbox throughput 的 Dispatcher。
      *
      * @param throughput 每次 mailbox task 最多连续处理的普通消息数
-     */
-    public Dispatcher(int throughput) {
-        this(throughput, null);
-    }
-
-    /**
-     * 创建系统 Dispatcher。
-     *
-     * @param throughput 每次 Mailbox 调度最多连续处理的普通消息数
-     * @param system 接收 dead-letter 事件的 ActorSystem。为 {@code null} 时使用本地消息队列
+     * @param system 所属 ActorSystem
      */
     public Dispatcher(int throughput, ActorSystem system) {
         this(throughput, Duration.ZERO, system);
     }
 
     Dispatcher(int throughput, Duration throughputDeadlineTime, ActorSystem system) {
+        this(throughput, throughputDeadlineTime, system, system.scheduler(),
+                ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId)
+                        .getDuration("shutdown-timeout"),
+                defaultExecutorServiceFactory());
+    }
+
+    Dispatcher(int throughput, Duration throughputDeadlineTime, ActorSystem system, Scheduler scheduler,
+               Duration shutdownTimeout, ExecutorServiceFactory executorServiceFactory) {
+        this.eventStream = system.eventStream();
+        this.scheduler = scheduler;
+        this.shutdownTimeout = shutdownTimeout;
         this.throughput = throughput;
         this.throughputDeadlineTime = throughputDeadlineTime;
-        this.executorService = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
+        this.executorServiceDelegate = new LazyExecutorServiceDelegate(executorServiceFactory);
         this.deadLetterMailbox = new DeadLetterMailbox(system);
+    }
+
+    static ExecutorServiceFactory defaultExecutorServiceFactory() {
+        return () -> new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
     }
 
     /**
@@ -106,11 +186,48 @@ public class Dispatcher implements AutoCloseable {
     }
 
     /**
-     * 注销已终止的 Actor，并将旧 Mailbox 中的剩余消息转交给 dead letters。
+     * INTERNAL API：注册 ActorCell 并首次调度其 mailbox。
+     *
+     * @param actor 已初始化并放入 Create 系统消息的 ActorCell
+     */
+    @InternalApi
+    public final void attach(ActorCell actor) {
+        register(actor);
+        registerForExecution(actor.mailbox(), false, true);
+    }
+
+    /**
+     * INTERNAL API：注销 ActorCell，并在没有 inhabitants 时安排延迟 shutdown。
      *
      * @param actor 待注销的 ActorCell
      */
+    @InternalApi
+    public final void detach(ActorCell actor) {
+        try {
+            unregister(actor);
+        } finally {
+            ifSensibleToDoSoThenScheduleShutdown();
+        }
+    }
+
+    /**
+     * INTERNAL API：增加一个已注册 Actor 的 inhabitants 计数。
+     *
+     * @param actor 待注册的 ActorCell
+     */
+    @InternalApi
+    public void register(ActorCell actor) {
+        addInhabitants(1);
+    }
+
+    /**
+     * INTERNAL API：释放 Actor 的 inhabitants，并将其 mailbox 切到 dead letters。
+     *
+     * @param actor 待注销的 ActorCell
+     */
+    @InternalApi
     public void unregister(ActorCell actor) {
+        addInhabitants(-1);
         Mailbox mailbox = actor.swapMailbox(deadLetterMailbox);
         mailbox.close();
         mailbox.cleanUp();
@@ -154,23 +271,165 @@ public class Dispatcher implements AutoCloseable {
         if (!mailbox.canBeScheduledForExecution(hasMessageHint, hasSystemMessageHint)) return false;
         if (!mailbox.setAsScheduled()) return false;
         try {
-            executorService.execute(mailbox);
+            executorService().execute(mailbox);
             return true;
-        } catch (java.util.concurrent.RejectedExecutionException firstFailure) {
+        } catch (RejectedExecutionException firstFailure) {
             try {
-                executorService.execute(mailbox);
+                executorService().execute(mailbox);
                 return true;
-            } catch (java.util.concurrent.RejectedExecutionException secondFailure) {
+            } catch (RejectedExecutionException secondFailure) {
                 mailbox.setAsIdle();
+                DispatchFailureReporting.report(eventStream,
+                        new Error(getClass().getName(), getClass(),
+                                "registerForExecution was rejected twice!", firstFailure));
                 throw secondFailure;
             }
         }
     }
 
-    /** 关闭 Executor，停止接收新的 mailbox task。 */
-    /** 关闭底层 Executor。 */
+    @Override
+    public void execute(Runnable runnable) {
+        unbatchedExecute(runnable);
+    }
+
+    private void unbatchedExecute(Runnable runnable) {
+        TaskInvocation invocation = new TaskInvocation(eventStream, runnable, this::taskCleanup);
+        addInhabitants(1);
+        try {
+            executeTask(invocation);
+        } catch (Throwable error) {
+            addInhabitants(-1);
+            throw error;
+        }
+    }
+
+    void executeTask(TaskInvocation invocation) {
+        try {
+            executorService().execute(invocation);
+        } catch (RejectedExecutionException firstFailure) {
+            try {
+                executorService().execute(invocation);
+            } catch (RejectedExecutionException secondFailure) {
+                DispatchFailureReporting.report(eventStream,
+                        new Error(getClass().getName(), getClass(),
+                                "executeTask was rejected twice!", firstFailure));
+                throw secondFailure;
+            }
+        }
+    }
+
+    @Override
+    public void reportFailure(Throwable cause) {
+        DispatchFailureReporting.report(eventStream,
+                new Error(getClass().getName(), getClass(), String.valueOf(cause.getMessage()), cause));
+    }
+
+    long inhabitants() {
+        return (long) INHABITANTS_HANDLE.getVolatile(this);
+    }
+
+    private long addInhabitants(long add) {
+        long old = (long) INHABITANTS_HANDLE.getAndAdd(this, add);
+        long result = old + add;
+        if (result < 0) {
+            IllegalStateException error = new IllegalStateException(
+                    "ACTOR SYSTEM CORRUPTED!!! A dispatcher can't have less than 0 inhabitants!");
+            reportFailure(error);
+            throw error;
+        }
+        return result;
+    }
+
+    private int shutdownSchedule() {
+        return (int) SHUTDOWN_SCHEDULE_HANDLE.getVolatile(this);
+    }
+
+    private boolean updateShutdownSchedule(int expect, int update) {
+        return SHUTDOWN_SCHEDULE_HANDLE.compareAndSet(this, expect, update);
+    }
+
+    private void ifSensibleToDoSoThenScheduleShutdown() {
+        while (inhabitants() <= 0) {
+            int schedule = shutdownSchedule();
+            switch (schedule) {
+                case UNSCHEDULED -> {
+                    if (updateShutdownSchedule(UNSCHEDULED, SCHEDULED)) {
+                        scheduleShutdownAction();
+                        return;
+                    }
+                }
+                case SCHEDULED -> {
+                    if (updateShutdownSchedule(SCHEDULED, RESCHEDULED)) return;
+                }
+                case RESCHEDULED -> {
+                    return;
+                }
+                default -> throw new IllegalArgumentException(
+                        "Unexpected shutdown schedule marker: " + schedule);
+            }
+            Thread.onSpinWait();
+        }
+    }
+
+    private void scheduleShutdownAction() {
+        try {
+            scheduler.scheduleOnce(shutdownTimeout, shutdownAction);
+        } catch (IllegalStateException schedulerClosed) {
+            shutdown();
+            updateShutdownSchedule(SCHEDULED, UNSCHEDULED);
+        }
+    }
+
+    private void taskCleanup() {
+        if (addInhabitants(-1) == 0) ifSensibleToDoSoThenScheduleShutdown();
+    }
+
+    private ExecutorService executorService() {
+        return executorServiceDelegate.executor();
+    }
+
+    void shutdown() {
+        LazyExecutorServiceDelegate newDelegate = executorServiceDelegate.copy();
+        LazyExecutorServiceDelegate oldDelegate = (LazyExecutorServiceDelegate)
+                EXECUTOR_SERVICE_DELEGATE_HANDLE.getAndSet(this, newDelegate);
+        oldDelegate.shutdown();
+    }
+
+    /** 关闭当前 executor delegate；后续任务会延迟创建新的 delegate。 */
     @Override
     public void close() {
-        executorService.shutdown();
+        shutdown();
+    }
+
+    private static final class LazyExecutorServiceDelegate {
+        private final ExecutorServiceFactory factory;
+        @SuppressWarnings("unused")
+        private volatile ExecutorService executor;
+
+        private LazyExecutorServiceDelegate(ExecutorServiceFactory factory) {
+            this.factory = factory;
+        }
+
+        private ExecutorService executor() {
+            ExecutorService current = executor;
+            if (current == null) {
+                synchronized (this) {
+                    current = executor;
+                    if (current == null) {
+                        current = factory.createExecutorService();
+                        executor = current;
+                    }
+                }
+            }
+            return current;
+        }
+
+        private LazyExecutorServiceDelegate copy() {
+            return new LazyExecutorServiceDelegate(factory);
+        }
+
+        private void shutdown() {
+            executor().shutdown();
+        }
     }
 }

@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.pattern;
 
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorSelection;
 
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
@@ -69,5 +70,17 @@ public final class Patterns {
      */
     public static CompletionStage<Object> ask(ActorRef actor, Object message, long timeoutMillis) {
         return ask(actor, message, Duration.ofMillis(timeoutMillis));
+    }
+
+    /**
+     * 向选择中的 Actor 发送请求，使用首个到达的回复完成结果。
+     *
+     * @param selection 请求目标
+     * @param message 请求消息
+     * @param timeout 正数回复时限
+     * @return 首个回复或超时的结果
+     */
+    public static CompletionStage<Object> ask(ActorSelection selection, Object message, Duration timeout) {
+        return new AskableActorSelection(selection).internalAsk(message, timeout, ActorRef.noSender);
     }
 }

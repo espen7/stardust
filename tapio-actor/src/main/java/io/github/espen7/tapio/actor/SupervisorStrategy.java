@@ -171,8 +171,8 @@ public abstract class SupervisorStrategy {
      * @param cause 引发恢复的失败原因
      */
     protected final void resumeChild(ActorRef child, Throwable cause) {
-        if (child instanceof LocalActorRef localChild) {
-            localChild.underlying().sendSystemMessage(new SystemMessage.Resume(cause));
+        if (child instanceof InternalActorRef internalChild) {
+            internalChild.sendSystemMessage(new SystemMessage.Resume(cause));
         }
     }
 
@@ -184,9 +184,9 @@ public abstract class SupervisorStrategy {
      * @param suspendFirst 是否先发送 Suspend
      */
     protected final void restartChild(ActorRef child, Throwable cause, boolean suspendFirst) {
-        if (child instanceof LocalActorRef localChild) {
-            if (suspendFirst) localChild.underlying().sendSystemMessage(new SystemMessage.Suspend());
-            localChild.underlying().sendSystemMessage(new SystemMessage.Recreate(cause));
+        if (child instanceof InternalActorRef internalChild) {
+            if (suspendFirst) internalChild.sendSystemMessage(new SystemMessage.Suspend());
+            internalChild.sendSystemMessage(new SystemMessage.Recreate(cause));
         }
     }
 

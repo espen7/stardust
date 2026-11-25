@@ -22,7 +22,7 @@ import java.util.concurrent.CompletionStage;
  * <p>ActorContext 暴露子 Actor 创建、停止、watch 和 behavior 切换操作。它不是
  * thread-safe API，调用者应在 Actor message processing thread 中使用。</p>
  */
-public interface ActorContext {
+public interface ActorContext extends ActorRefFactory {
     /**
      * 返回所属 ActorSystem。
      *
@@ -43,30 +43,6 @@ public interface ActorContext {
      * @return 当前消息 sender；没有 sender 时返回 dead letters 引用
      */
     ActorRef sender();
-
-    /**
-     * 使用自动生成的 name 创建 child。
-     *
-     * @param props child 的创建配置
-     * @return 新 child 的 ActorRef
-     */
-    ActorRef actorOf(Props props);
-
-    /**
-     * 使用指定 name 创建 child。
-     *
-     * @param props child 的创建配置
-     * @param name parent 下唯一的 child name
-     * @return 新 child 的 ActorRef
-     */
-    ActorRef actorOf(Props props, String name);
-
-    /**
-     * 异步停止目标 Actor。
-     *
-     * @param actor 要停止的 ActorRef
-     */
-    void stop(ActorRef actor);
 
     /**
      * 建立 DeathWatch 关系。

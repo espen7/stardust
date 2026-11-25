@@ -17,13 +17,16 @@ import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
+import java.util.Iterator;
+import java.util.List;
+
 /**
  * 本地 ActorRef，持有一个 ActorCell。
  *
  * <p>LocalActorRef 是公开引用和内部执行状态之间的桥梁。它不直接调用 Actor，
  * tell 和 stop 都转成 ActorCell 的消息或系统消息。</p>
  */
-public class LocalActorRef extends InternalActorRef {
+public class LocalActorRef extends ActorRefWithCell {
     private final ActorSystemImpl system;
     private final ActorPath path;
     private final ActorCell actorCell;
@@ -42,11 +45,61 @@ public class LocalActorRef extends InternalActorRef {
      */
     public LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher,
                          MailboxType mailboxType, ActorRef supervisor, ActorPath path, String name) {
+        this(system, props, dispatcher, mailboxType, supervisor, path, name, true);
+    }
+
+    LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher, MailboxType mailboxType,
+                  ActorRef supervisor, ActorPath path, String name, boolean start) {
         this.system = system;
         this.path = path;
         this.name = name;
         this.actorCell = newActorCell(system, this, props, dispatcher, supervisor);
         actorCell.init(true, mailboxType);
+        if (start) start();
+    }
+
+    @Override
+    void start() {
+        actorCell.start();
+    }
+
+    @Override
+    ActorSystemImpl system() {
+        return system;
+    }
+
+    @Override
+    InternalActorRef getParent() {
+        return (InternalActorRef) actorCell.parent();
+    }
+
+    @Override
+    InternalActorRef getSingleChild(String name) {
+        return actorCell.getSingleChild(name);
+    }
+
+    @Override
+    List<ActorRef> children() {
+        return actorCell.childrenRefs().children();
+    }
+
+    @Override
+    Props props() {
+        return actorCell.props();
+    }
+
+    @Override
+    InternalActorRef getChild(Iterator<String> names) {
+        InternalActorRef ref = this;
+        while (names.hasNext() && ref instanceof LocalActorRef local) {
+            String name = names.next();
+            ref = switch (name) {
+                case ".." -> local.getParent();
+                case "" -> local;
+                default -> local.getSingleChild(name);
+            };
+        }
+        return ref == null || !names.hasNext() ? ref : ref.getChild(names);
     }
 
     /**
@@ -68,6 +121,7 @@ public class LocalActorRef extends InternalActorRef {
      *
      * @return 此引用对应的 ActorCell
      */
+    @Override
     public ActorCell underlying() {
         return actorCell;
     }

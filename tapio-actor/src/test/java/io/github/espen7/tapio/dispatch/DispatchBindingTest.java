@@ -20,7 +20,8 @@ import io.github.espen7.tapio.actor.AbstractActor;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.DeadLetter;
-import io.github.espen7.tapio.actor.LocalActorRef;
+import io.github.espen7.tapio.actor.ActorCell;
+import io.github.espen7.tapio.actor.ActorRefWithCell;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.pattern.Patterns;
 import org.junit.jupiter.api.AfterEach;
@@ -231,8 +232,14 @@ class DispatchBindingTest {
                 """);
     }
 
-    private static io.github.espen7.tapio.actor.ActorCell underlying(ActorRef actor) {
-        return ((LocalActorRef) actor).underlying();
+    private static ActorCell underlying(ActorRef actor) {
+        ActorRefWithCell withCell = (ActorRefWithCell) actor;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        do {
+            if (withCell.underlying() instanceof ActorCell cell) return cell;
+            Thread.yield();
+        } while (System.nanoTime() < deadline);
+        return fail("ActorCell did not become available for " + actor);
     }
 
     private static Object ask(ActorRef actor) throws Exception {

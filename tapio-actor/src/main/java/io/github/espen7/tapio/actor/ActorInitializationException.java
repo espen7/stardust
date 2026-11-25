@@ -34,4 +34,8 @@ public class ActorInitializationException extends RuntimeException {
     public ActorInitializationException(String message) {
         super(message);
     }
+
+    ActorInitializationException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

@@ -95,9 +95,12 @@ final class Slf4jLogger extends AbstractActor {
     }
 
     private static void publishUnhandled(UnhandledMessage event) {
-        Class<?> actorClass = event.recipient() instanceof io.github.espen7.tapio.actor.LocalActorRef localRef
-                ? localRef.underlying().actor().getClass()
-                : event.recipient().getClass();
+        Class<?> actorClass = event.recipient().getClass();
+        if (event.recipient() instanceof io.github.espen7.tapio.actor.ActorRefWithCell withCell
+                && withCell.underlying() instanceof io.github.espen7.tapio.actor.ActorCell cell) {
+            var actor = cell.actor();
+            if (actor != null) actorClass = actor.getClass();
+        }
         String message = "unhandled message from " + event.sender() + ": " + event.message();
         publish(new Debug(event.recipient().path().toString(), actorClass, message));
     }

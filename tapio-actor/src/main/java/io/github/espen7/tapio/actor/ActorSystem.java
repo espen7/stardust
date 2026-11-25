@@ -37,7 +37,7 @@ import java.util.concurrent.CompletionStage;
  * ActorSystem 本身不提供同步等待接口，调用者可以等待返回的
  * {@link CompletionStage}。</p>
  */
-public abstract class ActorSystem implements AutoCloseable {
+public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     private static final String INTERNAL_DISPATCHER_ID = ActorPath.Scheme + ".actor.internal-dispatcher";
     /** 创建 ActorSystem 抽象实例。 */
     protected ActorSystem() {
@@ -101,6 +101,8 @@ public abstract class ActorSystem implements AutoCloseable {
         public final boolean DebugLifecycle;
         /** 是否将未处理消息转为 DEBUG 日志，默认关闭。 */
         public final boolean DebugUnhandledMessage;
+        /** 外部挂载的 Actor 切换 cell 时等待临时队列锁的时限，默认 10 秒。 */
+        public final Duration UnstartedPushTimeout;
         /** Scheduler 实现的全限定类名。 */
         public final String SchedulerClass;
         /** runtime 创建的线程是否为 daemon，默认关闭。 */
@@ -131,6 +133,8 @@ public abstract class ActorSystem implements AutoCloseable {
                     ? null : Duration.ofMillis(config.getDuration(key).toMillis());
             DebugLifecycle = config.getBoolean(ActorPath.Scheme + ".actor.debug.lifecycle");
             DebugUnhandledMessage = config.getBoolean(ActorPath.Scheme + ".actor.debug.unhandled");
+            UnstartedPushTimeout = Duration.ofMillis(config.getDuration(
+                    ActorPath.Scheme + ".actor.unstarted-push-timeout").toMillis());
             SchedulerClass = config.getString(ActorPath.Scheme + ".scheduler.implementation");
             Daemonicity = config.getBoolean(ActorPath.Scheme + ".daemonic");
             CoordinatedShutdownTerminateActorSystem =
@@ -164,20 +168,6 @@ public abstract class ActorSystem implements AutoCloseable {
     }
 
     /**
-     * 在 user guardian 下创建顶层 Actor。
-     *
-     * <p>创建会注册 child 名称并返回其 ActorRef。Actor 实例的初始化通过 mailbox
-     * 异步执行，因此方法返回不表示 {@code preStart()} 已经完成。</p>
-     *
-     * @param props Actor 实例的创建配置
-     * @param name parent 下唯一的 Actor 名称
-     * @return 新 Actor 的引用
-     * @throws IllegalArgumentException 当名称无效或已被占用时
-     * @throws IllegalStateException 当 ActorSystem 正在关闭时
-     */
-    public abstract ActorRef actorOf(Props props, String name);
-
-    /**
      * 创建挂在 system guardian 下的系统 Actor。
      *
      * @param props Actor 创建配置
@@ -189,8 +179,8 @@ public abstract class ActorSystem implements AutoCloseable {
     /**
      * 返回该系统的 dead letters 引用。
      *
-     * <p>向 dead letters 发送的消息不会交给 Actor 处理。当前实现吸收这些消息，
-     * 尚未发布 Pekko 的 DeadLetter event。</p>
+     * <p>向 dead letters 发送的消息不会交给 Actor 处理。当前实现会将它们作为
+     * {@link DeadLetter} 事件发布到系统的 EventStream。</p>
      *
      * @return 此 ActorSystem 的 dead letters 引用
      */
@@ -203,6 +193,7 @@ public abstract class ActorSystem implements AutoCloseable {
      *
      * @return 此系统的 Dispatcher
      */
+    @Override
     public abstract Dispatcher dispatcher();
 
     /**
@@ -249,11 +240,10 @@ public abstract class ActorSystem implements AutoCloseable {
     /**
      * 异步停止 ActorSystem。
      *
-     * <p>该调用发起 root guardian 的终止流程，并立即返回完成通知。通知会在
-     * guardian 终止以及 Scheduler、Dispatcher 关闭后完成。重复调用会返回同一个
-     * 终止 stage。</p>
+     * <p>该调用发起系统关闭，并立即返回完成通知。user guardian 先终止，
+     * 随后是 system guardian 和 root guardian。重复调用会返回同一个 stage。</p>
      *
-     * @return ActorSystem 终止完成时的 stage，其结果描述终止的 guardian
+     * @return ActorSystem 终止完成时的 stage，其结果描述位于 {@code /} 的 root guardian
      */
     public abstract CompletionStage<Terminated> terminate();
 

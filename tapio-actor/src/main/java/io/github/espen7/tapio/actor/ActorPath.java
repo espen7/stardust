@@ -14,6 +14,10 @@
 package io.github.espen7.tapio.actor;
 
 import java.io.Serializable;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Actor 的逻辑地址。路径相等只比较地址文本，ActorRef identity 还会比较 UID。
@@ -24,9 +28,11 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
     public static final String Scheme = "tapio";
     /** 未定义 Actor incarnation UID。 */
     public static final int UndefinedUid = 0;
+    private static final String ValidSymbols = "-_.*$+:@&=,!~';";
     private final String value;
     private final int uid;
     private final ActorPath parent;
+    private final Address address;
 
     /**
      * 从文本创建不带 UID 的 ActorPath。
@@ -47,6 +53,14 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
         this.value = value;
         this.uid = uid;
         this.parent = null;
+        this.address = null;
+    }
+
+    ActorPath(Address address) {
+        this.value = address + "/";
+        this.uid = UndefinedUid;
+        this.parent = null;
+        this.address = address;
     }
 
     /**
@@ -56,18 +70,92 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
      * @param name 子路径的最后一段
      */
     ActorPath(ActorPath parent, String name) {
-        this.value = parent + "/" + name;
-        this.uid = UndefinedUid;
+        this(parent, name, UndefinedUid);
+    }
+
+    ActorPath(ActorPath parent, String name, int uid) {
+        this.value = parent + (parent.isRoot() ? "" : "/") + name;
+        this.uid = uid;
         this.parent = parent;
+        this.address = parent.address;
+    }
+
+    private boolean isRoot() {
+        return parent == null && value.endsWith("/") && toStringWithoutAddress().equals("/");
     }
 
     /**
      * 返回构造时关联的父级路径。
      *
-     * @return 关联的父级路径，直接从文本构造时为 {@code null}
+     * @return 根路径返回自身，运行时子路径返回其父级，其他直接从文本构造的路径返回 {@code null}
      */
     ActorPath parent() {
-        return parent;
+        return isRoot() ? this : parent;
+    }
+
+    /**
+     * 返回此路径的 ActorSystem 地址。
+     *
+     * @return 路径中的地址
+     * @throws IllegalArgumentException 路径文本缺少有效地址
+     */
+    public Address address() {
+        if (address != null) return address;
+        try {
+            Address parsed = address(new URI(value));
+            if (parsed != null) return parsed;
+        } catch (URISyntaxException error) {
+            throw new IllegalArgumentException("cannot parse as ActorPath: " + value, error);
+        }
+        throw new IllegalArgumentException("cannot parse as ActorPath: " + value);
+    }
+
+    static Address address(URI uri) {
+        String protocol = uri.getScheme();
+        String authority = uri.getRawAuthority();
+        if (protocol != null && authority != null) {
+            if (uri.getUserInfo() == null && uri.getHost() != null && uri.getPort() == -1) {
+                return new Address(protocol, uri.getHost());
+            }
+            if (uri.getUserInfo() != null && uri.getHost() != null && uri.getPort() != -1) {
+                return new Address(protocol, uri.getUserInfo(), uri.getHost(), uri.getPort());
+            }
+        }
+        return null;
+    }
+
+    List<String> elements() {
+        return Arrays.asList(toStringWithoutAddress().substring(1).split("/", -1));
+    }
+
+    static void validatePathElement(String element) {
+        for (int index = 0; index < element.length(); index++) {
+            char character = element.charAt(index);
+            if (index == 0 && character == '$') {
+                throw invalidPathElement(element, index);
+            }
+            if (character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
+                    || character >= '0' && character <= '9' || ValidSymbols.indexOf(character) >= 0) {
+                continue;
+            }
+            if (character == '%' && index + 2 < element.length()
+                    && isHexDigit(element.charAt(index + 1)) && isHexDigit(element.charAt(index + 2))) {
+                index += 2;
+            } else {
+                throw invalidPathElement(element, index);
+            }
+        }
+    }
+
+    private static boolean isHexDigit(char character) {
+        return character >= '0' && character <= '9' || character >= 'a' && character <= 'f'
+                || character >= 'A' && character <= 'F';
+    }
+
+    private static InvalidActorNameException invalidPathElement(String element, int index) {
+        return new InvalidActorNameException("Invalid actor path element [" + element + "], illegal character ["
+                + element.charAt(index) + "] at position: " + index + ". Actor paths MUST: not start with `$`, "
+                + "include only ASCII letters and can only contain these special characters: " + ValidSymbols + ".");
     }
 
     /**
@@ -85,6 +173,7 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
      * @return 最后一个路径元素
      */
     public String name() {
+        if (isRoot()) return "/";
         int separator = value.lastIndexOf('/');
         return value.substring(separator + 1);
     }

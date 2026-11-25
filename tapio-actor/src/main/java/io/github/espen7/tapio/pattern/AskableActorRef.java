@@ -51,7 +51,7 @@ final class AskableActorRef {
         return "Message of type [" + msg.getClass().getName() + "]" + wasSentBy + ".";
     }
 
-    private static IllegalArgumentException negativeTimeoutException(ActorRef recipient, Object message, ActorRef sender) {
+    static IllegalArgumentException negativeTimeoutException(Object recipient, Object message, ActorRef sender) {
         return new IllegalArgumentException("Timeout length must be positive, question not sent to [" + recipient + "]. "
                 + messagePartOfException(message, sender));
     }

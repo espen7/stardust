@@ -23,7 +23,8 @@ final class DispatcherConfigurator {
 
     DispatcherConfigurator(Config config, ActorSystem system) {
         this.config = config;
-        instance = new Dispatcher(config.getInt("throughput"), config.getDuration("throughput-deadline-time"), system);
+        instance = new Dispatcher(config.getInt("throughput"), config.getDuration("throughput-deadline-time"),
+                system, system.scheduler(), config.getDuration("shutdown-timeout"), Dispatcher.defaultExecutorServiceFactory());
     }
 
     Config config() {

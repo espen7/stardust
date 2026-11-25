@@ -15,6 +15,8 @@ package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
+import java.util.Iterator;
+
 /**
  * 支持 Provider 查询和系统消息投递的 runtime 内部引用。
  */
@@ -36,4 +38,14 @@ public abstract class InternalActorRef extends ActorRef {
      * @param message 尚未链接至任何 Mailbox 的系统消息实例
      */
     public abstract void sendSystemMessage(SystemMessage message);
+
+    InternalActorRef getChild(Iterator<String> names) {
+        while (names.hasNext()) {
+            if (!names.next().isEmpty()) return null;
+        }
+        return this;
+    }
+
+    void start() {
+    }
 }

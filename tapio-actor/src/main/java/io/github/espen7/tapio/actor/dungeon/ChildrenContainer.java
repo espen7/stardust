@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.actor.dungeon;
 
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.InvalidActorNameException;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -355,7 +356,7 @@ public interface ChildrenContainer {
         @Override
         public ChildrenContainer reserve(String name) {
             if (children.containsKey(name)) {
-                throw new IllegalArgumentException("actor name [" + name + "] is not unique!");
+                throw new InvalidActorNameException("actor name [" + name + "] is not unique!");
             }
             TreeMap<String, ChildStats> updated = new TreeMap<>(children);
             updated.put(name, ChildNameReserved.INSTANCE);
@@ -504,7 +505,7 @@ public interface ChildrenContainer {
                 throw new IllegalStateException("cannot reserve actor name '" + name + "': terminating");
             }
             if (children.containsKey(name)) {
-                throw new IllegalArgumentException("actor name [" + name + "] is not unique!");
+                throw new InvalidActorNameException("actor name [" + name + "] is not unique!");
             }
             TreeMap<String, ChildStats> updated = new TreeMap<>(children);
             updated.put(name, ChildNameReserved.INSTANCE);

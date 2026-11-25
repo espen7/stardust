@@ -16,6 +16,7 @@ package io.github.espen7.tapio.pattern;
 import io.github.espen7.tapio.actor.ActorKilledException;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorSelection;
 import io.github.espen7.tapio.actor.ActorRefProvider;
 import io.github.espen7.tapio.actor.Cancellable;
 import io.github.espen7.tapio.actor.DeadLetter;
@@ -78,7 +79,7 @@ public final class PromiseActorRef extends MinimalActorRef {
         this.refPathPrefix = refPathPrefix;
     }
 
-    static PromiseActorRef apply(ActorRefProvider provider, Duration timeout, ActorRef targetName,
+    static PromiseActorRef apply(ActorRefProvider provider, Duration timeout, Object targetName,
                                  String messageClassName, String refPathPrefix, ActorRef sender) {
         if (refPathPrefix.indexOf('/') >= 0) {
             throw new IllegalArgumentException("refPathPrefix must not contain slash, was: " + refPathPrefix);
@@ -105,6 +106,11 @@ public final class PromiseActorRef extends MinimalActorRef {
 
     CompletionStage<Object> ask(ActorRef actorRef, Object message) {
         actorRef.tell(message, this);
+        return result.minimalCompletionStage();
+    }
+
+    CompletionStage<Object> ask(ActorSelection selection, Object message) {
+        selection.tell(message, this);
         return result.minimalCompletionStage();
     }
 

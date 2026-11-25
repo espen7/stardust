@@ -13,6 +13,11 @@
  */
 package io.github.espen7.tapio.actor;
 
+import java.util.Optional;
+import java.util.concurrent.CompletionStage;
+
+import io.github.espen7.tapio.serialization.Serialization;
+
 /**
  * ActorRef 和 ActorPath 的创建边界，对应 Pekko ActorRefProvider。
  */
@@ -23,37 +28,33 @@ public abstract class ActorRefProvider {
     }
 
     /**
-     * 在 parent 下创建 ActorRef。
+     * 返回位于根路径 {@code /} 的 root guardian。
      *
-     * @param props Actor 创建配置
-     * @param name child name
-     * @param parent parent ActorRef
-     * @return 新 ActorRef
+     * @return 监督 user guardian 和 system guardian 的引用
      */
-    public abstract ActorRef actorOf(Props props, String name, ActorRef parent);
+    public abstract InternalActorRef rootGuardian();
 
     /**
-     * 返回 user guardian。
+     * 返回指定地址处的根引用。
      *
-     * @return user guardian 引用
+     * @param address 目标地址
+     * @return 本地地址返回根引用，本地 Provider 对其他地址返回死信引用
      */
-    public abstract ActorRef rootGuardian();
+    public abstract ActorRef rootGuardianAt(Address address);
+
+    /**
+     * 返回位于 {@code /user} 的 user guardian。
+     *
+     * @return 监督应用顶层 Actor 的引用
+     */
+    public abstract LocalActorRef guardian();
 
     /**
      * 返回 system guardian。
      *
      * @return system guardian 引用
      */
-    public abstract ActorRef systemGuardian();
-
-    /**
-     * 创建挂在 system guardian 下的系统 Actor。
-     *
-     * @param props Actor 创建配置
-     * @param name system guardian 下唯一的 child name
-     * @return 新系统 ActorRef
-     */
-    public abstract ActorRef systemActorOf(Props props, String name);
+    public abstract LocalActorRef systemGuardian();
 
     /**
      * 返回 dead letters 引用。
@@ -61,6 +62,32 @@ public abstract class ActorRefProvider {
      * @return dead letters ActorRef
      */
     public abstract ActorRef deadLetters();
+
+    abstract ActorRef ignoreRef();
+
+    /**
+     * 返回此 ActorSystem 的根路径。
+     *
+     * @return 本地地址下的根路径
+     */
+    public abstract ActorPath rootPath();
+
+    /**
+     * 返回 Provider 所使用的系统配置。
+     *
+     * @return 当前 ActorSystem 的有效配置
+     */
+    public abstract ActorSystem.Settings settings();
+
+    abstract void init(ActorSystemImpl system);
+
+    /**
+     * 返回此 Provider 使用的部署配置索引。
+     *
+     * @return 部署配置索引
+     */
+    public abstract Deployer deployer();
+
     /**
      * 返回调度器。
      *
@@ -104,4 +131,65 @@ public abstract class ActorRefProvider {
      * @param path 此 Provider 此前注册的临时路径
      */
     public abstract void unregisterTempActor(ActorPath path);
+
+    /**
+     * 为调用方分配的路径创建引用。调用方负责注册子引用并启动。
+     *
+     * @param system 所属 ActorSystem
+     * @param props Actor 创建配置
+     * @param supervisor 监督该 Actor 的引用
+     * @param path 已分配路径及 incarnation UID
+     * @param systemService 是否为本地系统服务
+     * @param deploy 关闭部署查找时使用的部署配置
+     * @param lookupDeploy 是否按路径查找部署配置
+     * @param async 是否由 supervisor 异步激活外部挂载的 Actor
+     * @return 已初始化的内部引用
+     */
+    abstract InternalActorRef actorOf(ActorSystemImpl system, Props props, InternalActorRef supervisor,
+                                      ActorPath path, boolean systemService, Optional<Deploy> deploy,
+                                      boolean lookupDeploy, boolean async);
+
+    /**
+     * 从绝对路径字符串解析 ActorRef。字符串可包含 incarnation UID。
+     *
+     * @param path 带 ActorSystem 地址的路径
+     * @return 活跃引用、代表指定路径的空引用或系统死信引用
+     */
+    public abstract ActorRef resolveActorRef(String path);
+
+    /**
+     * 从结构化路径解析 ActorRef。
+     *
+     * @param path 待查询的路径
+     * @return 活跃引用、代表指定路径的空引用或系统死信引用
+     */
+    public abstract ActorRef resolveActorRef(ActorPath path);
+
+    /**
+     * 返回 Provider 终止时完成的通知。
+     *
+     * @return 以 root guardian 的终止通知完成的 stage
+     */
+    public abstract CompletionStage<Terminated> terminationFuture();
+
+    /**
+     * 返回可用于到达目标地址的本地地址。
+     *
+     * @param address 目标地址
+     * @return 本地 Provider 只为本系统地址返回结果
+     */
+    public abstract Optional<Address> getExternalAddressFor(Address address);
+
+    /**
+     * 返回 Provider 的默认通信地址。
+     *
+     * @return 本地 Provider 返回本系统地址
+     */
+    public abstract Address getDefaultAddress();
+
+    abstract Serialization.Information serializationInformation();
+
+    abstract String addressString();
+
+    abstract long systemUid();
 }

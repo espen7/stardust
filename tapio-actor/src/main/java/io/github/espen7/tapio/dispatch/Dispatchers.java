@@ -23,8 +23,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 按配置 ID 查找或创建 Dispatcher。普通 Dispatcher 及其别名共享同一个实例，
- * 生命周期由所属 ActorSystem 管理。
+ * 按配置 ID 查找或创建 Dispatcher。普通 Dispatcher 及其别名共享同一个实例。
  */
 public final class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
@@ -37,20 +36,18 @@ public final class Dispatchers {
     private final ActorSystem system;
     private final Config defaultDispatcherConfig;
     private final ConcurrentHashMap<String, DispatcherConfigurator> dispatcherConfigurators = new ConcurrentHashMap<>();
-    private volatile boolean closed;
 
     /**
      * 创建 ActorSystem 使用的 Dispatcher 注册表。
      *
      * @param settings 所属系统的有效配置
-     * @param system 接收 dead-letter 事件并关闭此注册表的系统
+     * @param system 接收 dead-letter 事件并提供 Scheduler 的系统
      */
     public Dispatchers(ActorSystem.Settings settings, ActorSystem system) {
         this.settings = settings;
         this.system = system;
         this.defaultDispatcherConfig = idConfig(DefaultDispatcherId)
                 .withFallback(settings.config().getConfig(DefaultDispatcherId));
-        system.getWhenTerminated().whenComplete((ignored, error) -> shutdown());
     }
 
     /**
@@ -58,7 +55,6 @@ public final class Dispatchers {
      *
      * @return 默认 Dispatcher
      * @throws ConfigurationException 当默认 Dispatcher 的类型不受支持时
-     * @throws IllegalStateException 当注册表已关闭时
      */
     public Dispatcher defaultGlobalDispatcher() {
         return lookup(DefaultDispatcherId);
@@ -72,23 +68,20 @@ public final class Dispatchers {
      * @return 此 ID 对应的 Dispatcher
      * @throws ConfigurationException 当配置缺失、别名超过深度限制或类型不受支持时
      * @throws com.typesafe.config.ConfigException 当 Dispatcher 参数无效时
-     * @throws IllegalStateException 当注册表已关闭时
      */
     public Dispatcher lookup(String id) {
-        if (closed) throw new IllegalStateException("Dispatchers are closed");
         return lookupConfigurator(id, 0).dispatcher();
     }
 
     /**
      * 返回指定 Dispatcher 的有效配置，包含合并后的 mailbox 相关键。
      *
-     * @param id 配置路径或已配置的别名
+     * @param id 配置路径或别名
      * @return 与已创建 Dispatcher 对应的有效配置
      * @throws ConfigurationException 当配置缺失、别名超过深度限制或类型不受支持时
-     * @throws IllegalStateException 当注册表已关闭时
+     * @throws com.typesafe.config.ConfigException 当 Dispatcher 参数无效时
      */
     public Config config(String id) {
-        if (closed) throw new IllegalStateException("Dispatchers are closed");
         return lookupConfigurator(id, 0).config();
     }
 
@@ -127,15 +120,7 @@ public final class Dispatchers {
         };
 
         existing = dispatcherConfigurators.putIfAbsent(id, newConfigurator);
-        if (existing != null && existing != newConfigurator) {
-            newConfigurator.dispatcher().close();
-        }
-        DispatcherConfigurator selected = existing == null ? newConfigurator : existing;
-        if (closed) {
-            selected.dispatcher().close();
-            throw new IllegalStateException("Dispatchers are closed");
-        }
-        return selected;
+        return existing == null ? newConfigurator : existing;
     }
 
     private Config config(String id, Config appConfig) {
@@ -155,14 +140,5 @@ public final class Dispatchers {
         if ("Dispatcher".equals(type)) return new DispatcherConfigurator(config, system);
         throw new ConfigurationException("Cannot instantiate MessageDispatcherConfigurator type [" + type
                 + "], defined in [" + config.getString("id") + "]");
-    }
-
-    /** 停止所有已创建的 Dispatcher。由所属 ActorSystem 的终止 stage 触发。 */
-    private void shutdown() {
-        if (closed) return;
-        closed = true;
-        for (DispatcherConfigurator configurator : dispatcherConfigurators.values()) {
-            configurator.dispatcher().close();
-        }
     }
 }

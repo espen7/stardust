@@ -84,6 +84,20 @@ class EmptyLocalActorRef extends MinimalActorRef {
                     .tell(new ActorIdentity(identify.messageId(), java.util.Optional.empty()), this);
             return true;
         }
+        if (message instanceof ActorSelectionMessage selection) {
+            ActorRef originalSender = sender == noSender ? provider.deadLetters() : sender;
+            Object selected = selection.message();
+            if (selected instanceof Identify identify) {
+                if (!selection.wildcardFanOut()) {
+                    originalSender.tell(new ActorIdentity(identify.messageId(), java.util.Optional.empty()), this);
+                }
+            } else if (selected instanceof DeadLetterSuppression suppressed) {
+                eventStream.publish(new SuppressedDeadLetter(suppressed, originalSender, this));
+            } else {
+                eventStream.publish(new DeadLetter(selected, originalSender, this));
+            }
+            return true;
+        }
         if (message instanceof DeadLetterSuppression suppressed) {
             eventStream.publish(new SuppressedDeadLetter(suppressed, sender == noSender ? provider.deadLetters() : sender, this));
             return true;

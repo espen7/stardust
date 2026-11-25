@@ -36,13 +36,16 @@ Tapio 目前处于早期开发阶段。第一个稳定版本发布前，公开 A
 | 领域 | 状态 |
 | --- | --- |
 | 本地 Classic Actor runtime | `tapio-actor` 已提供 |
-| Actor 生命周期、Mailbox、Dispatcher、supervision、DeathWatch | `tapio-actor` 已提供 |
+| Actor 生命周期、Mailbox、supervision、DeathWatch | `tapio-actor` 已提供 |
+| 普通 Dispatcher 生命周期、lazy executor 重建、inhabitants、空闲 shutdown | `tapio-actor` 已提供 |
 | Dispatcher/Mailbox 的 Props 与部署绑定、无界/有界 mailbox | `tapio-actor` 已提供 |
 | EventStream、结构化日志、`ask`、一次性调度 | `tapio-actor` 已提供 |
 | 路由（Routing） | 计划中 |
 | Cluster Sharding | 计划中 |
 | Kubernetes 集群发现 | 计划中 |
 | 集群功能所需的传输和成员关系组件 | 作为 Tapio 聚焦组件计划实现 |
+
+「已提供」表示本地 runtime 契约已有实现并有 Tapio 测试覆盖。这不代表与 Pekko 全量源码一致，也不代表已通过 Pekko 完整测试套件。internal 与 PinnedDispatcher、executor 配置、高级 mailbox、周期调度和完整日志生命周期仍未完成。
 
 首期范围不包含完整的 Akka/Pekko 生态：Typed API、Streams、Persistence、大范围序列化集成、完整 Remote 兼容，以及无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
 
@@ -101,6 +104,10 @@ public final class EchoActor extends AbstractActor {
 当前仓库从源码构建。首个版本发布后，README 会补充正式的依赖坐标。
 
 ## 架构
+
+本地 Actor 树从根 guardian（`/`）开始。它的 `/user` 和 `/system` 子 Actor 分别监督应用 Actor 和系统 Actor。根引用还会解析用于临时引用的 `/temp`，以及接收无法投递消息的 `/deadLetters`。
+
+`ActorSystem` 和 `ActorContext` 实现 `ActorRefFactory`，支持命名和自动命名的 Actor 创建、本地 ActorSelection 以及异步 stop。通过系统挂载的 Actor 会先缓冲消息，直到 guardian 激活其 mailbox。
 
 ```text
 tapio-actor/

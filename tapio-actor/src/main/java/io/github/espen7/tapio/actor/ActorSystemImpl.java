@@ -19,6 +19,8 @@ import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
+import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.event.Logging;
@@ -37,10 +39,11 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * ActorSystem 的本地实现。
  *
- * <p>初始化顺序先准备 Dispatcher、EventStream 和 Scheduler，再由 Provider 创建 user
- * guardian。所有顶层 Actor 都挂在 user guardian 下面，关闭时从 guardian 开始停止整棵
- * Actor tree。</p>
+ * <p>先创建 Settings、EventStream、Log 和 Scheduler，再创建 Dispatchers、Mailboxes 与
+ * 默认 Dispatcher。Provider 在全部 runtime 组件就绪后启动 root guardian，并在其下注册
+ * user guardian 和 system guardian。关闭时从 user guardian 开始。</p>
  */
+@InternalApi
 public class ActorSystemImpl extends ActorSystem {
 
     private static final String ACTOR_NAME_PATTERN = "^[a-zA-Z0-9][a-zA-Z0-9-_]*$";
@@ -94,16 +97,18 @@ public class ActorSystemImpl extends ActorSystem {
         this.settings = new Settings(classLoader, config, name);
         this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
-        this.dispatchers = new Dispatchers(settings, this);
-        this.mailboxes = new Mailboxes(settings, eventStream);
         Dispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
         CoordinatedShutdown startedShutdown = null;
         try {
-            this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
             this.scheduler = startedScheduler = createScheduler();
+            this.dispatchers = new Dispatchers(settings, this);
+            this.mailboxes = new Mailboxes(settings, eventStream);
+            this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
             this.coordinatedShutdown = startedShutdown = new CoordinatedShutdown(this);
             this.provider = new LocalActorRefProvider(this);
+            provider.terminationFuture().whenComplete(this::finishTermination);
+            provider.init(this);
             Logging.installSlf4jLogger(this, debugUnhandled());
             if (settings.LogDeadLetters > 0) {
                 this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class,
@@ -180,13 +185,42 @@ public class ActorSystemImpl extends ActorSystem {
     }
 
     @Override
+    public ActorRef actorOf(Props props) {
+        return provider.guardian().underlying().attachChild(props, false);
+    }
+
+    @Override
     public ActorRef actorOf(Props props, String name) {
-        return ((LocalActorRef) provider.rootGuardian()).underlying().attachChild(props, name, false);
+        return provider.guardian().underlying().attachChild(props, name, false);
     }
 
     @Override
     public ActorRef systemActorOf(Props props, String name) {
-        return provider.systemActorOf(props, name);
+        return provider.systemGuardian().underlying().attachChild(props, name, true);
+    }
+
+    @Override
+    public ActorSelection actorSelection(String path) {
+        return ActorSelection.apply(provider, provider.rootGuardian(), path);
+    }
+
+    @Override
+    public ActorSelection actorSelection(ActorPath path) {
+        return ActorSelection.apply(provider, path);
+    }
+
+    @Override
+    public void stop(ActorRef actor) {
+        ActorPath parent = actor.path().parent();
+        LocalActorRef guardian = provider.guardian();
+        LocalActorRef systemGuardian = provider.systemGuardian();
+        if (guardian.path().equals(parent)) {
+            guardian.tell(new SystemMessage.StopChild(actor));
+        } else if (systemGuardian.path().equals(parent)) {
+            systemGuardian.tell(new SystemMessage.StopChild(actor));
+        } else {
+            actor.stop();
+        }
     }
 
     @Override
@@ -263,30 +297,21 @@ public class ActorSystemImpl extends ActorSystem {
         return whenTerminated;
     }
 
-    void actorTerminated(ActorRef actor) {
-        if (!actor.equals(provider.rootGuardian())) return;
-        provider.systemGuardian().stop();
-    }
-
-    void systemGuardianTerminated(ActorRef actor) {
-        if (!actor.equals(provider.systemGuardian())) return;
-        finishTermination(provider.rootGuardian());
-    }
-
-    private void finishTermination(ActorRef actor) {
+    private void finishTermination(Terminated terminated, Throwable failure) {
         try {
             scheduler.close();
         } catch (RuntimeException error) {
             log.error(error, "Error during actor system termination");
         }
-        whenTerminated.complete(new Terminated(actor));
+        if (failure == null) whenTerminated.complete(terminated);
+        else whenTerminated.completeExceptionally(failure);
     }
 
     void finalTerminate() {
         if (!settings.LogDeadLettersDuringShutdown && logDeadLetterListener != null) {
-            logDeadLetterListener.stop();
+            stop(logDeadLetterListener);
         }
-        provider.rootGuardian().stop();
+        provider.guardian().stop();
         coordinatedShutdown.cancelJvmShutdownHook();
     }
 

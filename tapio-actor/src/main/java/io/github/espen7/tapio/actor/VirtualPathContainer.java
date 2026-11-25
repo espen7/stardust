@@ -15,6 +15,7 @@ package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.event.LoggingAdapter;
 
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -23,13 +24,19 @@ import java.util.concurrent.ConcurrentHashMap;
 final class VirtualPathContainer extends MinimalActorRef {
     private final ActorRefProvider provider;
     private final ActorPath path;
+    private final InternalActorRef parent;
     private final LoggingAdapter log;
     private final ConcurrentHashMap<String, InternalActorRef> children = new ConcurrentHashMap<>();
 
-    VirtualPathContainer(ActorRefProvider provider, ActorPath path, LoggingAdapter log) {
+    VirtualPathContainer(ActorRefProvider provider, ActorPath path, InternalActorRef parent, LoggingAdapter log) {
         this.provider = provider;
         this.path = path;
+        this.parent = parent;
         this.log = log;
+    }
+
+    InternalActorRef getParent() {
+        return parent;
     }
 
     @Override
@@ -56,5 +63,35 @@ final class VirtualPathContainer extends MinimalActorRef {
 
     InternalActorRef getChild(String name) {
         return children.get(name);
+    }
+
+    @Override
+    public void tell(Object message, ActorRef sender) {
+        if (!(message instanceof ActorSelectionMessage selection)) {
+            super.tell(message, sender);
+            return;
+        }
+        if (selection.elements().isEmpty()) throw new IllegalArgumentException("requirement failed");
+        SelectionPathElement first = selection.elements().getFirst();
+        InternalActorRef child = first instanceof SelectChildName selected ? getChild(selected.name()) : null;
+        if (child != null && selection.elements().size() == 1) {
+            child.tell(selection.message(), sender);
+        } else if (!selection.wildcardFanOut()) {
+            ActorPath emptyPath = path;
+            for (SelectionPathElement element : selection.elements()) {
+                emptyPath = new ActorPath(emptyPath, element.toString());
+            }
+            new EmptyLocalActorRef(provider, emptyPath, provider.systemGuardian().system().eventStream())
+                    .tell(selection.message(), sender);
+        }
+    }
+
+    @Override
+    InternalActorRef getChild(Iterator<String> names) {
+        if (!names.hasNext()) return this;
+        String name = names.next();
+        if (name.isEmpty()) return this;
+        InternalActorRef child = getChild(name);
+        return child == null || !names.hasNext() ? child : child.getChild(names);
     }
 }

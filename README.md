@@ -36,13 +36,16 @@ Tapio is in early development. Public APIs and configuration may change before t
 | Area | Status |
 | --- | --- |
 | Local Classic Actor runtime | Available in `tapio-actor` |
-| Actor lifecycle, Mailbox, Dispatcher, supervision, and DeathWatch | Available in `tapio-actor` |
+| Actor lifecycle, Mailbox, supervision, and DeathWatch | Available in `tapio-actor` |
+| Ordinary Dispatcher lifecycle, lazy executor recreation, inhabitants, and idle shutdown | Available in `tapio-actor` |
 | Props and deployment binding of Dispatcher/Mailbox, unbounded and bounded mailboxes | Available in `tapio-actor` |
-| EventStream, structured logging, `ask`, and one-shot scheduling | Available in `tapio-actor` |
+| EventStream, structured logging, local ActorSelection, `ask`, and one-shot scheduling | Available in `tapio-actor` |
 | Routing | Planned |
 | Cluster Sharding | Planned |
 | Kubernetes-based cluster discovery | Planned |
 | The transport and membership pieces required by the cluster features | Planned as focused Tapio components |
+
+`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Internal and PinnedDispatchers, executor configuration, advanced mailboxes, periodic scheduling, and the complete logging lifecycle remain incomplete.
 
 The initial scope does not include the complete Akka/Pekko ecosystem: Typed APIs, Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
 
@@ -101,6 +104,14 @@ public final class EchoActor extends AbstractActor {
 The current repository is built from source. Published artifact coordinates will be documented when the first release is available.
 
 ## Architecture
+
+The local actor tree starts at the root guardian (`/`). Its `/user` and `/system`
+children supervise application and system actors. The root also resolves `/temp`
+for temporary references and `/deadLetters` for undeliverable messages.
+
+`ActorSystem` and `ActorContext` implement `ActorRefFactory` for named and
+automatically named actor creation, local ActorSelection, and asynchronous stop.
+Actors attached through the system buffer messages until their guardian activates the mailbox.
 
 ```text
 tapio-actor/

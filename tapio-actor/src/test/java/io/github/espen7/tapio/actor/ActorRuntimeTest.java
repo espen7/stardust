@@ -19,6 +19,10 @@ import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
+import io.github.espen7.tapio.dispatch.Mailbox;
+import io.github.espen7.tapio.dispatch.MailboxType;
+import io.github.espen7.tapio.dispatch.MessageQueue;
+import io.github.espen7.tapio.dispatch.UnboundedMailbox;
 import io.github.espen7.tapio.event.Info;
 import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.pattern.AskTimeoutException;
@@ -27,6 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -97,7 +102,7 @@ class ActorRuntimeTest {
         assertThrows(ConfigurationException.class, () -> dispatchers.lookup("dispatchers.invalid"));
         assertSame(system.dispatcher(), dispatchers.lookup(Dispatchers.DefaultDispatcherId));
         system.close();
-        assertThrows(IllegalStateException.class, () -> dispatchers.lookup("dispatchers.shared"));
+        assertSame(shared, dispatchers.lookup("dispatchers.shared"));
     }
 
     @Test
@@ -147,6 +152,252 @@ class ActorRuntimeTest {
         assertEquals("/user/echo", actor.path().toStringWithoutAddress());
         assertEquals("echo", actor.path().name());
         assertEquals("hello", ask(actor, "hello"));
+    }
+
+    @Test
+    void rootGuardianResolvesBuiltInTopLevelPaths() {
+        system = ActorSystem.create("root-guardian");
+        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        LocalActorRef root = provider.rootGuardian();
+        LocalActorRef user = provider.guardian();
+        LocalActorRef systemGuardian = provider.systemGuardian();
+        VirtualPathContainer temp = (VirtualPathContainer) provider.tempContainer();
+
+        assertEquals("tapio://root-guardian/", root.path().toString());
+        assertEquals("/", root.path().name());
+        assertEquals(ActorPath.UndefinedUid, root.path().uid());
+        assertSame(root.path(), root.path().parent());
+        assertSame(root, root.getParent());
+        assertEquals("/bubble-walker", root.underlying().parent().path().toStringWithoutAddress());
+        assertNull(root.getSingleChild("bubble-walker"));
+        assertSame(root, user.getParent());
+        assertSame(root, systemGuardian.getParent());
+        assertSame(root, temp.getParent());
+        assertSame(user, root.getSingleChild("user"));
+        assertSame(user, root.getSingleChild("user#" + user.path().uid()));
+        assertSame(systemGuardian, root.getSingleChild("system"));
+        assertSame(temp, root.getSingleChild("temp"));
+        assertSame(system.deadLetters(), root.getSingleChild("deadLetters"));
+        assertNull(root.getSingleChild("remote"));
+        assertSame(root.path(), user.path().parent());
+        assertSame(root.path(), systemGuardian.path().parent());
+        assertSame(root.path(), temp.path().parent());
+        assertSame(root.path(), system.deadLetters().path().parent());
+    }
+
+    @Test
+    void actorRefFactoryCreatesAndStopsActorsFromSystemAndContext() throws Exception {
+        system = ActorSystem.create("factory");
+        ActorRefFactory factory = system;
+        ActorRef parent = factory.actorOf(Props.create(FactoryProbe.class));
+        assertEquals("/user/$a", parent.path().toStringWithoutAddress());
+        assertSame(system.dispatcher(), factory.dispatcher());
+        ActorRef child = (ActorRef) ask(parent, "create-child");
+        assertEquals("/user/$a/$a", child.path().toStringWithoutAddress());
+        assertEquals("ready", ask(child, "ready"));
+        assertThrows(InvalidActorNameException.class, () -> factory.actorOf(Props.create(EchoActor.class), "$a"));
+        assertThrows(InvalidActorNameException.class, () -> factory.actorOf(Props.create(EchoActor.class), "a#b"));
+        ActorRef service = system.systemActorOf(Props.create(EchoActor.class), "service");
+
+        Props watcherProps = Props.create(WatcherActor.class);
+        ActorRef childWatcher = factory.actorOf(watcherProps, "child-watcher");
+        ActorRef parentWatcher = factory.actorOf(watcherProps, "parent-watcher");
+        ActorRef serviceWatcher = factory.actorOf(watcherProps, "service-watcher");
+        assertThrows(InvalidActorNameException.class, () -> factory.actorOf(watcherProps, "child-watcher"));
+        assertEquals("watching", ask(childWatcher, new Watch(child)));
+        assertEquals("watching", ask(parentWatcher, new Watch(parent)));
+        assertEquals("watching", ask(serviceWatcher, new Watch(service)));
+        assertEquals("stopping", ask(parent, "stop-child"));
+        assertEquals(child.path().toString(), ask(childWatcher, "await-termination"));
+        factory.stop(parent);
+        assertEquals(parent.path().toString(), ask(parentWatcher, "await-termination"));
+        factory.stop(service);
+        assertEquals(service.path().toString(), ask(serviceWatcher, "await-termination"));
+    }
+
+    @Test
+    void providerResolvesLocalPathsAndRetainsMissingRecipient() throws Exception {
+        system = ActorSystem.create("provider");
+        ActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        Address local = new Address(ActorPath.Scheme, "provider");
+        Address foreign = new Address(ActorPath.Scheme, "foreign");
+        assertEquals(local, provider.getDefaultAddress());
+        assertEquals(local, provider.rootPath().address());
+        assertEquals(local, provider.getExternalAddressFor(local).orElseThrow());
+        assertTrue(provider.getExternalAddressFor(foreign).isEmpty());
+        assertSame(provider.rootGuardian(), provider.rootGuardianAt(local));
+        assertSame(system.deadLetters(), provider.rootGuardianAt(foreign));
+        assertSame(system.deadLetters(), provider.resolveActorRef("tapio://foreign/user/worker"));
+        assertSame(system.deadLetters(), provider.resolveActorRef("/user/worker"));
+        assertSame(provider.rootGuardian(), provider.resolveActorRef("tapio://provider/"));
+        assertSame(provider.tempContainer(), provider.resolveActorRef("tapio://provider/temp"));
+
+        ActorRef actor = system.actorOf(Props.create(EchoActor.class), "worker");
+        assertSame(actor, provider.resolveActorRef(actor.path()));
+        String pathWithUid = actor.path() + "#" + actor.path().uid();
+        assertSame(actor, provider.resolveActorRef(pathWithUid));
+        int otherUid = actor.path().uid() == 1 ? 2 : 1;
+        ActorRef missing = provider.resolveActorRef(actor.path() + "#" + otherUid);
+        assertInstanceOf(EmptyLocalActorRef.class, missing);
+        assertEquals(actor.path(), missing.path());
+        assertEquals(otherUid, missing.path().uid());
+
+        ActorRef ignore = provider.ignoreRef();
+        assertEquals("tapio://local/ignore", ignore.path().toString());
+        ignore.tell("ignored");
+        assertFalse(ignore.isTerminated());
+    }
+
+    @Test
+    void providerUsesExplicitDeployWhenLookupIsDisabled() throws Exception {
+        system = ActorSystem.create("provider-deploy", ConfigFactory.parseString("""
+                tapio.actor.deployment./worker.dispatcher = "missing-dispatcher"
+                """));
+        ActorSystemImpl systemImpl = (ActorSystemImpl) system;
+        ActorRefProvider provider = systemImpl.provider();
+        LocalActorRef guardian = provider.guardian();
+        ActorPath path = new ActorPath(guardian.path(), "worker", 17);
+        Props props = Props.create(EchoActor.class);
+        Optional<Deploy> deploy = Optional.of(new Deploy("/worker", Dispatchers.DefaultDispatcherId, ""));
+
+        assertThrows(ConfigurationException.class,
+                () -> provider.actorOf(systemImpl, props, guardian, path, false, deploy, true, false));
+        guardian.underlying().reserveChild("worker");
+        InternalActorRef actor = provider.actorOf(systemImpl, props, guardian, path, false, deploy, false, false);
+        guardian.underlying().initChild(actor);
+        actor.start();
+        assertSame(path, actor.path());
+        assertEquals("ready", ask(actor, "ready"));
+    }
+
+    @Test
+    void actorSelectionResolvesFromSystemAndContext() throws Exception {
+        system = ActorSystem.create("selection");
+        ActorRef parent = system.actorOf(Props.create(FactoryProbe.class), "parent");
+        ActorRef child = (ActorRef) ask(parent, "create-child");
+        Duration timeout = Duration.ofSeconds(1);
+
+        assertSame(child, system.actorSelection(child.path()).resolveOne(timeout)
+                .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertSame(child, system.actorSelection(child.path().toString()).resolveOne(timeout)
+                .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("hello", Patterns.ask(system.actorSelection("/user/parent/*"), "hello", timeout)
+                .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("relative", ask(parent, "select-child"));
+        assertSame(parent, ActorSelection.apply(child, "..").resolveOne(timeout)
+                .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertSame(child, ActorSelection.apply(parent, "$?").resolveOne(timeout)
+                .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        ExecutionException missing = assertThrows(ExecutionException.class, () ->
+                system.actorSelection("tapio://selection/user/missing").resolveOne(timeout)
+                        .toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertInstanceOf(ActorNotFound.class, missing.getCause());
+    }
+
+    @Test
+    void wildcardSelectionFansOutAndPublishesMissingPayloadAsDeadLetter() throws Exception {
+        system = ActorSystem.create("selection-fanout");
+        ActorRef first = system.actorOf(Props.create(EchoActor.class), "echo-a");
+        ActorRef second = system.actorOf(Props.create(EchoActor.class), "echo-b");
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef observer = system.actorOf(Props.create(EventSubscriberActor.class, events), "observer");
+        system.eventStream().subscribe(observer, DeadLetter.class);
+
+        system.actorSelection("/user/echo-*").tell(new Identify("echoes"), observer);
+        ActorIdentity one = assertInstanceOf(ActorIdentity.class, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        ActorIdentity two = assertInstanceOf(ActorIdentity.class, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(java.util.Set.of(first, second), java.util.Set.of(one.ref().orElseThrow(), two.ref().orElseThrow()));
+
+        system.actorSelection("/user/echo-missing").tell("payload", observer);
+        DeadLetter missing = assertInstanceOf(DeadLetter.class, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("payload", missing.message());
+        assertSame(observer, missing.sender());
+        assertEquals("/user/echo-missing", missing.recipient().path().toStringWithoutAddress());
+    }
+
+    @Test
+    void asynchronousAttachmentBuffersMessagesUntilSupervisorActivatesTheCell() throws Exception {
+        system = ActorSystem.create("repointable", ConfigFactory.parseString("""
+                activation-mailbox.mailbox-type = "io.github.espen7.tapio.actor.ActorRuntimeTest$ActivationMailbox"
+                """));
+        BlockingQueue<Object> replies = new LinkedBlockingQueue<>();
+        ActorRef receiver = system.actorOf(Props.create(EventSubscriberActor.class, replies), "receiver");
+        ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
+        assertInstanceOf(ActorIdentity.class, ask(receiver, new Identify("ready")));
+        assertInstanceOf(ActorIdentity.class, ask(watcher, new Identify("ready")));
+        ActivationMailbox.entered = new CountDownLatch(1);
+        ActivationMailbox.release = new CountDownLatch(1);
+        ActorRef actor = system.actorOf(Props.create(EchoActor.class).withMailbox("activation-mailbox"), "buffered");
+        try {
+            assertTrue(ActivationMailbox.entered.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            RepointableActorRef repointable = assertInstanceOf(RepointableActorRef.class, actor);
+            assertInstanceOf(UnstartedCell.class, repointable.underlying());
+            assertEquals("watching", ask(watcher, new Watch(actor)));
+            actor.tell("first", receiver);
+            actor.tell("second", receiver);
+            assertTrue(replies.isEmpty());
+        } finally {
+            ActivationMailbox.release.countDown();
+        }
+        assertEquals("first", replies.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("second", replies.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        system.stop(actor);
+        assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
+    }
+
+    @Test
+    void localProviderReusesSerializationInformation() {
+        system = ActorSystem.create("serialization-info");
+        ActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        var info = provider.serializationInformation();
+        assertSame(info, provider.serializationInformation());
+        assertSame(system, info.system());
+        assertEquals(provider.getDefaultAddress(), info.address());
+    }
+
+    @Test
+    void asynchronousMailboxCreationFailureTerminatesTheActor() throws Exception {
+        system = ActorSystem.create("repointable-failure", ConfigFactory.parseString("""
+                failing-mailbox.mailbox-type = "io.github.espen7.tapio.actor.ActorRuntimeTest$FailingMailbox"
+                """));
+        ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
+        ActorRef actor = system.actorOf(Props.create(EchoActor.class).withMailbox("failing-mailbox"), "failed");
+        assertEquals("watching", ask(watcher, new Watch(actor)));
+        assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
+        assertTrue(actor.isTerminated());
+        assertEquals("ready", ask(system.actorOf(Props.create(EchoActor.class), "healthy"), "ready"));
+    }
+
+    public static final class FailingMailbox implements MailboxType {
+        public FailingMailbox(ActorSystem.Settings settings, Config config) {
+        }
+
+        @Override
+        public MessageQueue create(ActorRef owner, ActorSystem system) {
+            throw new IllegalStateException("mailbox creation failure");
+        }
+    }
+
+    public static final class ActivationMailbox implements MailboxType {
+        private static volatile CountDownLatch entered;
+        private static volatile CountDownLatch release;
+
+        public ActivationMailbox(ActorSystem.Settings settings, Config config) {
+        }
+
+        @Override
+        public MessageQueue create(ActorRef owner, ActorSystem system) {
+            entered.countDown();
+            try {
+                if (!release.await(WAIT_SECONDS, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("activation gate was not released");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+            return new UnboundedMailbox.MessageQueue();
+        }
     }
 
     @AfterEach
@@ -570,7 +821,7 @@ class ActorRuntimeTest {
 
     @Test
     void askToUnsupportedRecipientReturnsFailedStage() {
-        CompletionStage<Object> result = Patterns.ask(null, 3.14, Duration.ofSeconds(1));
+        CompletionStage<Object> result = Patterns.ask((ActorRef) null, 3.14, Duration.ofSeconds(1));
 
         assertTrue(result.toCompletableFuture().isCompletedExceptionally());
         CompletionException error = assertThrows(CompletionException.class, () -> result.toCompletableFuture().join());
@@ -585,19 +836,14 @@ class ActorRuntimeTest {
         BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "subscriber");
         system.eventStream().subscribe(subscriber, DeadLetter.class);
-        ActorRef actor = system.actorOf(Props.create(SilentActor.class), "stopped");
+        ActorRef actor = system.actorOf(Props.create(EchoActor.class), "stopped");
+        assertEquals("ready", ask(actor, "ready"));
+        Mailbox mailbox = ((ActorCell) ((ActorRefWithCell) actor).underlying()).mailbox();
         ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
         assertEquals("watching", ask(watcher, new Watch(actor)));
         actor.stop();
         assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
-        // DeathWatch 通知先于 Dispatcher 注销，在有上限的等待内确认 Mailbox 已切换。
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        LocalActorRef stopped = (LocalActorRef) actor;
-        while (!stopped.underlying().mailbox().isClosed() && System.nanoTime() < deadline) {
-            Thread.yield();
-        }
-        assertTrue(stopped.underlying().mailbox().isClosed());
-
+        assertTrue(mailbox.isClosed());
         CompletionStage<Object> result = Patterns.ask(actor, "request", Duration.ZERO);
         assertTrue(result.toCompletableFuture().isCompletedExceptionally());
         CompletionException error = assertThrows(CompletionException.class, () -> result.toCompletableFuture().join());
@@ -636,14 +882,16 @@ class ActorRuntimeTest {
         ActorPath path = replyTo.path();
         assertTrue(path.toString().startsWith("tapio://ask-ref/temp/probe$"));
         assertSame(replyTo, temp.getChild(path.name()));
+        assertSame(replyTo, provider.resolveActorRef(path.toString()));
         assertEquals("watching", ask(watcher, new Watch(replyTo)));
 
-        replyTo.tell("response", actor);
+        system.actorSelection(path).tell("response", actor);
         assertEquals("response", result.toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals(path.toString(), ask(watcher, "await-termination"));
         assertTrue(replyTo.isTerminated());
         assertSame(path, replyTo.path());
         assertNull(temp.getChild(path.name()));
+        assertInstanceOf(EmptyLocalActorRef.class, provider.resolveActorRef(path));
 
         replyTo.tell("duplicate", actor);
         assertEquals(new DeadLetter("duplicate", actor, replyTo), events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
@@ -739,14 +987,40 @@ class ActorRuntimeTest {
     @Test
     void terminateCompletesSystemTerminationStage() throws Exception {
         system = ActorSystem.create("terminate");
-        ActorRef actor = system.actorOf(Props.create(SilentActor.class), "actor");
-        assertNotNull(actor);
+        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        BlockingQueue<String> stopped = new LinkedBlockingQueue<>();
+        Props props = Props.create(StopProbe.class, stopped);
+        ActorRef actor = system.actorOf(props, "actor");
+        ActorRef service = system.systemActorOf(props, "service");
+        assertEquals("ready", ask(actor, "ready"));
+        assertEquals("ready", ask(service, "ready"));
 
         Terminated terminated = system.terminate().toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS);
 
+        assertEquals("/user/actor", stopped.poll());
+        assertEquals("/system/service", stopped.poll());
         assertTrue(actor.isTerminated());
+        assertTrue(service.isTerminated());
+        assertTrue(provider.guardian().isTerminated());
+        assertTrue(provider.systemGuardian().isTerminated());
+        assertSame(provider.rootGuardian(), terminated.actor());
         assertTrue(terminated.actor().isTerminated());
+        assertTrue(terminated.existenceConfirmed());
+        assertTrue(terminated.addressTerminated());
         assertTrue(system.getWhenTerminated().toCompletableFuture().isDone());
+    }
+
+    public static class StopProbe extends EchoActor {
+        private final BlockingQueue<String> stopped;
+
+        public StopProbe(BlockingQueue<String> stopped) {
+            this.stopped = stopped;
+        }
+
+        @Override
+        public void postStop() {
+            stopped.add(getSelf().path().toStringWithoutAddress());
+        }
     }
 
     private static Object ask(ActorRef actor, Object message) throws Exception {
@@ -758,6 +1032,28 @@ class ActorRuntimeTest {
         @Override
         public Receive createReceive() {
             return receiveBuilder().matchAny(message -> getSender().tell(message, getSelf())).build();
+        }
+    }
+
+    public static class FactoryProbe extends AbstractActor {
+        private ActorRef child;
+
+        @Override
+        public Receive createReceive() {
+            ActorRefFactory factory = getContext();
+            return receiveBuilder()
+                    .match(String.class, message -> {
+                        if (message.equals("create-child")) {
+                            child = factory.actorOf(Props.create(EchoActor.class));
+                            getSender().tell(child, getSelf());
+                        } else if (message.equals("stop-child")) {
+                            factory.stop(child);
+                            getSender().tell("stopping", getSelf());
+                        } else if (message.equals("select-child")) {
+                            factory.actorSelection(child.path().name()).forward("relative", getContext());
+                        }
+                    })
+                    .build();
         }
     }
 

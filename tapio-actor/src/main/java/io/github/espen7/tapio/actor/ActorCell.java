@@ -18,6 +18,7 @@ import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.Mailbox;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.ProducesMessageQueue;
+import io.github.espen7.tapio.dispatch.UnboundedMailbox;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 import io.github.espen7.tapio.event.Debug;
 import io.github.espen7.tapio.event.Error;
@@ -26,6 +27,7 @@ import io.github.espen7.tapio.event.Warning;
 import io.github.espen7.tapio.actor.dungeon.ChildNameReserved;
 import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
 import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
+import io.github.espen7.tapio.util.Helpers;
 
 import java.util.ArrayDeque;
 import java.util.Collection;
@@ -34,7 +36,9 @@ import java.lang.invoke.VarHandle;
 import java.util.LinkedList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 保存 Actor 实例及其运行时状态。
@@ -43,15 +47,17 @@ import java.util.Set;
  * watcher 和当前消息。所有用户消息都在 Dispatcher 调度的 Mailbox 线程中进入
  * {@link #invoke(Envelope)}，因此 Actor 的 receive 回调在同一时间只会有一个执行者。</p>
  */
-public class ActorCell implements ActorContext {
+public class ActorCell implements ActorContext, Cell {
     private static final VarHandle childrenRefsHandle;
     private static final VarHandle mailboxHandle;
+    private static final VarHandle nextNameHandle;
 
     static {
         try {
             childrenRefsHandle = MethodHandles.lookup().findVarHandle(
                     ActorCell.class, "childrenRefs", ChildrenContainer.class);
             mailboxHandle = MethodHandles.lookup().findVarHandle(ActorCell.class, "mailbox", Mailbox.class);
+            nextNameHandle = MethodHandles.lookup().findVarHandle(ActorCell.class, "nextName", long.class);
         } catch (ReflectiveOperationException error) {
             throw new ExceptionInInitializerError(error);
         }
@@ -60,7 +66,7 @@ public class ActorCell implements ActorContext {
     /** 所属 ActorSystem。 */
     private final ActorSystemImpl system;
     /** 此 cell 的 ActorRef。 */
-    private final LocalActorRef self;
+    private final ActorRefWithCell self;
     /** 创建或重建 Actor 实例时使用的 Props。 */
     private final Props initialProps;
     /** 调度此 cell mailbox 的 Dispatcher。 */
@@ -68,6 +74,8 @@ public class ActorCell implements ActorContext {
     /** 此 Actor 的 parent 和 supervisor。 */
     private final ActorRef parent;
     private volatile Mailbox mailbox;
+    @SuppressWarnings("unused")
+    private volatile long nextName;
     /** children 状态快照通过 CAS 更新，供运行时并发读取。 */
     @SuppressWarnings("FieldMayBeFinal")
     private volatile ChildrenContainer childrenRefs = ChildrenContainer.empty();
@@ -96,9 +104,9 @@ public class ActorCell implements ActorContext {
      * @param self       此 cell 对应的本地 ActorRef
      * @param props      创建或重新创建 Actor 实例所用的 Props
      * @param dispatcher 调度此 cell mailbox 的 Dispatcher
-     * @param parent     supervisor 和 parent ActorRef；root guardian 没有 parent
+     * @param parent     负责监督该 cell 的父级引用
      */
-    public ActorCell(ActorSystemImpl system, LocalActorRef self, Props props, Dispatcher dispatcher, ActorRef parent) {
+    public ActorCell(ActorSystemImpl system, ActorRefWithCell self, Props props, Dispatcher dispatcher, ActorRef parent) {
         this.system = system;
         this.self = self;
         this.initialProps = props;
@@ -132,7 +140,7 @@ public class ActorCell implements ActorContext {
      *
      * @return 此 ActorCell 的 ActorRef
      */
-    public LocalActorRef self() {
+    public ActorRefWithCell self() {
         return self;
     }
 
@@ -148,7 +156,7 @@ public class ActorCell implements ActorContext {
     /**
      * 返回 parent ActorRef。
      *
-     * @return parent ActorRef；root guardian 没有 parent
+     * @return 负责监督该 cell 的父级引用
      */
     public ActorRef parent() {
         return parent;
@@ -169,7 +177,7 @@ public class ActorCell implements ActorContext {
         return childrenRefsHandle.compareAndSet(this, oldValue, newValue);
     }
 
-    private void reserveChild(String name) {
+    void reserveChild(String name) {
         for (; ; ) {
             ChildrenContainer current = childrenRefs();
             if (swapChildrenRefs(current, current.reserve(name))) return;
@@ -195,18 +203,29 @@ public class ActorCell implements ActorContext {
         }
     }
 
-    private ChildRestartStats initChild(ActorRef child) {
-        if (!(child instanceof LocalActorRef localChild)) return null;
-        String name = localChild.name();
+    ChildRestartStats initChild(ActorRef child) {
+        if (!(child instanceof ActorRefWithCell)) return null;
+        String name = child.path().name();
         for (; ; ) {
             ChildrenContainer current = childrenRefs();
             if (current.isTerminating()) return null;
-            if (current.getByName(name) != ChildNameReserved.INSTANCE) {
-                return null;
-            }
+            var existing = current.getByName(name);
+            if (existing instanceof ChildRestartStats stats && stats.child().equals(child)) return stats;
+            if (existing != ChildNameReserved.INSTANCE) return null;
             ChildRestartStats childStats = new ChildRestartStats(child);
             if (swapChildrenRefs(current, current.add(name, childStats))) return childStats;
         }
+    }
+
+    InternalActorRef getSingleChild(String name) {
+        int separator = name.indexOf('#');
+        String childName = separator < 0 ? name : name.substring(0, separator);
+        int uid = separator < 0 ? ActorPath.UndefinedUid : Integer.parseInt(name.substring(separator + 1));
+        if (childrenRefs().getByName(childName) instanceof ChildRestartStats stats
+                && (uid == ActorPath.UndefinedUid || uid == stats.uid())) {
+            return (InternalActorRef) stats.child();
+        }
+        return null;
     }
 
     /**
@@ -216,6 +235,7 @@ public class ActorCell implements ActorContext {
      * @param async 是否异步确认监督关系
      */
     protected void handleSupervise(ActorRef child, boolean async) {
+        if (async && child instanceof RepointableActorRef repointable) repointable.point(true);
     }
 
     private ChildrenContainer.SuspendReason removeChildAndGetStateChange(ActorRef child) {
@@ -293,6 +313,7 @@ public class ActorCell implements ActorContext {
      *
      * @return 已终止时返回 {@code true}
      */
+    @Override
     public boolean isTerminated() {
         return terminated;
     }
@@ -320,13 +341,22 @@ public class ActorCell implements ActorContext {
         } else {
             createMessage = new SystemMessage.Create(null);
         }
+        initMailbox(created, createMessage);
+        if (sendSupervise && parent instanceof InternalActorRef supervisor) {
+            supervisor.sendSystemMessage(new SystemMessage.Supervise(self, false));
+        }
+    }
+
+    void initWithFailure(Throwable failure) {
+        Mailbox created = dispatcher.createMailbox(this, new UnboundedMailbox());
+        initMailbox(created, new SystemMessage.Create(new ActorInitializationException(
+                self.path() + ": failure while creating Actor[" + self + "]", failure)));
+    }
+
+    private void initMailbox(Mailbox created, SystemMessage.Create create) {
         swapMailbox(created);
         created.setActor(this, dispatcher);
-        created.systemEnqueue(self, createMessage);
-        if (sendSupervise && parent != null) {
-            ((LocalActorRef) parent).underlying().sendSystemMessage(new SystemMessage.Supervise(self, false));
-        }
-        dispatcher.registerForExecution(created, false, true);
+        created.systemEnqueue(self, create);
     }
 
     /**
@@ -343,17 +373,16 @@ public class ActorCell implements ActorContext {
      *
      * @return 此 cell 的 Dispatcher
      */
+    @Override
     public Dispatcher dispatcher() {
         return dispatcher;
     }
 
     /**
-     * 启动此 ActorCell。
-     *
-     * <p>当前实现由 {@link #init(boolean, io.github.espen7.tapio.dispatch.MailboxType)} 中的
-     * Create 系统消息启动 mailbox，此方法暂时保留上游入口但没有额外动作。</p>
+     * 在初始化后启动此 ActorCell，调度包含 Create 系统消息的 Mailbox。
      */
     public void start() {
+        dispatcher.attach(this);
     }
 
 
@@ -364,7 +393,12 @@ public class ActorCell implements ActorContext {
      * @param sender  发送者引用；为 {@code null} 时转换成 dead letters 引用
      */
     public void sendMessage(Object message, ActorRef sender) {
-        dispatcher.dispatch(this, Envelope.apply(message, sender, system));
+        sendMessage(Envelope.apply(message, sender, system));
+    }
+
+    @Override
+    public void sendMessage(Envelope message) {
+        dispatcher.dispatch(this, message);
     }
 
     /**
@@ -372,6 +406,7 @@ public class ActorCell implements ActorContext {
      *
      * @param message 要投递的 system message
      */
+    @Override
     public void sendSystemMessage(SystemMessage message) {
         dispatcher.systemDispatch(this, message);
     }
@@ -471,6 +506,14 @@ public class ActorCell implements ActorContext {
                 sender().tell(new ActorIdentity(identify.messageId(), java.util.Optional.of(self)), self);
                 return;
             }
+            if (messageHandle.message() instanceof ActorSelectionMessage selection) {
+                if (selection.elements().isEmpty()) {
+                    invoke(Envelope.apply(selection.message(), sender(), system));
+                } else {
+                    ActorSelection.deliverSelection(self, sender(), selection);
+                }
+                return;
+            }
             behaviorStack.peek().apply(messageHandle.message(), this);
         } catch (Throwable error) {
             rethrowIfFatal(error);
@@ -503,8 +546,8 @@ public class ActorCell implements ActorContext {
             setFailed(self);
         }
         suspendChildren(skip);
-        if (parent instanceof LocalActorRef localParent) {
-            localParent.underlying().sendSystemMessage(new SystemMessage.Failed(self, error, self.path().uid()));
+        if (parent instanceof InternalActorRef supervisor) {
+            supervisor.sendSystemMessage(new SystemMessage.Failed(self, error, self.path().uid()));
         } else {
             sendSystemMessage(new SystemMessage.Terminate());
         }
@@ -520,17 +563,17 @@ public class ActorCell implements ActorContext {
 
     private void suspendChildren(Set<ActorRef> exceptFor) {
         for (ActorRef child : childrenRefs().children()) {
-            if (!exceptFor.contains(child) && child instanceof LocalActorRef localChild) {
-                localChild.underlying().sendSystemMessage(new SystemMessage.Suspend());
+            if (!exceptFor.contains(child) && child instanceof InternalActorRef internalChild) {
+                internalChild.sendSystemMessage(new SystemMessage.Suspend());
             }
         }
     }
 
     private void resumeChildren(Throwable causedByFailure, ActorRef perpetrator) {
         for (ActorRef child : childrenRefs().children()) {
-            if (child instanceof LocalActorRef localChild) {
+            if (child instanceof InternalActorRef internalChild) {
                 Throwable cause = child.equals(perpetrator) ? causedByFailure : null;
-                localChild.underlying().sendSystemMessage(new SystemMessage.Resume(cause));
+                internalChild.sendSystemMessage(new SystemMessage.Resume(cause));
             }
         }
     }
@@ -618,8 +661,8 @@ public class ActorCell implements ActorContext {
             freshActor.postRestart(cause);
             publishLifecycle("restarted");
             for (ActorRef child : survivors) {
-                if (child instanceof LocalActorRef localChild) {
-                    localChild.underlying().sendSystemMessage(new SystemMessage.Recreate(cause));
+                if (child instanceof InternalActorRef internalChild) {
+                    internalChild.sendSystemMessage(new SystemMessage.Recreate(cause));
                 }
             }
         } catch (Throwable error) {
@@ -671,7 +714,7 @@ public class ActorCell implements ActorContext {
     }
 
     @SuppressWarnings("unchecked")
-    private static <E extends Throwable> void throwUnchecked(Throwable error) throws E {
+    static <E extends Throwable> void throwUnchecked(Throwable error) throws E {
         throw (E) error;
     }
 
@@ -707,21 +750,26 @@ public class ActorCell implements ActorContext {
             rethrowIfFatal(error);
             publishError(error, error.getMessage());
         } finally {
-            if (parent instanceof LocalActorRef localParent) {
-                localParent.underlying().sendSystemMessage(
-                        new SystemMessage.DeathWatchNotification(self, true, false));
-            }
-            for (ActorRef watcher : watchedBy) {
-                if (!watcher.equals(parent)) sendTerminated(watcher);
-            }
-            watchedBy = Set.of();
-            publishLifecycle("stopped");
-            dispatcher.unregister(this);
-            actor = null;
-            behaviorStack.clear();
-            if (parent == null) {
-                if (self.equals(system.provider().systemGuardian())) system.systemGuardianTerminated(self);
-                else system.actorTerminated(self);
+            try {
+                dispatcher.detach(this);
+            } finally {
+                try {
+                    try {
+                        if (parent instanceof InternalActorRef supervisor) {
+                            supervisor.sendSystemMessage(new SystemMessage.DeathWatchNotification(self, true, false));
+                        }
+                        for (ActorRef watcher : watchedBy) {
+                            if (!watcher.equals(parent)) sendTerminated(watcher);
+                        }
+                    } finally {
+                        unwatchWatchedActors();
+                        publishLifecycle("stopped");
+                    }
+                } finally {
+                    watchedBy = Set.of();
+                    actor = null;
+                    behaviorStack.clear();
+                }
             }
         }
     }
@@ -768,11 +816,11 @@ public class ActorCell implements ActorContext {
     }
 
     /**
-     * 使用基于当前时间的 name 创建 child。
+     * 使用自动生成的名称创建 child。
      */
     @Override
     public ActorRef actorOf(Props props) {
-        return actorOf(props, "actor-" + System.nanoTime());
+        return makeChild(props, randomName(), false, false);
     }
 
     /**
@@ -784,7 +832,21 @@ public class ActorCell implements ActorContext {
      */
     @Override
     public ActorRef actorOf(Props props, String name) {
-        return attachChild(props, name, false);
+        return makeChild(props, checkName(name), false, false);
+    }
+
+    @Override
+    public ActorSelection actorSelection(String path) {
+        return ActorSelection.apply(system.provider(), self, path);
+    }
+
+    @Override
+    public ActorSelection actorSelection(ActorPath path) {
+        return ActorSelection.apply(system.provider(), path);
+    }
+
+    ActorRef attachChild(Props props, boolean systemService) {
+        return makeChild(props, randomName(), true, systemService);
     }
 
     /**
@@ -799,13 +861,57 @@ public class ActorCell implements ActorContext {
      * @return 新 child 的引用
      */
     public ActorRef attachChild(Props props, String name, boolean systemService) {
+        return makeChild(props, checkName(name), true, systemService);
+    }
+
+    private String randomName() {
+        return Helpers.base64((long) nextNameHandle.getAndAdd(this, 1L), new StringBuilder("$"));
+    }
+
+    private static String checkName(String name) {
+        if (name == null) throw new InvalidActorNameException("actor name must not be null");
+        if (name.isEmpty()) throw new InvalidActorNameException("actor name must not be empty");
+        ActorPath.validatePathElement(name);
+        return name;
+    }
+
+    private static int newUid() {
+        int uid;
+        do {
+            uid = ThreadLocalRandom.current().nextInt();
+        } while (uid == ActorPath.UndefinedUid);
+        return uid;
+    }
+
+    private ActorRef makeChild(Props props, String name, boolean async, boolean systemService) {
+        if (childrenRefs().isTerminating()) {
+            throw new IllegalStateException("cannot create children while terminating or terminated");
+        }
         reserveChild(name);
+        InternalActorRef child;
         try {
-            return system.provider().actorOf(props, name, self);
+            ActorPath path = new ActorPath(self.path(), name, newUid());
+            child = system.provider().actorOf(system, props, self, path, systemService, Optional.empty(), true, async);
         } catch (RuntimeException failure) {
             unreserveChild(name);
             throw failure;
         }
+        if (mailbox != null) {
+            int suspendCount = mailbox.suspendCount();
+            for (int i = 0; i < suspendCount; i++) {
+                if (child instanceof LocalActorRef localChild) {
+                    localChild.underlying().mailbox().systemEnqueue(child, new SystemMessage.Suspend());
+                } else {
+                    child.sendSystemMessage(new SystemMessage.Suspend());
+                }
+            }
+        }
+        if (initChild(child) == null) {
+            child.stop();
+            throw new IllegalStateException("cannot create children while terminating or terminated");
+        }
+        child.start();
+        return child;
     }
 
     /**
@@ -813,9 +919,11 @@ public class ActorCell implements ActorContext {
      */
     @Override
     public void stop(ActorRef actor) {
-        for (; ; ) {
-            ChildrenContainer current = childrenRefs();
-            if (current.getByRef(actor) == null || swapChildrenRefs(current, current.shallDie(actor))) break;
+        if (!(actor instanceof RepointableActorRef repointable) || repointable.isStarted()) {
+            for (; ; ) {
+                ChildrenContainer current = childrenRefs();
+                if (current.getByRef(actor) == null || swapChildrenRefs(current, current.shallDie(actor))) break;
+            }
         }
         actor.stop();
     }

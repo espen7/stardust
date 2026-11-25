@@ -36,13 +36,16 @@ Tapio は現在、初期開発段階です。最初の安定版までは公開 A
 | 領域 | ステータス |
 | --- | --- |
 | ローカル Classic Actor runtime | `tapio-actor` で提供中 |
-| Actor lifecycle、Mailbox、Dispatcher、supervision、DeathWatch | `tapio-actor` で提供中 |
+| Actor lifecycle、Mailbox、supervision、DeathWatch | `tapio-actor` で提供中 |
+| 通常 Dispatcher のライフサイクル、lazy executor の再生成、inhabitants、アイドル時 shutdown | `tapio-actor` で提供中 |
 | Dispatcher/Mailbox の Props・デプロイ設定による結合、無制限/上限付き mailbox | `tapio-actor` で提供中 |
 | EventStream、構造化ログ、`ask`、一回限りのスケジューリング | `tapio-actor` で提供中 |
 | Routing | 計画中 |
 | Cluster Sharding | 計画中 |
 | Kubernetes によるクラスタディスカバリ | 計画中 |
 | クラスタ機能に必要な transport と membership | Tapio の限定的なコンポーネントとして計画中 |
+
+「提供中」は、ローカル runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。internal と PinnedDispatcher、executor 設定、高度な mailbox、周期スケジューリング、完全なロギングライフサイクルは未実装のままです。
 
 初期範囲には、Akka/Pekko の完全なエコシステムは含めません。Typed API、Streams、Persistence、大規模な serialization 統合、完全な remote 互換性、無関係なエンタープライズ統合は対象外です。Actor プラットフォームと対象ワークロードに直接役立つ機能を優先します。
 
@@ -101,6 +104,10 @@ public final class EchoActor extends AbstractActor {
 現在はソースからビルドします。最初のリリース時に正式な依存関係座標を追加します。
 
 ## アーキテクチャ
+
+ローカルの Actor ツリーはルート guardian（`/`）から始まります。その `/user` と `/system` の子が、アプリケーション Actor とシステム Actor をそれぞれ監督します。ルートは、一時参照用の `/temp` と、配信できなかったメッセージの受け先 `/deadLetters` も解決します。
+
+`ActorSystem` と `ActorContext` は `ActorRefFactory` を実装し、名前付きおよび自動命名による Actor 生成、ローカル ActorSelection、非同期 stop を提供します。システム経由でアタッチされた Actor は、guardian が mailbox を起動するまでメッセージをバッファします。
 
 ```text
 tapio-actor/
