@@ -1,79 +1,142 @@
 # Tapio
 
-Tapio 是一个使用 Java 25 阅读并逐步移植 Apache Pekko Classic Actor 本地运行时的项目。实现以 [Pekko 提交 `85ab376242`](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main) 为对照，尽量保留上游的类名、方法名和调用顺序，便于在两份代码之间逐段阅读。
+**面向高并发分布式系统的轻量级 Java 25 Actor 平台。**
 
-Tapio 当前处于早期移植阶段，适合源码学习和继续实现，尚未提供 Pekko 的完整功能集。
+[![Java 25](https://img.shields.io/badge/Java-25-orange.svg)](https://openjdk.org/projects/jdk/25/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+Tapio 是对 Akka 2.6 和 Apache Pekko 背后的 Classic Actor 模型进行 Java 原生重写的项目。它以现代 Java 为基础，提供小型 runtime、面向虚拟线程的并发设计，以及面向游戏和其他高并发业务的精选分布式组件。
+
+Tapio 希望做到易学、易嵌入，也方便 Java 开发者从公开 API 一直阅读到 runtime 实现。项目保留 Akka 生态中真正有用的部分，同时不把所有服务都需要的大量集成和抽象带进来。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-## 范围
+## Akka、Pekko 与 Tapio
 
-当前模块为 `tapio-actor`，包含本地 Actor 创建、消息 Envelope、Mailbox 和 Dispatcher、基础生命周期、基础 One-for-One 监督、DeathWatch 消息、`Patterns.ask`、一次性调度和初步日志事件支持。
+Akka 2.6 是 Classic Actor 模型的 API 和设计源流。Apache Pekko 是 Akka 在项目方向变化之后形成的 Apache-2.0 社区 fork 和延续项目。Tapio 是受这一脉络启发的独立 Java 实现：
 
-以下部分仍与上游存在差异：
+- 保留 `ActorSystem`、`ActorRef`、Mailbox、supervision、EventStream 和 `ask` 等熟悉的 Actor 概念；
+- 以 Java 25 API 为基础，面向现代并发设计 runtime，其中包括虚拟线程方向；
+- 有意识地缩小范围，不追求完整复制 Akka 或 Pekko 的全部生态。
 
-- `ChildrenContainer` 已按 Pekko 风格拆分为空、普通、等待终止和已终止状态，并在 restart 和 termination 后继续处理 lifecycle。`ChildRestartStats` 已实现 child UID、重试次数和时间窗统计。
-- 监督路径已支持 Pekko 默认异常分类、One-for-One 与 All-for-One、重试限制、升级和失败日志；完整的 guardian 监督生命周期仍未移植。
-- 一次性调度使用 `LightArrayRevolverScheduler`，配置位于 `tapio.scheduler`。周期调度 API 尚未移植。
-- 本地 `Patterns.ask` 使用系统 Scheduler 和临时 `PromiseActorRef`，支持 Classic `Status.Success` / `Status.Failure`、临时引用的 DeathWatch、迟到回复的 dead letters，以及返回 Java `CompletionStage` 的毫秒重载。
-- EventStream 使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发。默认 dead letters 日志订阅器支持计数和暂停；system guardian、`systemActorOf`、`CoordinatedShutdown` 阶段关闭、JVM shutdown hook 和 `LogMarker`/MDC bridge 已加入本地 runtime。System.exit、集群任务和完整日志服务仍未移植。receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未实现。
+Tapio 与 Lightbend、Apache Pekko 项目没有隶属关系，也不是 Akka 或 Pekko 的二进制兼容替代品。
 
-每个上游概念的源码位置和 Java 对应关系记录在 [docs/actor-porting.md](docs/actor-porting.md)。
+## 为什么选择 Tapio
 
-## 环境要求
+- **Java 原生**：应用代码和 runtime 开发都不要求 Scala 工具链。
+- **现代并发**：以 Java 25 为基线，把虚拟线程作为可扩展业务的核心方向。
+- **小而聚焦**：只保留 Actor runtime 和实际服务需要的分布式组件。
+- **源码易读**：清晰的 Java 实现和熟悉的 Classic Actor 模型，适合学习和源码分析。
+- **面向高并发**：为游戏服务器、网关、仿真服务和其他有状态业务提供基础。
+
+## 范围与状态
+
+Tapio 目前处于早期开发阶段。第一个稳定版本发布前，公开 API 和配置仍可能调整。
+
+| 领域 | 状态 |
+| --- | --- |
+| 本地 Classic Actor runtime | `tapio-actor` 已提供 |
+| Actor 生命周期、Mailbox、Dispatcher、supervision、DeathWatch | `tapio-actor` 已提供 |
+| EventStream、结构化日志、`ask`、一次性调度 | `tapio-actor` 已提供 |
+| 路由（Routing） | 计划中 |
+| Cluster Sharding | 计划中 |
+| Kubernetes 集群发现 | 计划中 |
+| 集群功能所需的传输和成员关系组件 | 作为 Tapio 聚焦组件计划实现 |
+
+首期范围不包含完整的 Akka/Pekko 生态：Typed API、Streams、Persistence、大范围序列化集成、完整 Remote 兼容，以及无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
+
+## 快速开始
+
+### 环境要求
 
 - JDK 25
 - Maven 3.9 或更新版本
 
-当前仓库没有 Maven Wrapper。确认 `java -version` 和 `mvn -version` 后，在仓库根目录执行：
+### 从源码构建
 
 ```shell
+git clone https://github.com/espen7/tapio.git
+cd tapio
 mvn test
 ```
 
-单元测试覆盖本地运行时的基础调用路径，不代表行为已通过 Pekko 测试套件验证。打包模块可执行 `mvn -DskipTests package`。
+不运行测试直接打包 Actor 模块：
 
-## ActorSystem 配置
-
-`ActorSystem.create(name)` 加载 `application.conf` 和 `reference.conf`。`ActorSystem.create(name, config)` 使用传入的配置，并由 `reference.conf` 补齐默认值。有效配置可通过 `system.settings().config()` 读取。
-
-`tapio.actor.default-dispatcher.throughput` 默认是 `5`，控制一次 Mailbox 调度处理的普通消息数。
-`tapio.actor.default-dispatcher.throughput-deadline-time` 默认是 `0ms`，表示关闭批次时间限制。
-`system.dispatchers().lookup(id)` 支持查找命名的普通 Dispatcher，多个别名可以指向同一个实例。Actor 创建目前使用默认 Dispatcher。
-
-## Logging
-
-`ActorSystem` 和 `AbstractActor` 提供 `log()`，支持 `debug`、`info`、`warning`、`error` 和 `{}` 参数模板。日志先成为带 source path、source class、level、message 和 cause 的 `LogEvent`，再发布到 `ActorSystem.eventStream()`。默认 SLF4J logger Actor 会将 source path 加在消息前；应用可以使用 ActorRef 和 `LogEvent.class` 订阅结构化事件。
-
-运行库只依赖 `slf4j-api`，不捆绑日志实现。应用需要在运行时添加一个 SLF4J provider，例如 Logback、Log4j2、SLF4J Simple 或 JUL provider，并配置其级别和输出格式。未添加 provider 时，SLF4J 会提示缺少 provider 并使用 NOP logger。
-
-ActorSystem 从 `application.conf` 读取 Tapio 日志设置：
-
-```hocon
-tapio.loglevel = "DEBUG"
-tapio.actor.debug.lifecycle = on
-tapio.actor.debug.unhandled = on
+```shell
+mvn -DskipTests package
 ```
 
-要输出生命周期和未处理消息的 DEBUG 日志，需要将 `tapio.loglevel` 设为 `DEBUG`，并在所选 SLF4J provider 中为相关 logger 启用 DEBUG 级别。`reference.conf` 使用 `tapio.actor.loglevel` 作为 `tapio.loglevel` 的回退值。生命周期日志包括 Actor 创建、监督、restart、stop 和 DeathWatch 变化，默认关闭。未处理消息始终作为 `UnhandledMessage` 发布；设为 `debug.unhandled = on` 后才会转成 DEBUG 日志。`debug.receive` 和 `debug.autoreceive` 键已保留，但相关 receive decorator 和 AutoReceive API 尚未移植。
+### 最小 Actor 示例
 
-## 模块结构
+```java
+import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.Props;
+import io.github.espen7.tapio.pattern.Patterns;
+
+import java.time.Duration;
+
+public final class EchoActor extends AbstractActor {
+    @Override
+    public Receive createReceive() {
+        return receiveBuilder()
+                .match(String.class, message -> getSender().tell(message, getSelf()))
+                .build();
+    }
+
+    public static void main(String[] args) {
+        try (ActorSystem system = ActorSystem.create("example")) {
+            ActorRef echo = system.actorOf(Props.create(EchoActor.class), "echo");
+            Object reply = Patterns.ask(echo, "hello", Duration.ofSeconds(1))
+                    .toCompletableFuture()
+                    .join();
+            System.out.println(reply);
+        }
+    }
+}
+```
+
+当前仓库从源码构建。首个版本发布后，README 会补充正式的依赖坐标。
+
+## 架构
 
 ```text
 tapio-actor/
 └── src/main/
     ├── java/io/github/espen7/tapio/
-    │   ├── actor/       # ActorSystem、ActorRef、ActorCell、生命周期
-    │   ├── dispatch/    # Dispatcher、Mailbox、Envelope、SystemMessage
-    │   ├── event/       # LogEvent、EventStream、LoggingAdapter 和 SLF4J bridge
-    │   ├── japi/        # Java Creator 和 ReceiveBuilder
+    │   ├── actor/       # ActorSystem、ActorRef、生命周期、supervision
+    │   ├── dispatch/    # Dispatcher、Mailbox、Envelope、system message
+    │   ├── event/       # EventStream、LogEvent、SLF4J bridge
+    │   ├── japi/        # Java Creator 和 ReceiveBuilder API
     │   └── pattern/     # ask 模式
-    └── resources/
-        └── reference.conf
+    └── resources/       # reference.conf 默认配置
 ```
 
-Java 包保留 Pekko 的相对层级，并使用 `io.github.espen7.tapio` 作为包前缀。入口和类的映射以 Pekko 提交 `85ab376242` 为准。
+`tapio-actor` 当前提供本地 runtime。路由、Sharding 和 Kubernetes 发现会围绕同一 Actor 模型作为聚焦模块加入，不要求引入完整 Pekko 生态。
 
-## 许可证
+## 配置与日志
 
-Tapio 按 Apache License 2.0 发布，详情见 [LICENSE](LICENSE)。实现应继续记录 Pekko 对照来源，并为直接派生或复制的代码保留适用的版权、许可和 NOTICE 信息。
+`ActorSystem.create(name)` 会加载 `application.conf` 和模块的 `reference.conf` 默认值。runtime 通过 `ActorSystem` 提供命名 Dispatcher 查找、Scheduler 设置、协调关闭、dead-letter 日志和基于 SLF4J 的结构化事件。
+
+Tapio 只依赖 `slf4j-api`。应用可以选择并配置 Logback、Log4j2、SLF4J Simple 或 JUL provider。
+
+详细配置说明和源码设计记录见 [docs/actor-porting.md](docs/actor-porting.md)。
+
+## 路线图
+
+1. 完成本地 Actor runtime 并稳定公开 API。
+2. 添加适用于常见服务和游戏服务器拓扑的路由能力。
+3. 添加集群成员关系和 Kubernetes 发现。
+4. 添加 Cluster Sharding，支持有状态 Actor 横向扩展。
+5. 在真实高并发负载下验证 Java 25 和虚拟线程执行模型。
+
+## 参与贡献
+
+欢迎提交 Issue 和 Pull Request。较大的 API 或 runtime 改动建议先开 Issue，先讨论行为和兼容性影响。新增 runtime 行为应包含精简的 JUnit 5 覆盖；公共契约发生变化时，也请同步更新文档。
+
+## 源码渊源与许可证
+
+Tapio 使用 [Apache License 2.0](LICENSE) 发布。Actor runtime 遵循 Classic Actor 语义，并以 Apache Pekko 作为实现参考。源码映射、Java 适配说明和适用的上游 NOTICE 记录在 [docs/actor-porting.md](docs/actor-porting.md) 以及源码头部。
+
+Tapio 是独立项目，与 Lightbend、Akka 或 Apache Pekko 没有背书或隶属关系。

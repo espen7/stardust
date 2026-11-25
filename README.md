@@ -1,79 +1,142 @@
 # Tapio
 
-Tapio is a Java 25 project that reads and incrementally ports the Apache Pekko Classic Actor local runtime. The implementation follows [Pekko commit `85ab376242`](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main), keeping upstream class names, method names, and call order as closely as possible so the two codebases can be read side by side.
+**A lightweight Java 25 actor platform for high-concurrency distributed systems.**
 
-Tapio is in an early porting stage. It is intended for source study and continued implementation, and does not provide the full feature set of Pekko.
+[![Java 25](https://img.shields.io/badge/Java-25-orange.svg)](https://openjdk.org/projects/jdk/25/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+Tapio is a Java-first rewrite of the Classic Actor model behind Akka 2.6 and Apache Pekko. It brings the actor model to modern Java, with a small runtime, a virtual-thread-oriented concurrency design, and a focused set of distributed building blocks for games and other high-concurrency services.
+
+Tapio is intended to be easy to learn, easy to embed, and easy for Java developers to read from the public API down to the runtime implementation. It keeps the useful parts of the Akka ecosystem while leaving out the large set of integrations and abstractions that are not needed by every service.
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-## Scope
+## Akka, Pekko, and Tapio
 
-The current module is `tapio-actor`. It includes local Actor creation, message envelopes, Mailbox and Dispatcher support, basic lifecycle handling, basic One-for-One supervision, DeathWatch messages, `Patterns.ask`, one-shot scheduling, and initial logging event support.
+Akka 2.6 is the API and design lineage for the Classic Actor model. Apache Pekko is the Apache-2.0 community fork and continuation of Akka after the project changed direction. Tapio is an independent Java implementation inspired by that lineage:
 
-The following areas still differ from upstream:
+- familiar actor concepts such as `ActorSystem`, `ActorRef`, Mailbox, supervision, EventStream, and `ask`;
+- Java 25 APIs and a runtime designed for modern concurrency, including virtual threads;
+- a deliberately smaller scope instead of a drop-in copy of the full Akka or Pekko ecosystem.
 
-- `ChildrenContainer` is split into Pekko-style empty, normal, waiting-for-termination, and terminated states, and lifecycle handling continues after restart and termination. `ChildRestartStats` tracks child UIDs, retry counts, and time windows.
-- The supervision path supports Pekko's default exception classification, One-for-One and All-for-One supervision, retry limits, escalation, and failure logging. The complete guardian supervision lifecycle is not yet ported.
-- One-shot scheduling uses `LightArrayRevolverScheduler` and is configured under `tapio.scheduler`. Periodic scheduling APIs are not yet ported.
-- Local `Patterns.ask` uses the system Scheduler and temporary `PromiseActorRef` instances. It supports Classic `Status.Success` and `Status.Failure`, DeathWatch for temporary references, dead letters for late replies, and a millisecond overload returning a Java `CompletionStage`.
-- EventStream uses ActorRef subscribers and class channels, dispatching according to parent and child channel types. The default dead-letter logger supports counting and pausing. The system guardian, `systemActorOf`, `CoordinatedShutdown` phase termination, the JVM shutdown hook, and the `LogMarker`/MDC bridge are included in the local runtime. `System.exit`, cluster tasks, and the complete logging service are not yet ported. Receive timeout, ActorSelection, Stash, routing, serialization, I/O, Typed, Remote, and Sharding are not yet implemented.
+Tapio is not affiliated with Lightbend or the Apache Pekko project, and it is not a binary-compatible replacement for Akka or Pekko.
 
-Source locations and Java counterparts for each upstream concept are recorded in [docs/actor-porting.md](docs/actor-porting.md).
+## Why Tapio
 
-## Requirements
+- **Java-native**: no Scala toolchain is required for application code or runtime development.
+- **Modern concurrency**: Java 25 is the baseline, with virtual threads as a core direction for scalable workloads.
+- **Small surface area**: keep the actor runtime and the distributed components that are useful in real services.
+- **Readable implementation**: clear Java code and a familiar Classic Actor model make source analysis practical.
+- **High-concurrency focus**: a foundation for game servers, gateways, simulation services, and other stateful workloads.
+
+## Scope and Status
+
+Tapio is in early development. Public APIs and configuration may change before the first stable release.
+
+| Area | Status |
+| --- | --- |
+| Local Classic Actor runtime | Available in `tapio-actor` |
+| Actor lifecycle, Mailbox, Dispatcher, supervision, and DeathWatch | Available in `tapio-actor` |
+| EventStream, structured logging, `ask`, and one-shot scheduling | Available in `tapio-actor` |
+| Routing | Planned |
+| Cluster Sharding | Planned |
+| Kubernetes-based cluster discovery | Planned |
+| The transport and membership pieces required by the cluster features | Planned as focused Tapio components |
+
+The initial scope does not include the complete Akka/Pekko ecosystem: Typed APIs, Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
+
+## Quick Start
+
+### Requirements
 
 - JDK 25
 - Maven 3.9 or later
 
-There is no Maven Wrapper in this repository. After checking `java -version` and `mvn -version`, run from the repository root:
+### Build from source
 
 ```shell
+git clone https://github.com/espen7/tapio.git
+cd tapio
 mvn test
 ```
 
-The unit tests cover basic local-runtime call paths and are not a substitute for the Pekko test suite. To package the module without tests, run `mvn -DskipTests package`.
+To package the actor module without running tests:
 
-## ActorSystem Configuration
-
-`ActorSystem.create(name)` loads `application.conf` and `reference.conf`. `ActorSystem.create(name, config)` uses the supplied configuration and fills in defaults from `reference.conf`. Effective settings can be read through `system.settings().config()`.
-
-`tapio.actor.default-dispatcher.throughput` defaults to `5` and controls how many ordinary messages a Mailbox processes in one scheduling batch.
-`tapio.actor.default-dispatcher.throughput-deadline-time` defaults to `0ms`, which disables the batch time limit.
-`system.dispatchers().lookup(id)` supports named ordinary Dispatchers; multiple aliases can point to the same instance. Actor creation currently uses the default Dispatcher.
-
-## Logging
-
-`ActorSystem` and `AbstractActor` expose `log()` with `debug`, `info`, `warning`, `error`, and `{}` template methods. Log calls first become `LogEvent` instances containing the source path, source class, level, message, and cause, then are published to `ActorSystem.eventStream()`. The default SLF4J logger Actor prefixes messages with the source path; applications can subscribe to structured events with an ActorRef and `LogEvent.class`.
-
-The runtime depends only on `slf4j-api` and does not bundle a logging implementation. Applications must add an SLF4J provider at runtime, such as Logback, Log4j2, SLF4J Simple, or a JUL provider, and configure its levels and output format. Without a provider, SLF4J reports the missing provider and uses a NOP logger.
-
-ActorSystem reads Tapio logging settings from `application.conf`:
-
-```hocon
-tapio.loglevel = "DEBUG"
-tapio.actor.debug.lifecycle = on
-tapio.actor.debug.unhandled = on
+```shell
+mvn -DskipTests package
 ```
 
-To emit lifecycle and unhandled-message DEBUG logs, set `tapio.loglevel` to `DEBUG` and enable DEBUG for the relevant logger in the selected SLF4J provider. `reference.conf` uses `tapio.actor.loglevel` as the fallback value for `tapio.loglevel`. Lifecycle logs cover Actor creation, supervision, restart, stop, and DeathWatch changes, and are disabled by default. Unhandled messages are always published as `UnhandledMessage`; they become DEBUG logs when `debug.unhandled = on`. The `debug.receive` and `debug.autoreceive` keys are retained, but the related receive decorators and AutoReceive API are not yet ported.
+### Minimal actor
 
-## Module Layout
+```java
+import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.Props;
+import io.github.espen7.tapio.pattern.Patterns;
+
+import java.time.Duration;
+
+public final class EchoActor extends AbstractActor {
+    @Override
+    public Receive createReceive() {
+        return receiveBuilder()
+                .match(String.class, message -> getSender().tell(message, getSelf()))
+                .build();
+    }
+
+    public static void main(String[] args) {
+        try (ActorSystem system = ActorSystem.create("example")) {
+            ActorRef echo = system.actorOf(Props.create(EchoActor.class), "echo");
+            Object reply = Patterns.ask(echo, "hello", Duration.ofSeconds(1))
+                    .toCompletableFuture()
+                    .join();
+            System.out.println(reply);
+        }
+    }
+}
+```
+
+The current repository is built from source. Published artifact coordinates will be documented when the first release is available.
+
+## Architecture
 
 ```text
 tapio-actor/
 └── src/main/
     ├── java/io/github/espen7/tapio/
-    │   ├── actor/       # ActorSystem, ActorRef, ActorCell, and lifecycle
-    │   ├── dispatch/    # Dispatcher, Mailbox, Envelope, and SystemMessage
-    │   ├── event/       # LogEvent, EventStream, LoggingAdapter, and SLF4J bridge
-    │   ├── japi/        # Java Creator and ReceiveBuilder
+    │   ├── actor/       # ActorSystem, ActorRef, lifecycle, supervision
+    │   ├── dispatch/    # Dispatcher, Mailbox, Envelope, system messages
+    │   ├── event/       # EventStream, LogEvent, SLF4J bridge
+    │   ├── japi/        # Java Creator and ReceiveBuilder APIs
     │   └── pattern/     # ask pattern
-    └── resources/
-        └── reference.conf
+    └── resources/       # reference.conf defaults
 ```
 
-Java packages follow Pekko's relative hierarchy and use `io.github.espen7.tapio` as the package prefix. Entry points and class mappings are based on Pekko commit `85ab376242`.
+`tapio-actor` currently provides the local runtime. Routing, sharding, and Kubernetes discovery will be added as focused modules around the same actor model instead of requiring the full Pekko ecosystem.
 
-## License
+## Configuration and Logging
 
-Tapio is released under the Apache License 2.0; see [LICENSE](LICENSE). Upstream references should continue to be recorded, and applicable copyright, license, and NOTICE information must be retained for code directly derived from or copied from Pekko.
+`ActorSystem.create(name)` loads `application.conf` and the module defaults from `reference.conf`. The runtime exposes named Dispatcher lookup, Scheduler settings, coordinated shutdown, dead-letter logging, and SLF4J-backed structured events through `ActorSystem`.
+
+Tapio depends on `slf4j-api` only. Applications choose and configure a provider such as Logback, Log4j2, SLF4J Simple, or a JUL provider.
+
+Detailed configuration notes and source-level design records are available in [docs/actor-porting.md](docs/actor-porting.md).
+
+## Roadmap
+
+1. Complete and stabilize the local actor runtime.
+2. Add routing primitives for common service and game-server topologies.
+3. Add cluster membership and Kubernetes discovery.
+4. Add Cluster Sharding for stateful, horizontally scaled actors.
+5. Validate the Java 25 and virtual-thread execution model under representative high-concurrency workloads.
+
+## Contributing
+
+Issues and pull requests are welcome. For substantial API or runtime changes, open an issue first so the behavior and compatibility impact can be discussed. New runtime behavior should include focused JUnit 5 coverage and documentation when it changes the public contract.
+
+## Source Lineage and License
+
+Tapio is released under the [Apache License 2.0](LICENSE). The actor runtime follows Classic Actor semantics and uses Apache Pekko as an implementation reference. Source-level mappings, adaptation notes, and applicable upstream notices are recorded in [docs/actor-porting.md](docs/actor-porting.md) and in source headers.
+
+Tapio is an independent project and is not endorsed by or affiliated with Lightbend, Akka, or Apache Pekko.
