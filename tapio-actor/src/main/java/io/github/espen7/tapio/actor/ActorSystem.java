@@ -38,7 +38,7 @@ import java.util.concurrent.CompletionStage;
  * {@link CompletionStage}。</p>
  */
 public abstract class ActorSystem implements AutoCloseable {
-    private static final String INTERNAL_DISPATCHER_ID = "pekko.actor.internal-dispatcher";
+    private static final String INTERNAL_DISPATCHER_ID = ActorPath.Scheme + ".actor.internal-dispatcher";
     /** 创建 ActorSystem 抽象实例。 */
     protected ActorSystem() {
     }
@@ -56,7 +56,7 @@ public abstract class ActorSystem implements AutoCloseable {
      * 创建一个指定 system name 的本地 ActorSystem。
      *
      * <p>名称用于组成该系统的 ActorPath，例如
-     * {@code pekko://<name>/user/<actor-name>}。</p>
+     * {@code tapio://<name>/user/<actor-name>}。</p>
      *
      * @param name system name
      * @return 新建的 ActorSystem
@@ -115,32 +115,32 @@ public abstract class ActorSystem implements AutoCloseable {
 
         Settings(ClassLoader classLoader, Config cfg, String name) {
             cfg.checkValid(ConfigFactory.defaultReference(classLoader)
-                    .withoutPath(INTERNAL_DISPATCHER_ID), "pekko");
+                    .withoutPath(INTERNAL_DISPATCHER_ID), ActorPath.Scheme);
             this.config = cfg;
             this.name = name;
-            LogLevel = config.getString("pekko.loglevel");
-            LogDeadLetters = switch (config.getString("pekko.log-dead-letters").toLowerCase(Locale.ROOT)) {
+            LogLevel = config.getString(ActorPath.Scheme + ".loglevel");
+            LogDeadLetters = switch (config.getString(ActorPath.Scheme + ".log-dead-letters").toLowerCase(Locale.ROOT)) {
                 case "off", "false" -> 0;
                 case "on", "true" -> Integer.MAX_VALUE;
-                default -> config.getInt("pekko.log-dead-letters");
+                default -> config.getInt(ActorPath.Scheme + ".log-dead-letters");
             };
-            LogDeadLettersDuringShutdown = config.getBoolean("pekko.log-dead-letters-during-shutdown");
-            String key = "pekko.log-dead-letters-suspend-duration";
+            LogDeadLettersDuringShutdown = config.getBoolean(ActorPath.Scheme + ".log-dead-letters-during-shutdown");
+            String key = ActorPath.Scheme + ".log-dead-letters-suspend-duration";
             logDeadLettersSuspendDurationDescription = config.getString(key);
             LogDeadLettersSuspendDuration = logDeadLettersSuspendDurationDescription.equalsIgnoreCase("infinite")
                     ? null : Duration.ofMillis(config.getDuration(key).toMillis());
-            DebugLifecycle = config.getBoolean("pekko.actor.debug.lifecycle");
-            DebugUnhandledMessage = config.getBoolean("pekko.actor.debug.unhandled");
-            SchedulerClass = config.getString("pekko.scheduler.implementation");
-            Daemonicity = config.getBoolean("pekko.daemonic");
+            DebugLifecycle = config.getBoolean(ActorPath.Scheme + ".actor.debug.lifecycle");
+            DebugUnhandledMessage = config.getBoolean(ActorPath.Scheme + ".actor.debug.unhandled");
+            SchedulerClass = config.getString(ActorPath.Scheme + ".scheduler.implementation");
+            Daemonicity = config.getBoolean(ActorPath.Scheme + ".daemonic");
             CoordinatedShutdownTerminateActorSystem =
-                    config.getBoolean("pekko.coordinated-shutdown.terminate-actor-system");
+                    config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.terminate-actor-system");
             CoordinatedShutdownRunByActorSystemTerminate =
-                    config.getBoolean("pekko.coordinated-shutdown.run-by-actor-system-terminate");
+                    config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.run-by-actor-system-terminate");
             if (CoordinatedShutdownRunByActorSystemTerminate && !CoordinatedShutdownTerminateActorSystem) {
                 throw new ConfigurationException(
-                        "pekko.coordinated-shutdown.run-by-actor-system-terminate=on and "
-                                + "pekko.coordinated-shutdown.terminate-actor-system=off is not a supported configuration combination.");
+                        "tapio.coordinated-shutdown.run-by-actor-system-terminate=on and "
+                                + "tapio.coordinated-shutdown.terminate-actor-system=off is not a supported configuration combination.");
             }
         }
 

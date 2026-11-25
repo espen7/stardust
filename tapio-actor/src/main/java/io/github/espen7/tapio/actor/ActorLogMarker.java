@@ -26,9 +26,9 @@ public final class ActorLogMarker {
      * 创建 dead-letter 日志 marker。
      *
      * @param messageClass dead letter 消息的 class 名称
-     * @return 包含 {@code pekkoMessageClass} 属性的 marker
+     * @return 包含 {@code tapioMessageClass} 属性的 marker
      */
     public static LogMarker deadLetter(String messageClass) {
-        return new LogMarker("pekkoDeadLetter", Map.of(LogMarker.MESSAGE_CLASS, messageClass));
+        return new LogMarker("tapioDeadLetter", Map.of(LogMarker.MESSAGE_CLASS, messageClass));
     }
 }

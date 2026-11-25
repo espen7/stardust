@@ -14,7 +14,7 @@
 package io.github.espen7.tapio;
 
 /** Actor runtime 检测到无效配置时抛出的异常。 */
-public class ConfigurationException extends PekkoException {
+public class ConfigurationException extends TapioException {
     /**
      * 创建配置异常。
      *

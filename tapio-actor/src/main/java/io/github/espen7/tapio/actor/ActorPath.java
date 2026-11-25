@@ -20,6 +20,8 @@ import java.io.Serializable;
  */
 public final class ActorPath implements Comparable<ActorPath>, Serializable {
 
+    /** Tapio ActorPath 使用的 scheme，同时也是 runtime 配置命名空间。 */
+    public static final String Scheme = "tapio";
     /** 未定义 Actor incarnation UID。 */
     public static final int UndefinedUid = 0;
     private final String value;

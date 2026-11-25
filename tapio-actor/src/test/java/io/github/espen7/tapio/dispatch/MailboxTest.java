@@ -28,8 +28,8 @@ class MailboxTest {
     @Test
     void throughputDeadlineEndsTheCurrentMailboxBatch() {
         var config = ConfigFactory.parseString("""
-                pekko.actor.default-dispatcher.throughput = 2
-                pekko.actor.default-dispatcher.throughput-deadline-time = 1 ms
+                tapio.actor.default-dispatcher.throughput = 2
+                tapio.actor.default-dispatcher.throughput-deadline-time = 1 ms
                 """);
         try (ActorSystem system = ActorSystem.create("mailbox-deadline", config)) {
             Duration deadline = system.dispatcher().throughputDeadlineTime();

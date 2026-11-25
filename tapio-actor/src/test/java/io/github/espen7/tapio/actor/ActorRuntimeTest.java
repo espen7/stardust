@@ -40,10 +40,10 @@ class ActorRuntimeTest {
     @Test
     void settingsAndDefaultDispatcherUseApplicationConfig() throws Exception {
         Config config = ConfigFactory.parseString("""
-                pekko.actor.default-dispatcher.throughput = 11
-                pekko.loglevel = "WARNING"
-                pekko.actor.loglevel = "DEBUG"
-                pekko.log-dead-letters = off
+                tapio.actor.default-dispatcher.throughput = 11
+                tapio.loglevel = "WARNING"
+                tapio.actor.loglevel = "DEBUG"
+                tapio.log-dead-letters = off
                 """);
         system = ActorSystem.create("configured-dispatcher", config);
 
@@ -57,7 +57,7 @@ class ActorRuntimeTest {
 
     @Test
     void settingsRetainLegacyLogLevelAsFallback() {
-        system = ActorSystem.create("legacy-loglevel", ConfigFactory.parseString("pekko.actor.loglevel = DEBUG"));
+        system = ActorSystem.create("legacy-loglevel", ConfigFactory.parseString("tapio.actor.loglevel = DEBUG"));
 
         assertEquals(LogEvent.Level.DEBUG, system.eventStream().logLevel());
         assertEquals(5, system.dispatcher().throughput());
@@ -65,7 +65,7 @@ class ActorRuntimeTest {
 
     @Test
     void settingsRejectConflictingShutdownConfig() {
-        Config config = ConfigFactory.parseString("pekko.coordinated-shutdown.terminate-actor-system = off");
+        Config config = ConfigFactory.parseString("tapio.coordinated-shutdown.terminate-actor-system = off");
 
         ConfigurationException error = assertThrows(ConfigurationException.class,
                 () -> ActorSystem.create("invalid-shutdown", config));
@@ -75,7 +75,7 @@ class ActorRuntimeTest {
     @Test
     void dispatchersLookupResolvesAliasesAndInheritsDefaultConfig() {
         Config config = ConfigFactory.parseString("""
-                pekko.actor.default-dispatcher.throughput = 9
+                tapio.actor.default-dispatcher.throughput = 9
                 dispatchers.shared {}
                 dispatchers.alias = "dispatchers.shared"
                 dispatchers.next = "dispatchers.alias"
@@ -221,8 +221,8 @@ class ActorRuntimeTest {
         assertTrue(info.message().contains("Message [java.lang.String] to " + recipient + " was not delivered."));
         assertTrue(info.message().contains("[1] dead letters encountered, no more dead letters will be logged."));
         assertNotNull(info.marker());
-        assertEquals("pekkoDeadLetter", info.marker().name());
-        assertEquals("java.lang.String", info.marker().properties().get("pekkoMessageClass"));
+        assertEquals("tapioDeadLetter", info.marker().name());
+        assertEquals("java.lang.String", info.marker().properties().get("tapioMessageClass"));
     }
 
     @Test
@@ -242,7 +242,7 @@ class ActorRuntimeTest {
             if (next instanceof Info info) event = info;
         }
         assertNotNull(event);
-        assertEquals("pekko://logging/user/logger", event.source());
+        assertEquals("tapio://logging/user/logger", event.source());
         assertEquals(LoggingActor.class, event.sourceClass());
         assertEquals("handled request-1", event.message());
         assertEquals(LogEvent.Level.INFO, event.level());
@@ -524,7 +524,7 @@ class ActorRuntimeTest {
 
     @Test
     void actorPathWithoutAddressReturnsOnlyPathElements() {
-        assertEquals("/user/worker", new ActorPath("pekko://system/user/worker").toStringWithoutAddress());
+        assertEquals("/user/worker", new ActorPath("tapio://system/user/worker").toStringWithoutAddress());
     }
 
     @Test
@@ -634,7 +634,7 @@ class ActorRuntimeTest {
         ActorRef replyTo = replies.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(replyTo);
         ActorPath path = replyTo.path();
-        assertTrue(path.toString().startsWith("pekko://ask-ref/temp/probe$"));
+        assertTrue(path.toString().startsWith("tapio://ask-ref/temp/probe$"));
         assertSame(replyTo, temp.getChild(path.name()));
         assertEquals("watching", ask(watcher, new Watch(replyTo)));
 

@@ -117,8 +117,8 @@ public final class DeadLetterListener extends AbstractActor {
                     + "If this is not an expected behavior then " + event.recipient() + " may have terminated unexpectedly. ";
         }
         getContext().system().eventStream().publish(new Info(event.recipient().path().toString(), event.recipient().getClass(),
-                message + "This logging can be turned off or adjusted with configuration settings 'pekko.log-dead-letters' "
-                        + "and 'pekko.log-dead-letters-during-shutdown'.",
+                message + "This logging can be turned off or adjusted with configuration settings 'tapio.log-dead-letters' "
+                        + "and 'tapio.log-dead-letters-during-shutdown'.",
                 ActorLogMarker.deadLetter(messageClass)));
     }
 

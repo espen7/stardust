@@ -14,7 +14,7 @@ The following areas still differ from upstream:
 
 - `ChildrenContainer` is split into Pekko-style empty, normal, waiting-for-termination, and terminated states, and lifecycle handling continues after restart and termination. `ChildRestartStats` tracks child UIDs, retry counts, and time windows.
 - The supervision path supports Pekko's default exception classification, One-for-One and All-for-One supervision, retry limits, escalation, and failure logging. The complete guardian supervision lifecycle is not yet ported.
-- One-shot scheduling uses `LightArrayRevolverScheduler` and is configured under `pekko.scheduler`. Periodic scheduling APIs are not yet ported.
+- One-shot scheduling uses `LightArrayRevolverScheduler` and is configured under `tapio.scheduler`. Periodic scheduling APIs are not yet ported.
 - Local `Patterns.ask` uses the system Scheduler and temporary `PromiseActorRef` instances. It supports Classic `Status.Success` and `Status.Failure`, DeathWatch for temporary references, dead letters for late replies, and a millisecond overload returning a Java `CompletionStage`.
 - EventStream uses ActorRef subscribers and class channels, dispatching according to parent and child channel types. The default dead-letter logger supports counting and pausing. The system guardian, `systemActorOf`, `CoordinatedShutdown` phase termination, the JVM shutdown hook, and the `LogMarker`/MDC bridge are included in the local runtime. `System.exit`, cluster tasks, and the complete logging service are not yet ported. Receive timeout, ActorSelection, Stash, routing, serialization, I/O, Typed, Remote, and Sharding are not yet implemented.
 
@@ -37,8 +37,8 @@ The unit tests cover basic local-runtime call paths and are not a substitute for
 
 `ActorSystem.create(name)` loads `application.conf` and `reference.conf`. `ActorSystem.create(name, config)` uses the supplied configuration and fills in defaults from `reference.conf`. Effective settings can be read through `system.settings().config()`.
 
-`pekko.actor.default-dispatcher.throughput` defaults to `5` and controls how many ordinary messages a Mailbox processes in one scheduling batch.
-`pekko.actor.default-dispatcher.throughput-deadline-time` defaults to `0ms`, which disables the batch time limit.
+`tapio.actor.default-dispatcher.throughput` defaults to `5` and controls how many ordinary messages a Mailbox processes in one scheduling batch.
+`tapio.actor.default-dispatcher.throughput-deadline-time` defaults to `0ms`, which disables the batch time limit.
 `system.dispatchers().lookup(id)` supports named ordinary Dispatchers; multiple aliases can point to the same instance. Actor creation currently uses the default Dispatcher.
 
 ## Logging
@@ -47,15 +47,15 @@ The unit tests cover basic local-runtime call paths and are not a substitute for
 
 The runtime depends only on `slf4j-api` and does not bundle a logging implementation. Applications must add an SLF4J provider at runtime, such as Logback, Log4j2, SLF4J Simple, or a JUL provider, and configure its levels and output format. Without a provider, SLF4J reports the missing provider and uses a NOP logger.
 
-ActorSystem reads Pekko-compatible logging settings from `application.conf`:
+ActorSystem reads Tapio logging settings from `application.conf`:
 
 ```hocon
-pekko.loglevel = "DEBUG"
-pekko.actor.debug.lifecycle = on
-pekko.actor.debug.unhandled = on
+tapio.loglevel = "DEBUG"
+tapio.actor.debug.lifecycle = on
+tapio.actor.debug.unhandled = on
 ```
 
-To emit lifecycle and unhandled-message DEBUG logs, set `pekko.loglevel` to `DEBUG` and enable DEBUG for the relevant logger in the selected SLF4J provider. The legacy `pekko.actor.loglevel` key is still accepted as a fallback. Lifecycle logs cover Actor creation, supervision, restart, stop, and DeathWatch changes, and are disabled by default. Unhandled messages are always published as `UnhandledMessage`; they become DEBUG logs when `debug.unhandled = on`. The `debug.receive` and `debug.autoreceive` keys are retained, but the related receive decorators and AutoReceive API are not yet ported.
+To emit lifecycle and unhandled-message DEBUG logs, set `tapio.loglevel` to `DEBUG` and enable DEBUG for the relevant logger in the selected SLF4J provider. `reference.conf` uses `tapio.actor.loglevel` as the fallback value for `tapio.loglevel`. Lifecycle logs cover Actor creation, supervision, restart, stop, and DeathWatch changes, and are disabled by default. Unhandled messages are always published as `UnhandledMessage`; they become DEBUG logs when `debug.unhandled = on`. The `debug.receive` and `debug.autoreceive` keys are retained, but the related receive decorators and AutoReceive API are not yet ported.
 
 ## Module Layout
 

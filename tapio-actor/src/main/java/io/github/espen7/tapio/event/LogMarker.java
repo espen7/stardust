@@ -19,7 +19,7 @@ import java.util.Objects;
 /** 结构化日志事件使用的 marker 名称和属性。 */
 public class LogMarker {
     /** marker 属性中保存消息 class 的键。 */
-    public static final String MESSAGE_CLASS = "pekkoMessageClass";
+    public static final String MESSAGE_CLASS = "tapioMessageClass";
 
     private final String name;
     private final Map<String, Object> properties;

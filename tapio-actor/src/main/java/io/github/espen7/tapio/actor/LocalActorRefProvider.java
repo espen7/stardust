@@ -45,15 +45,15 @@ public class LocalActorRefProvider extends ActorRefProvider {
      */
     public LocalActorRefProvider(ActorSystemImpl system) {
         this.system = system;
-        this.tempNode = new ActorPath("pekko://" + system.name() + "/temp");
+        this.tempNode = new ActorPath(ActorPath.Scheme + "://" + system.name() + "/temp");
         this.tempContainer = new VirtualPathContainer(this, tempNode, system.log());
         this.deadLetters = new DeadLetterActorRef(this,
-                new ActorPath("pekko://" + system.name() + "/deadLetters"), system.eventStream());
+                new ActorPath(ActorPath.Scheme + "://" + system.name() + "/deadLetters"), system.eventStream());
         this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class), system.dispatcher(), null,
-                new ActorPath("pekko://" + system.name() + "/user", uidGenerator.getAndIncrement()), "user");
+                new ActorPath(ActorPath.Scheme + "://" + system.name() + "/user", uidGenerator.getAndIncrement()), "user");
         this.systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, rootGuardian),
                 system.dispatcher(), null,
-                new ActorPath("pekko://" + system.name() + "/system", uidGenerator.getAndIncrement()), "system");
+                new ActorPath(ActorPath.Scheme + "://" + system.name() + "/system", uidGenerator.getAndIncrement()), "system");
     }
 
     /**

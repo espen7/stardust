@@ -14,7 +14,7 @@ Tapio 当前处于早期移植阶段，适合源码学习和继续实现，尚�
 
 - `ChildrenContainer` 已按 Pekko 风格拆分为空、普通、等待终止和已终止状态，并在 restart 和 termination 后继续处理 lifecycle。`ChildRestartStats` 已实现 child UID、重试次数和时间窗统计。
 - 监督路径已支持 Pekko 默认异常分类、One-for-One 与 All-for-One、重试限制、升级和失败日志；完整的 guardian 监督生命周期仍未移植。
-- 一次性调度使用 `LightArrayRevolverScheduler`，配置位于 `pekko.scheduler`。周期调度 API 尚未移植。
+- 一次性调度使用 `LightArrayRevolverScheduler`，配置位于 `tapio.scheduler`。周期调度 API 尚未移植。
 - 本地 `Patterns.ask` 使用系统 Scheduler 和临时 `PromiseActorRef`，支持 Classic `Status.Success` / `Status.Failure`、临时引用的 DeathWatch、迟到回复的 dead letters，以及返回 Java `CompletionStage` 的毫秒重载。
 - EventStream 使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发。默认 dead letters 日志订阅器支持计数和暂停；system guardian、`systemActorOf`、`CoordinatedShutdown` 阶段关闭、JVM shutdown hook 和 `LogMarker`/MDC bridge 已加入本地 runtime。System.exit、集群任务和完整日志服务仍未移植。receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未实现。
 
@@ -37,8 +37,8 @@ mvn test
 
 `ActorSystem.create(name)` 加载 `application.conf` 和 `reference.conf`。`ActorSystem.create(name, config)` 使用传入的配置，并由 `reference.conf` 补齐默认值。有效配置可通过 `system.settings().config()` 读取。
 
-`pekko.actor.default-dispatcher.throughput` 默认是 `5`，控制一次 Mailbox 调度处理的普通消息数。
-`pekko.actor.default-dispatcher.throughput-deadline-time` 默认是 `0ms`，表示关闭批次时间限制。
+`tapio.actor.default-dispatcher.throughput` 默认是 `5`，控制一次 Mailbox 调度处理的普通消息数。
+`tapio.actor.default-dispatcher.throughput-deadline-time` 默认是 `0ms`，表示关闭批次时间限制。
 `system.dispatchers().lookup(id)` 支持查找命名的普通 Dispatcher，多个别名可以指向同一个实例。Actor 创建目前使用默认 Dispatcher。
 
 ## Logging
@@ -47,15 +47,15 @@ mvn test
 
 运行库只依赖 `slf4j-api`，不捆绑日志实现。应用需要在运行时添加一个 SLF4J provider，例如 Logback、Log4j2、SLF4J Simple 或 JUL provider，并配置其级别和输出格式。未添加 provider 时，SLF4J 会提示缺少 provider 并使用 NOP logger。
 
-ActorSystem 从 `application.conf` 读取与 Pekko 对齐的日志设置：
+ActorSystem 从 `application.conf` 读取 Tapio 日志设置：
 
 ```hocon
-pekko.loglevel = "DEBUG"
-pekko.actor.debug.lifecycle = on
-pekko.actor.debug.unhandled = on
+tapio.loglevel = "DEBUG"
+tapio.actor.debug.lifecycle = on
+tapio.actor.debug.unhandled = on
 ```
 
-要输出生命周期和未处理消息的 DEBUG 日志，需要将 `pekko.loglevel` 设为 `DEBUG`，并在所选 SLF4J provider 中为相关 logger 启用 DEBUG 级别。兼容旧版的 `pekko.actor.loglevel` 键仍可作为回退值。生命周期日志包括 Actor 创建、监督、restart、stop 和 DeathWatch 变化，默认关闭。未处理消息始终作为 `UnhandledMessage` 发布；设为 `debug.unhandled = on` 后才会转成 DEBUG 日志。`debug.receive` 和 `debug.autoreceive` 键已保留，但相关 receive decorator 和 AutoReceive API 尚未移植。
+要输出生命周期和未处理消息的 DEBUG 日志，需要将 `tapio.loglevel` 设为 `DEBUG`，并在所选 SLF4J provider 中为相关 logger 启用 DEBUG 级别。`reference.conf` 使用 `tapio.actor.loglevel` 作为 `tapio.loglevel` 的回退值。生命周期日志包括 Actor 创建、监督、restart、stop 和 DeathWatch 变化，默认关闭。未处理消息始终作为 `UnhandledMessage` 发布；设为 `debug.unhandled = on` 后才会转成 DEBUG 日志。`debug.receive` 和 `debug.autoreceive` 键已保留，但相关 receive decorator 和 AutoReceive API 尚未移植。
 
 ## 模块结构
 

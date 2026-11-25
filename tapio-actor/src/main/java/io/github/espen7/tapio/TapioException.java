@@ -15,8 +15,8 @@ package io.github.espen7.tapio;
 
 import java.io.Serial;
 
-/** 与 Pekko 对应的运行时异常基类。 */
-public class PekkoException extends RuntimeException {
+/** Tapio runtime 的异常基类。 */
+public class TapioException extends RuntimeException {
     @Serial
     private static final long serialVersionUID = 1L;
 
@@ -25,7 +25,7 @@ public class PekkoException extends RuntimeException {
      *
      * @param message 诊断消息
      */
-    public PekkoException(String message) {
+    public TapioException(String message) {
         this(message, null);
     }
 
@@ -35,7 +35,7 @@ public class PekkoException extends RuntimeException {
      * @param message 诊断消息
      * @param cause 原始异常，可以为 {@code null}
      */
-    public PekkoException(String message, Throwable cause) {
+    public TapioException(String message, Throwable cause) {
         super(message, cause);
     }
 }

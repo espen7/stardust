@@ -90,7 +90,7 @@ public class ActorSystemImpl extends ActorSystem {
                 : applicationConfig.withFallback(ConfigFactory.defaultReferenceUnresolved(classLoader)).resolve();
         this.settings = new Settings(classLoader, config, name);
         this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
-        this.log = Logging.getLogger(eventStream, "pekko://" + name, getClass());
+        this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
         this.dispatchers = new Dispatchers(settings, this);
         Dispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
@@ -128,7 +128,7 @@ public class ActorSystemImpl extends ActorSystem {
     }
 
     /**
-     * 按 {@code pekko.scheduler.implementation} 创建并启动系统调度器。
+     * 按 {@code tapio.scheduler.implementation} 创建并启动系统调度器。
      *
      * @return 为当前系统创建的调度器
      * @throws IllegalArgumentException 无法加载或构造所配置的调度器
@@ -286,7 +286,7 @@ public class ActorSystemImpl extends ActorSystem {
     public void close() {
         terminate();
         try {
-            whenTerminated.get(settings.config().getDuration("pekko.coordinated-shutdown.close-actor-system-timeout")
+            whenTerminated.get(settings.config().getDuration(ActorPath.Scheme + ".coordinated-shutdown.close-actor-system-timeout")
                     .toNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();

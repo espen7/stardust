@@ -68,7 +68,7 @@ public class LightArrayRevolverScheduler extends Scheduler {
     /**
      * 使用 ActorSystem 配置创建并启动时间轮。
      *
-     * @param config 包含 pekko.scheduler 的配置
+     * @param config 包含 tapio.scheduler 的配置
      * @param log 调度器记录错误和配置警告的日志适配器
      * @param threadFactory 创建 timer thread 的工厂
      * @throws IllegalArgumentException 时间轮参数未通过检查
@@ -76,22 +76,22 @@ public class LightArrayRevolverScheduler extends Scheduler {
     public LightArrayRevolverScheduler(Config config, LoggingAdapter log, ThreadFactory threadFactory) {
         this.log = log;
         this.threadFactory = threadFactory;
-        wheelSize = config.getInt("pekko.scheduler.ticks-per-wheel");
+        wheelSize = config.getInt(ActorPath.Scheme + ".scheduler.ticks-per-wheel");
         if ((wheelSize & (wheelSize - 1)) != 0) {
             throw new IllegalArgumentException("requirement failed: ticks-per-wheel must be a power of 2");
         }
-        long tickMillis = config.getDuration("pekko.scheduler.tick-duration").toMillis();
+        long tickMillis = config.getDuration(ActorPath.Scheme + ".scheduler.tick-duration").toMillis();
         long minimum = windows ? 10 : 1;
         if (tickMillis < minimum) {
-            String message = "requirement failed: minimum supported pekko.scheduler.tick-duration"
+            String message = "requirement failed: minimum supported tapio.scheduler.tick-duration"
                     + (windows ? " on Windows" : "") + " is " + minimum + "ms";
-            if (config.getBoolean("pekko.scheduler.error-on-tick-duration-verification-failed")) {
+            if (config.getBoolean(ActorPath.Scheme + ".scheduler.error-on-tick-duration-verification-failed")) {
                 throw new IllegalArgumentException(message);
             }
             log.warning(message + ", adjusted to " + minimum + "ms now.");
             tickMillis = minimum;
         }
-        shutdownTimeout = Duration.ofMillis(config.getDuration("pekko.scheduler.shutdown-timeout").toMillis());
+        shutdownTimeout = Duration.ofMillis(config.getDuration(ActorPath.Scheme + ".scheduler.shutdown-timeout").toMillis());
         start = clock();
         tickNanos = TimeUnit.MILLISECONDS.toNanos(tickMillis);
         wheelMask = wheelSize - 1;
@@ -120,7 +120,7 @@ public class LightArrayRevolverScheduler extends Scheduler {
     /**
      * 返回等待定时线程停止并交回剩余任务的最长时间。
      *
-     * @return {@code pekko.scheduler.shutdown-timeout} 指定的时限，默认为 5 秒
+     * @return {@code tapio.scheduler.shutdown-timeout} 指定的时限，默认为 5 秒
      */
     protected Duration getShutdownTimeout() {
         return shutdownTimeout;

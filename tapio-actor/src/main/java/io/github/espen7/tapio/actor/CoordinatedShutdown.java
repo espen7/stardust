@@ -107,11 +107,11 @@ public final class CoordinatedShutdown {
         this.system = system;
         Config config = system.settings().config();
         this.phases = phasesFromConfig(config);
-        if (config.getBoolean("pekko.coordinated-shutdown.run-by-jvm-shutdown-hook")) {
+        if (config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.run-by-jvm-shutdown-hook")) {
             this.jvmShutdownHook = addCancellableJvmShutdownHook(() -> {
                 try {
                     runAll(jvmExitReason()).toCompletableFuture().get(
-                            config.getDuration("pekko.coordinated-shutdown.close-actor-system-timeout")
+                            config.getDuration(ActorPath.Scheme + ".coordinated-shutdown.close-actor-system-timeout")
                                     .toNanos(), TimeUnit.NANOSECONDS);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
@@ -430,8 +430,8 @@ public final class CoordinatedShutdown {
     }
 
     private static Map<String, Phase> phasesFromConfig(Config config) {
-        Config phaseConfig = config.getConfig("pekko.coordinated-shutdown.phases");
-        Duration defaultTimeout = config.getDuration("pekko.coordinated-shutdown.default-phase-timeout");
+        Config phaseConfig = config.getConfig(ActorPath.Scheme + ".coordinated-shutdown.phases");
+        Duration defaultTimeout = config.getDuration(ActorPath.Scheme + ".coordinated-shutdown.default-phase-timeout");
         Map<String, Phase> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : phaseConfig.root().unwrapped().entrySet()) {
             Config current = phaseConfig.getConfig(entry.getKey());

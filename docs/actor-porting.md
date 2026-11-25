@@ -2,6 +2,7 @@
 
 移植对照基线为 Pekko commit `85ab376242152046740a63307304a2e062990f67`。Java 包前缀为
 `io.github.espen7.tapio`，相对包路径、class 名称和 method 名称尽量与 Pekko 一致。
+`ActorPath.Scheme` 统一提供 `tapio` ActorPath scheme 和 runtime 配置根，避免在 runtime 类中重复硬编码。
 
 ## Actor 创建
 
@@ -29,8 +30,9 @@ Java `ArrayDeque` 不允许 null，不能承载 Pekko 在 Actor constructor 中�
 `run-by-actor-system-terminate=on` 时同时启用 `terminate-actor-system`。对应上游
 `actor/src/main/scala/org/apache/pekko/actor/ActorSystem.scala` 的 `Settings` 和 `ActorSystemImpl`，
 以及 `actor/src/main/scala/org/apache/pekko/PekkoException.scala` 的 `ConfigurationException`。
-Java 版本保留本地 runtime 已消费的 Settings 字段。旧键 `pekko.actor.loglevel` 通过
-`reference.conf` 提供 `pekko.loglevel` 的回退值。有限的 dead-letter 暂停配置按上游转换为毫秒，
+Java 版本将项目自身的异常基类命名为 `TapioException`；上游 `PekkoException.scala` 仅作为对照来源保留。
+Java 版本保留本地 runtime 已消费的 Settings 字段。`tapio.actor.loglevel` 通过
+`reference.conf` 提供 `tapio.loglevel` 的回退值。有限的 dead-letter 暂停配置按上游转换为毫秒，
 无限期以 `null` 表示。日志沿用原配置文本，Pekko 使用 Scala Duration 的 `pretty` 格式。
 
 系统 Dispatcher 通过 `Dispatchers.defaultGlobalDispatcher`、`lookup` 和
@@ -98,8 +100,8 @@ Actor 注销时将 Mailbox 替换为共享 dead-letter Mailbox。对应 `actor/A
 `Identify` / `ActorIdentity`；ActorSelection 消息及引用序列化仍未移植。
 
 `DeadLetterListener` 订阅 `DeadLetter`、`Dropped` 和 `UnhandledMessage`，按上游
-`pekko.log-dead-letters`、`pekko.log-dead-letters-suspend-duration` 和
-`pekko.log-dead-letters-during-shutdown` 的默认值限制日志。对应
+`tapio.log-dead-letters`、`tapio.log-dead-letters-suspend-duration` 和
+`tapio.log-dead-letters-during-shutdown` 的默认值限制日志。对应
 `actor/src/main/scala/org/apache/pekko/event/DeadLetterListener.scala` 和 `actor/ActorSystem.scala`。
 本地实现已加入独立的 system guardian，系统 Actor 由 `systemActorOf` 挂载到
 `/system`，并在 user guardian 终止后完成 system guardian 的终止通知。日志事件提供
@@ -114,10 +116,10 @@ ActorSelection 范围之外。
 `dispatch/AbstractNodeQueue.java` 中对应的时间轮、发布队列、取消和关闭路径。关闭时仅运行
 待执行的 `Scheduler.TaskRunOnClose`。系统关闭时尚未触发的普通 ask 超时任务会丢弃，
 对应结果仍可能处于未完成状态。配置位于
-`pekko.scheduler`，默认 10ms tick、512 个时间轮槽和 5s 停止等待时间。
+`tapio.scheduler`，默认 10ms tick、512 个时间轮槽和 5s 停止等待时间。
 周期调度及完整 Dispatcher shutdown 仍待移植。Java 使用 `Executor` 对应 Scheduler 的
 `ExecutionContext`，现有无 Executor 重载在触发任务的线程执行。应用通过
-`ActorSystem.scheduler()` 取得 Scheduler。自定义实现通过 `pekko.scheduler.implementation`
+`ActorSystem.scheduler()` 取得 Scheduler。自定义实现通过 `tapio.scheduler.implementation`
 配置，使用接收 `Config`、`LoggingAdapter` 和 `ThreadFactory` 的公开构造方法。
 由于 Java `Executor` 没有 `reportFailure`，新增 `dispatch.ExecutionContext` 提供对应接口；
 传入普通 `Executor` 时无法直接表达上游回调，失败由当前线程的 uncaught exception handler 报告。

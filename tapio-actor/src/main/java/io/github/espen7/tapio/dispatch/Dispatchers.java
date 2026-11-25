@@ -16,6 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
+import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorSystem;
 
 import java.util.Map;
@@ -27,9 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
-    public static final String DefaultDispatcherId = "pekko.actor.default-dispatcher";
+    public static final String DefaultDispatcherId = ActorPath.Scheme + ".actor.default-dispatcher";
     /** Pekko 内部 Dispatcher 的配置路径。 */
-    static final String InternalDispatcherId = "pekko.actor.internal-dispatcher";
+    static final String InternalDispatcherId = ActorPath.Scheme + ".actor.internal-dispatcher";
     private static final int MaxDispatcherAliasDepth = 20;
 
     private final ActorSystem.Settings settings;
