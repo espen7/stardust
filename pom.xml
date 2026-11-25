@@ -3,13 +3,13 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>io.github.espen7.stardust</groupId>
-  <artifactId>stardust</artifactId>
+  <groupId>io.github.espen7.tapio</groupId>
+  <artifactId>tapio</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
-  <name>Stardust</name>
+  <name>Tapio</name>
   <modules>
-    <module>stardust-actor</module>
+    <module>tapio-actor</module>
   </modules>
   <properties>
     <maven.compiler.release>25</maven.compiler.release>

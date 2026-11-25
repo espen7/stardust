@@ -1,7 +1,7 @@
 # Actor 源码移植记录
 
 移植对照基线为 Pekko commit `85ab376242152046740a63307304a2e062990f67`。Java 包前缀为
-`io.github.espen7.stardust`，相对包路径、class 名称和 method 名称尽量与 Pekko 一致。
+`io.github.espen7.tapio`，相对包路径、class 名称和 method 名称尽量与 Pekko 一致。
 
 ## Actor 创建
 
@@ -35,7 +35,7 @@ Java 版本保留本地 runtime 已消费的 Settings 字段。旧键 `pekko.act
 
 系统 Dispatcher 通过 `Dispatchers.defaultGlobalDispatcher`、`lookup` 和
 `DispatcherConfigurator.dispatcher` 创建。命名配置继承默认配置段，别名解析以 20 层为限。
-按上游用 `ConcurrentHashMap.putIfAbsent` 缓存 configurator。Stardust 的 Dispatcher
+按上游用 `ConcurrentHashMap.putIfAbsent` 缓存 configurator。Tapio 的 Dispatcher
 在构造时创建 ForkJoinPool，因此竞争中落败的实例会关闭。ActorSystem 终止时关闭注册表中的实例。
 对应上游 `actor/src/main/scala/org/apache/pekko/dispatch/Dispatchers.scala`、
 `dispatch/Dispatcher.scala`、`dispatch/AbstractDispatcher.scala` 和
@@ -153,5 +153,5 @@ SLF4J bridge 由系统内 logger Actor 消费 `LogEvent`，不创建专用事件
   null 不匹配基本类型。多个匹配 constructor 与无匹配 constructor 都抛出 `IllegalArgumentException`。
 - `ActorPath.toStringWithoutAddress` 只返回 path elements，不包含 address。
 
-Stardust 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.0 许可证。固定源码位于
+Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.0 许可证。固定源码位于
 [Pekko actor/src/main](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main)。

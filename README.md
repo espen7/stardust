@@ -1,53 +1,53 @@
-# Stardust
+# Tapio
 
-Stardust 是一个用 Java 25 阅读并逐步重写 Apache Pekko Classic Actor 本地运行时的项目。实现以 [Pekko 源码提交 `85ab376242`](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main) 为对照，尽量保留上游类名、方法名和调用顺序，便于在两份源码之间逐段阅读。
+Tapio is a Java 25 project that reads and incrementally ports the Apache Pekko Classic Actor local runtime. The implementation follows [Pekko commit `85ab376242`](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main), keeping upstream class names, method names, and call order as closely as possible so the two codebases can be read side by side.
 
-当前仓库处于早期迁移阶段。它适合源码学习和继续实现，尚未达到 Pekko 的功能完整度，也不应作为 Pekko 的生产替代品。
+Tapio is in an early porting stage. It is intended for source study and continued implementation, and does not provide the full feature set of Pekko.
 
-## 范围
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-当前模块为 `stardust-actor`，包含本地 Actor 创建、消息 Envelope、Mailbox 和 Dispatcher、基础生命周期、基础 One-for-One 监督、DeathWatch 消息、`Patterns.ask`、一次性调度和初步日志事件支持。
+## Scope
 
+The current module is `tapio-actor`. It includes local Actor creation, message envelopes, Mailbox and Dispatcher support, basic lifecycle handling, basic One-for-One supervision, DeathWatch messages, `Patterns.ask`, one-shot scheduling, and initial logging event support.
 
-这些部分仍与上游有明显差异：
+The following areas still differ from upstream:
 
-- `ChildrenContainer` 已按 Pekko 的空、普通、等待终止和已终止状态容器拆分，并在 restart/termination 后继续 lifecycle。`ChildRestartStats` 已实现 child UID 与重试次数/时间窗统计。
-- 监督路径已支持 Pekko 默认异常分类、One-for-One 与 All-for-One、重试限制、升级和失败日志；ActorSystem 完整 guardian 监督生命周期仍未移植。
-- 一次性调度使用 `LightArrayRevolverScheduler`，配置位于 `pekko.scheduler`。周期调度 API 尚未移植。
-- 本地 `Patterns.ask` 使用系统 Scheduler 和临时 `PromiseActorRef`，支持 Classic `Status.Success` / `Status.Failure`、临时引用的 DeathWatch 和迟到回复的 dead letters。毫秒重载返回 Java `CompletionStage`。
-- EventStream 已使用 ActorRef 订阅者和 class channel，并按 channel 的父子类型关系分发。默认 dead letters 日志订阅器支持计数和暂停；system guardian、`systemActorOf`、`CoordinatedShutdown` 阶段关闭、JVM shutdown hook 和 `LogMarker`/MDC bridge 已加入本地 runtime。System.exit、集群任务和完整日志服务仍未移植。receive timeout、ActorSelection、Stash、路由、序列化、I/O、Typed、Remote 和 Sharding 尚未完成。
+- `ChildrenContainer` is split into Pekko-style empty, normal, waiting-for-termination, and terminated states, and lifecycle handling continues after restart and termination. `ChildRestartStats` tracks child UIDs, retry counts, and time windows.
+- The supervision path supports Pekko's default exception classification, One-for-One and All-for-One supervision, retry limits, escalation, and failure logging. The complete guardian supervision lifecycle is not yet ported.
+- One-shot scheduling uses `LightArrayRevolverScheduler` and is configured under `pekko.scheduler`. Periodic scheduling APIs are not yet ported.
+- Local `Patterns.ask` uses the system Scheduler and temporary `PromiseActorRef` instances. It supports Classic `Status.Success` and `Status.Failure`, DeathWatch for temporary references, dead letters for late replies, and a millisecond overload returning a Java `CompletionStage`.
+- EventStream uses ActorRef subscribers and class channels, dispatching according to parent and child channel types. The default dead-letter logger supports counting and pausing. The system guardian, `systemActorOf`, `CoordinatedShutdown` phase termination, the JVM shutdown hook, and the `LogMarker`/MDC bridge are included in the local runtime. `System.exit`, cluster tasks, and the complete logging service are not yet ported. Receive timeout, ActorSelection, Stash, routing, serialization, I/O, Typed, Remote, and Sharding are not yet implemented.
 
-每个上游概念的源码位置和 Java 对应关系记录在 [docs/actor-porting.md](docs/actor-porting.md)。
+Source locations and Java counterparts for each upstream concept are recorded in [docs/actor-porting.md](docs/actor-porting.md).
 
-## 环境要求
+## Requirements
 
 - JDK 25
-- Maven 3.9 或更新版本
+- Maven 3.9 or later
 
-当前仓库没有 Maven Wrapper。确认 `java -version` 和 `mvn -version` 后，在仓库根目录执行：
+There is no Maven Wrapper in this repository. After checking `java -version` and `mvn -version`, run from the repository root:
 
 ```shell
 mvn test
 ```
 
-单元测试覆盖本地运行时的基础调用路径，不代表行为已通过 Pekko 测试套件验证。打包模块可执行 `mvn -DskipTests package`。
+The unit tests cover basic local-runtime call paths and are not a substitute for the Pekko test suite. To package the module without tests, run `mvn -DskipTests package`.
 
-## ActorSystem 配置
+## ActorSystem Configuration
 
-`ActorSystem.create(name)` 加载 `application.conf` 和 `reference.conf`。`ActorSystem.create(name, config)`
-使用传入的配置，并由 `reference.conf` 补齐默认值。有效配置可通过 `system.settings().config()` 读取。
+`ActorSystem.create(name)` loads `application.conf` and `reference.conf`. `ActorSystem.create(name, config)` uses the supplied configuration and fills in defaults from `reference.conf`. Effective settings can be read through `system.settings().config()`.
 
-`pekko.actor.default-dispatcher.throughput` 默认是 `5`，控制一次 Mailbox 调度处理的普通消息数。
-`pekko.actor.default-dispatcher.throughput-deadline-time` 默认是 `0ms`，表示关闭批次时间限制。
-`system.dispatchers().lookup(id)` 支持查找命名的普通 Dispatcher，多个别名指向同一个实例。Actor 创建目前使用默认 Dispatcher。
+`pekko.actor.default-dispatcher.throughput` defaults to `5` and controls how many ordinary messages a Mailbox processes in one scheduling batch.
+`pekko.actor.default-dispatcher.throughput-deadline-time` defaults to `0ms`, which disables the batch time limit.
+`system.dispatchers().lookup(id)` supports named ordinary Dispatchers; multiple aliases can point to the same instance. Actor creation currently uses the default Dispatcher.
 
 ## Logging
 
-`ActorSystem` 和 `AbstractActor` 提供 `log()`，支持 `debug`、`info`、`warning`、`error` 和 `{}` 参数模板。日志先成为带 source path、source class、level、message 和 cause 的 `LogEvent`，再发布到 `ActorSystem.eventStream()`。默认 SLF4J logger Actor 将 source path 加在消息前；应用可以用 ActorRef 和 `LogEvent.class` 订阅结构化事件。
+`ActorSystem` and `AbstractActor` expose `log()` with `debug`, `info`, `warning`, `error`, and `{}` template methods. Log calls first become `LogEvent` instances containing the source path, source class, level, message, and cause, then are published to `ActorSystem.eventStream()`. The default SLF4J logger Actor prefixes messages with the source path; applications can subscribe to structured events with an ActorRef and `LogEvent.class`.
 
-运行库只依赖 `slf4j-api`，不捆绑日志实现。应用需要在运行时添加一个 SLF4J provider（例如 Logback、Log4j2、SLF4J Simple 或 JUL provider），并由应用配置其级别和输出格式。未添加 provider 时，SLF4J 会提示并使用 NOP logger。
+The runtime depends only on `slf4j-api` and does not bundle a logging implementation. Applications must add an SLF4J provider at runtime, such as Logback, Log4j2, SLF4J Simple, or a JUL provider, and configure its levels and output format. Without a provider, SLF4J reports the missing provider and uses a NOP logger.
 
-ActorSystem 从 `application.conf` 读取 Pekko 对齐的日志设置：
+ActorSystem reads Pekko-compatible logging settings from `application.conf`:
 
 ```hocon
 pekko.loglevel = "DEBUG"
@@ -55,25 +55,25 @@ pekko.actor.debug.lifecycle = on
 pekko.actor.debug.unhandled = on
 ```
 
-要输出生命周期和未处理消息的 DEBUG 日志，还需将 `pekko.loglevel` 设为 `DEBUG`，并在所选 SLF4J provider 中启用相应 logger 的 DEBUG 级别。旧版 Stardust 的 `pekko.actor.loglevel` 仍可作为回退值。生命周期日志包括 Actor 创建、监督、restart、stop 和 DeathWatch 变化，默认关闭。未处理消息始终作为 `UnhandledMessage` 发布；设为 `debug.unhandled = on` 后才会转成 DEBUG 日志。`debug.receive` 和 `debug.autoreceive` 键已保留，相关 receive decorator 和 AutoReceive API 尚未移植。
+To emit lifecycle and unhandled-message DEBUG logs, set `pekko.loglevel` to `DEBUG` and enable DEBUG for the relevant logger in the selected SLF4J provider. The legacy `pekko.actor.loglevel` key is still accepted as a fallback. Lifecycle logs cover Actor creation, supervision, restart, stop, and DeathWatch changes, and are disabled by default. Unhandled messages are always published as `UnhandledMessage`; they become DEBUG logs when `debug.unhandled = on`. The `debug.receive` and `debug.autoreceive` keys are retained, but the related receive decorators and AutoReceive API are not yet ported.
 
-## 模块结构
+## Module Layout
 
 ```text
-stardust-actor/
+tapio-actor/
 └── src/main/
-    ├── java/io/github/espen7/stardust/
-    │   ├── actor/       # ActorSystem、ActorRef、ActorCell、生命周期
-    │   ├── dispatch/    # Dispatcher、Mailbox、Envelope、SystemMessage
-    │   ├── event/       # LogEvent、EventStream、LoggingAdapter 和 SLF4J bridge
-    │   ├── japi/        # Java Creator 和 ReceiveBuilder
-    │   └── pattern/     # ask 模式
+    ├── java/io/github/espen7/tapio/
+    │   ├── actor/       # ActorSystem, ActorRef, ActorCell, and lifecycle
+    │   ├── dispatch/    # Dispatcher, Mailbox, Envelope, and SystemMessage
+    │   ├── event/       # LogEvent, EventStream, LoggingAdapter, and SLF4J bridge
+    │   ├── japi/        # Java Creator and ReceiveBuilder
+    │   └── pattern/     # ask pattern
     └── resources/
         └── reference.conf
 ```
 
-Java 包保留 Pekko 的相对层级，并使用 `io.github.espen7.stardust` 作为包前缀。入口和类的映射以 Pekko 提交 `85ab376242` 为准。
+Java packages follow Pekko's relative hierarchy and use `io.github.espen7.tapio` as the package prefix. Entry points and class mappings are based on Pekko commit `85ab376242`.
 
-## 许可证
+## License
 
-Stardust 按 Apache License 2.0 发布，详情见 [LICENSE](LICENSE)。实现应继续记录 Pekko 对照来源，并为直接派生或复制的代码保留适用的版权、许可和 NOTICE 信息。
+Tapio is released under the Apache License 2.0; see [LICENSE](LICENSE). Upstream references should continue to be recorded, and applicable copyright, license, and NOTICE information must be retained for code directly derived from or copied from Pekko.
