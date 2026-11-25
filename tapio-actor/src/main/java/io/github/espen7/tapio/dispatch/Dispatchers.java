@@ -80,6 +80,19 @@ public final class Dispatchers {
     }
 
     /**
+     * 返回指定 Dispatcher 的有效配置，包含合并后的 mailbox 相关键。
+     *
+     * @param id 配置路径或已配置的别名
+     * @return 与已创建 Dispatcher 对应的有效配置
+     * @throws ConfigurationException 当配置缺失、别名超过深度限制或类型不受支持时
+     * @throws IllegalStateException 当注册表已关闭时
+     */
+    public Config config(String id) {
+        if (closed) throw new IllegalStateException("Dispatchers are closed");
+        return lookupConfigurator(id, 0).config();
+    }
+
+    /**
      * 检查指定 ID 是否已缓存或存在配置项。
      *
      * @param id 配置路径或别名

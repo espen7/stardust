@@ -18,6 +18,7 @@ import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
+import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.event.Logging;
@@ -50,6 +51,8 @@ public class ActorSystemImpl extends ActorSystem {
     private final Settings settings;
     /** 根据配置创建并管理此系统的 Dispatcher。 */
     private final Dispatchers dispatchers;
+    /** 按配置、Props 和 requirement 选择 mailbox type 的注册表。 */
+    private final Mailboxes mailboxes;
     /** 负责提交 Actor mailbox 任务的共享 Dispatcher。 */
     private final Dispatcher dispatcher;
     /** 负责一次性调度和关闭阶段定时任务的共享 Scheduler。 */
@@ -92,6 +95,7 @@ public class ActorSystemImpl extends ActorSystem {
         this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
         this.dispatchers = new Dispatchers(settings, this);
+        this.mailboxes = new Mailboxes(settings, eventStream);
         Dispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
         CoordinatedShutdown startedShutdown = null;
@@ -208,6 +212,11 @@ public class ActorSystemImpl extends ActorSystem {
     @Override
     public Dispatchers dispatchers() {
         return dispatchers;
+    }
+
+    /** 返回此系统的 mailbox 注册表。 */
+    public Mailboxes mailboxes() {
+        return mailboxes;
     }
 
     @Override

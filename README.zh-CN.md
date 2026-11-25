@@ -37,6 +37,7 @@ Tapio 目前处于早期开发阶段。第一个稳定版本发布前，公开 A
 | --- | --- |
 | 本地 Classic Actor runtime | `tapio-actor` 已提供 |
 | Actor 生命周期、Mailbox、Dispatcher、supervision、DeathWatch | `tapio-actor` 已提供 |
+| Dispatcher/Mailbox 的 Props 与部署绑定、无界/有界 mailbox | `tapio-actor` 已提供 |
 | EventStream、结构化日志、`ask`、一次性调度 | `tapio-actor` 已提供 |
 | 路由（Routing） | 计划中 |
 | Cluster Sharding | 计划中 |

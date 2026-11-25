@@ -90,6 +90,17 @@ public class Dispatcher implements AutoCloseable {
         return deadLetterMailbox.messageQueue();
     }
 
+    /**
+     * 为 ActorCell 创建 Mailbox，对应上游 {@code Dispatcher.createMailbox}。
+     *
+     * @param actor 即将拥有此 Mailbox 的 ActorCell
+     * @param mailboxType 创建普通消息队列的 mailbox type
+     * @return 绑定新消息队列的 Mailbox
+     */
+    public Mailbox createMailbox(ActorCell actor, MailboxType mailboxType) {
+        return new Mailbox(mailboxType.create(actor.self(), actor.system()));
+    }
+
     Mailbox deadLetterMailbox() {
         return deadLetterMailbox;
     }

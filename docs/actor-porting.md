@@ -43,10 +43,37 @@ Java 版本保留本地 runtime 已消费的 Settings 字段。`tapio.actor.logl
 `dispatch/Dispatcher.scala`、`dispatch/AbstractDispatcher.scala` 和
 `actor/src/main/resources/reference.conf`。
 
-当前支持普通 `Dispatcher` 的 `throughput` 与 `throughput-deadline-time`。Actor 创建统一使用系统默认
-Dispatcher。独立的 internal dispatcher、`Props.withDispatcher` 绑定、PinnedDispatcher、自定义 configurator、
-executor 配置、按空闲超时释放线程池和 `CachingConfig` 优化仍待移植。现有 Java 无参 Dispatcher
-构造器从 `reference.conf` 读取默认 throughput。
+当前支持普通 `Dispatcher` 的 `throughput` 与 `throughput-deadline-time`，以及
+`Props.withDispatcher` / `Props.withMailbox` 绑定。`Deployer` 从 `tapio.actor.deployment` 读取
+`dispatcher` 与 `mailbox`，按去掉 guardian 段后的路径匹配；部署配置覆盖 Props，dispatcher 与
+mailbox 分别按“部署值 > Props 值 > 默认值”解析，`DispatcherSameAsParent`（`..`）复用 parent 的
+dispatcher。对应上游 `actor/Deployer.scala`、`actor/Props.scala` 和
+`actor/ActorRefProvider.scala` 的 `LocalActorRefProvider.actorOf`。
+
+`Mailboxes.getMailboxType` 按五层优先级选择 mailbox：部署值、dispatcher 配置的 `mailbox-type`、
+Actor 上的 `RequiresMessageQueue` 标记、dispatcher 配置的 `mailbox-requirement`、
+`default-mailbox`。dispatcher 的 `mailbox-type` 按 `Dispatchers.config(id).getString("id")` 指向的
+配置段查找。`ActorCell.init` 通过 `Dispatcher.createMailbox` 创建 Mailbox，并在把 `Create` 放入
+mailbox 前再次校验实际队列是否满足 `RequiresMessageQueue`；校验只在 mailbox type 声明
+`ProducesMessageQueue` 时执行，失败时把 `ActorInitializationException` 延迟到 Actor 创建阶段抛出。
+对应上游 `dispatch/Mailboxes.scala`、`dispatch/Dispatcher.scala`、`dispatch/Mailbox.scala` 和
+`actor/dungeon/Dispatch.scala` 的 `init`。
+
+`UnboundedMailbox` 使用 `ConcurrentLinkedQueue`。`BoundedMailbox` 使用 `LinkedBlockingQueue.offer`，
+在 `push-timeout` 内仍无法入队时通过 provider 的 dead letters 发布 `DeadLetter`；
+`bounded-capacity:N` 直接按容量创建 `BoundedMailbox`，并复用同一 id 的 mailbox type。
+非零 `push-timeout` 由实现 `ProducesPushTimeoutSemanticsMailbox` 的 mailbox type 触发一次告警。
+Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此有界队列在 `offer` 或 `put`
+被中断时恢复线程中断标志并发布当前消息的 `DeadLetter`；Pekko 的对应实现会让该异常继续传播，
+这是 Java 接口边界造成的已知可观察差异。
+对应上游 `dispatch/Mailbox.scala` 和 `dispatch/Mailboxes.scala`。`WildcardIndex` 保持
+`WildcardTree` 的 exact、`*`、`**` 匹配顺序。对应上游
+`util/WildcardIndex.scala`。
+
+独立的 internal dispatcher、PinnedDispatcher、自定义 configurator、executor 配置、按空闲超时释放线程池、
+`CachingConfig` 优化、attach/detach、`RepointableActorRef`、router 分支、其他 mailbox 类型（priority、
+deque、control-aware、single-consumer）和 logger mailbox 仍待移植。现有 Java 无参 Dispatcher 构造器从
+`reference.conf` 读取默认 throughput。
 
 ## 消息分发
 

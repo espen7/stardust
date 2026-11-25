@@ -50,7 +50,8 @@ class MailboxTest {
                         }
                     }
                 };
-                Mailbox mailbox = cell.mailbox();
+                Mailbox mailbox = new Mailbox(new UnboundedMailbox.MessageQueue());
+                mailbox.setActor(cell, dispatcher);
                 mailbox.enqueue(system.deadLetters(), Envelope.apply("first", null, system));
                 mailbox.enqueue(system.deadLetters(), Envelope.apply("second", null, system));
 

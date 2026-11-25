@@ -69,7 +69,10 @@ public class Mailbox implements Runnable {
         return actor;
     }
 
-    MessageQueue messageQueue() {
+    /**
+     * @return 此 Mailbox 的普通消息队列
+     */
+    public MessageQueue messageQueue() {
         return messageQueue;
     }
 

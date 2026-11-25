@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.dispatch.Dispatchers;
+import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.japi.function.Creator;
 
 import java.lang.reflect.Constructor;
@@ -24,12 +26,18 @@ import java.lang.reflect.Constructor;
  * ActorCell 每次 create/recreate 都通过 newActor() 获取新的实例。</p>
  */
 public final class Props {
+    private final Deploy deploy;
     private final Class<? extends Actor> clazz;
     private final Creator<? extends Actor> creator;
 
-    private Props(Class<? extends Actor> clazz, Creator<? extends Actor> creator) {
+    private Props(Deploy deploy, Class<? extends Actor> clazz, Creator<? extends Actor> creator) {
+        this.deploy = deploy;
         this.clazz = clazz;
         this.creator = creator;
+    }
+
+    private Props(Class<? extends Actor> clazz, Creator<? extends Actor> creator) {
+        this(Deploy.local, clazz, creator);
     }
 
     /**
@@ -143,5 +151,60 @@ public final class Props {
      */
     public Class<? extends Actor> actorClass() {
         return clazz;
+    }
+
+    /**
+     * 返回 Props 中的部署配置。
+     *
+     * @return 不可变的部署配置
+     */
+    public Deploy deploy() {
+        return deploy;
+    }
+
+    /**
+     * 返回此 Props 使用的 Dispatcher id，未指定时为系统默认 Dispatcher。
+     *
+     * @return Dispatcher id
+     */
+    public String dispatcher() {
+        return Deploy.NoDispatcherGiven.equals(deploy.dispatcher())
+                ? Dispatchers.DefaultDispatcherId : deploy.dispatcher();
+    }
+
+    /**
+     * 返回此 Props 使用的 Mailbox id，未指定时为系统默认 Mailbox。
+     *
+     * @return Mailbox id
+     */
+    public String mailbox() {
+        return Deploy.NoMailboxGiven.equals(deploy.mailbox())
+                ? Mailboxes.DefaultMailboxId : deploy.mailbox();
+    }
+
+    /**
+     * 返回使用指定 Dispatcher 的新 Props。
+     *
+     * @param d Dispatcher id
+     * @return 保存新 Dispatcher 的 Props
+     */
+    public Props withDispatcher(String d) {
+        if (Deploy.NoDispatcherGiven.equals(deploy.dispatcher()) || !d.equals(deploy.dispatcher())) {
+            return new Props(new Deploy(deploy.path(), d, deploy.mailbox()), clazz, creator);
+        }
+        return this;
+    }
+
+    /**
+     * 返回使用指定 Mailbox 的新 Props。
+     *
+     * @param m Mailbox id
+     * @return 保存新 Mailbox 的 Props
+     */
+    public Props withMailbox(String m) {
+        if (Deploy.NoMailboxGiven.equals(deploy.mailbox()) || !m.equals(deploy.mailbox())) {
+            return new Props(new Deploy(deploy.path(), deploy.dispatcher(), m), clazz, creator);
+        }
+        return this;
     }
 }

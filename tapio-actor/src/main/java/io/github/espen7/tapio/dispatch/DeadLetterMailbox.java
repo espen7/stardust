@@ -25,7 +25,7 @@ final class DeadLetterMailbox extends Mailbox {
     private final ActorSystem system;
 
     DeadLetterMailbox(ActorSystem system) {
-        super(system == null ? new UnboundedMailbox() : new MessageQueue() {
+        super(system == null ? new UnboundedMailbox.MessageQueue() : new MessageQueue() {
             @Override
             public void enqueue(ActorRef receiver, Envelope envelope) {
                 if (!(envelope.message() instanceof DeadLetter)) {

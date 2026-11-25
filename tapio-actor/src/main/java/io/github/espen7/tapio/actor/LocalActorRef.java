@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
 /**
@@ -29,21 +30,23 @@ public class LocalActorRef extends InternalActorRef {
     private final String name;
 
     /**
-     * 构造完成后立即创建 ActorCell，并触发异步初始化。
+     * 构造完成后立即创建 ActorCell，并按指定 mailbox type 异步初始化。
      *
      * @param system 所属 ActorSystem
      * @param props Actor 创建配置
      * @param dispatcher 所属 Dispatcher
+     * @param mailboxType 创建普通消息队列的 mailbox type
      * @param supervisor supervisor ActorRef
      * @param path ActorPath
      * @param name parent 下的 child name
      */
-    public LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher, ActorRef supervisor, ActorPath path, String name) {
+    public LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher,
+                         MailboxType mailboxType, ActorRef supervisor, ActorPath path, String name) {
         this.system = system;
         this.path = path;
         this.name = name;
         this.actorCell = newActorCell(system, this, props, dispatcher, supervisor);
-        actorCell.init(true);
+        actorCell.init(true, mailboxType);
     }
 
     /**

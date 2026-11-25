@@ -37,6 +37,7 @@ Tapio は現在、初期開発段階です。最初の安定版までは公開 A
 | --- | --- |
 | ローカル Classic Actor runtime | `tapio-actor` で提供中 |
 | Actor lifecycle、Mailbox、Dispatcher、supervision、DeathWatch | `tapio-actor` で提供中 |
+| Dispatcher/Mailbox の Props・デプロイ設定による結合、無制限/上限付き mailbox | `tapio-actor` で提供中 |
 | EventStream、構造化ログ、`ask`、一回限りのスケジューリング | `tapio-actor` で提供中 |
 | Routing | 計画中 |
 | Cluster Sharding | 計画中 |

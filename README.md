@@ -37,6 +37,7 @@ Tapio is in early development. Public APIs and configuration may change before t
 | --- | --- |
 | Local Classic Actor runtime | Available in `tapio-actor` |
 | Actor lifecycle, Mailbox, Dispatcher, supervision, and DeathWatch | Available in `tapio-actor` |
+| Props and deployment binding of Dispatcher/Mailbox, unbounded and bounded mailboxes | Available in `tapio-actor` |
 | EventStream, structured logging, `ask`, and one-shot scheduling | Available in `tapio-actor` |
 | Routing | Planned |
 | Cluster Sharding | Planned |

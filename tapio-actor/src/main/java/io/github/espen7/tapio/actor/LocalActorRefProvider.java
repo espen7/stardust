@@ -13,6 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.ConfigurationException;
+import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MailboxType;
+import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
 import java.util.HashSet;
@@ -29,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class LocalActorRefProvider extends ActorRefProvider {
     private final ActorSystemImpl system;
+    private final Deployer deployer;
     /** UID 区分同一路径上的不同 Actor incarnation。 */
     private final AtomicInteger uidGenerator = new AtomicInteger(1);
     private final LocalActorRef rootGuardian;
@@ -45,28 +50,77 @@ public class LocalActorRefProvider extends ActorRefProvider {
      */
     public LocalActorRefProvider(ActorSystemImpl system) {
         this.system = system;
+        this.deployer = new Deployer(system.settings());
         this.tempNode = new ActorPath(ActorPath.Scheme + "://" + system.name() + "/temp");
         this.tempContainer = new VirtualPathContainer(this, tempNode, system.log());
         this.deadLetters = new DeadLetterActorRef(this,
                 new ActorPath(ActorPath.Scheme + "://" + system.name() + "/deadLetters"), system.eventStream());
-        this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class), system.dispatcher(), null,
+        this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class), system.dispatcher(),
+                system.mailboxes().lookup(Mailboxes.DefaultMailboxId), null,
                 new ActorPath(ActorPath.Scheme + "://" + system.name() + "/user", uidGenerator.getAndIncrement()), "user");
         this.systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, rootGuardian),
-                system.dispatcher(), null,
+                system.dispatcher(), system.mailboxes().lookup(Mailboxes.DefaultMailboxId),
+                null,
                 new ActorPath(ActorPath.Scheme + "://" + system.name() + "/system", uidGenerator.getAndIncrement()), "system");
     }
 
     /**
      * 创建 LocalActorRef，并异步向其 Mailbox 投递 Create。
+     *
+     * <p>按上游顺序先应用部署配置覆盖 Props，再校验并查找 Dispatcher，
+     * 最后按选定 Dispatcher 的配置选择 mailbox type。所有配置错误都在创建
+     * 引用前以 {@link ConfigurationException} 抛出。</p>
      */
     @Override
     public ActorRef actorOf(Props props, String name, ActorRef parent) {
         if (name == null || name.isBlank() || name.contains("/"))
             throw new IllegalArgumentException("Invalid actor name: " + name);
-        String base = parent == null ? rootGuardian.path().toString() : parent.path().toString();
-        LocalActorRef result = new LocalActorRef(system, props, system.dispatcher(), parent == null ? rootGuardian : parent,
-                new ActorPath(base + "/" + name, uidGenerator.getAndIncrement()), name);
-        return result;
+        ActorRef supervisor = parent == null ? rootGuardian : parent;
+        String base = supervisor.path().toString();
+        ActorPath path = new ActorPath(base + "/" + name, uidGenerator.getAndIncrement());
+
+        Props props2 = resolveProps(props, path, supervisor);
+
+        if (!system.dispatchers().hasDispatcher(props2.dispatcher()))
+            throw new ConfigurationException(
+                    "Dispatcher [" + props2.dispatcher() + "] not configured for path " + path);
+        try {
+            Dispatcher dispatcher = system.dispatchers().lookup(props2.dispatcher());
+            MailboxType mailboxType = system.mailboxes().getMailboxType(props2,
+                    system.dispatchers().config(props2.dispatcher()));
+            return new LocalActorRef(system, props2, dispatcher, mailboxType, supervisor, path, name);
+        } catch (RuntimeException error) {
+            throw new ConfigurationException(
+                    "configuration problem while creating [" + path + "] with dispatcher ["
+                            + props2.dispatcher() + "] and mailbox [" + props2.mailbox() + "]", error);
+        }
+    }
+
+    private Props resolveProps(Props props, ActorPath path, ActorRef supervisor) {
+        String parentDispatcher = supervisor instanceof LocalActorRef local && local.underlying().props() != null
+                ? local.underlying().props().dispatcher() : Deploy.NoDispatcherGiven;
+        var deploy = deployer.lookup(path);
+        if (deploy.isPresent()) {
+            Deploy d = deploy.get();
+            String dispatcher = d.dispatcher();
+            String mailbox = d.mailbox();
+            if (Deploy.NoDispatcherGiven.equals(dispatcher) && Deploy.NoMailboxGiven.equals(mailbox)) {
+                return props;
+            } else if (Deploy.DispatcherSameAsParent.equals(dispatcher) && Deploy.NoMailboxGiven.equals(mailbox)) {
+                return props.withDispatcher(parentDispatcher);
+            } else if (Deploy.NoMailboxGiven.equals(mailbox)) {
+                return props.withDispatcher(dispatcher);
+            } else if (Deploy.NoDispatcherGiven.equals(dispatcher)) {
+                return props.withMailbox(mailbox);
+            } else if (Deploy.DispatcherSameAsParent.equals(dispatcher)) {
+                return props.withDispatcher(parentDispatcher).withMailbox(mailbox);
+            }
+            return props.withDispatcher(dispatcher).withMailbox(mailbox);
+        }
+        if (Deploy.DispatcherSameAsParent.equals(props.deploy().dispatcher())) {
+            return props.withDispatcher(parentDispatcher);
+        }
+        return props;
     }
 
     @Override

@@ -14,45 +14,65 @@
 package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorSystem;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * 使用 ConcurrentLinkedQueue 的默认 unbounded message queue。
+ * 使用 ConcurrentLinkedQueue 的默认 unbounded mailbox type，对应上游
+ * {@code dispatch.UnboundedMailbox}。
  */
-public final class UnboundedMailbox implements MessageQueue {
-    private final ConcurrentLinkedQueue<Envelope> queue = new ConcurrentLinkedQueue<>();
+public final class UnboundedMailbox implements MailboxType, ProducesMessageQueue<UnboundedMailbox.MessageQueue> {
 
-    /**
-     * 不阻塞发送者地追加一条 Envelope。
-     */
-    @Override
-    public void enqueue(ActorRef receiver, Envelope handle) {
-        queue.add(handle);
+    /** 不使用构造参数创建默认 mailbox type。 */
+    public UnboundedMailbox() {
     }
 
     /**
-     * 从队首取出一条 Envelope；当前没有消息时返回 {@code null}。
+     * 供配置反射构造使用，参数与上游辅助构造一致。
+     *
+     * @param settings 所属系统的有效配置
+     * @param config 已合并默认值的 mailbox 配置
      */
+    public UnboundedMailbox(ActorSystem.Settings settings, com.typesafe.config.Config config) {
+        this();
+    }
+
     @Override
-    public Envelope dequeue() {
-        return queue.poll();
+    public MessageQueue create(ActorRef owner, ActorSystem system) {
+        return new MessageQueue();
     }
 
     /**
-     * @return 普通消息队列非空时返回 {@code true}
+     * 不限制容量的普通消息队列。
      */
-    @Override
-    public boolean hasMessages() {
-        return !queue.isEmpty();
-    }
+    public static final class MessageQueue
+            implements io.github.espen7.tapio.dispatch.MessageQueue, UnboundedMessageQueueSemantics {
+        private final ConcurrentLinkedQueue<Envelope> queue = new ConcurrentLinkedQueue<>();
 
-    /**
-     * 将尚未处理的 Envelope 按队列顺序转交给 dead letters。
-     */
-    @Override
-    public void cleanUp(ActorRef owner, MessageQueue deadLetters) {
-        Envelope message;
-        while ((message = dequeue()) != null) deadLetters.enqueue(owner, message);
+        /** 创建空队列。 */
+        public MessageQueue() {
+        }
+
+        @Override
+        public void enqueue(ActorRef receiver, Envelope handle) {
+            queue.add(handle);
+        }
+
+        @Override
+        public Envelope dequeue() {
+            return queue.poll();
+        }
+
+        @Override
+        public boolean hasMessages() {
+            return !queue.isEmpty();
+        }
+
+        @Override
+        public void cleanUp(ActorRef owner, io.github.espen7.tapio.dispatch.MessageQueue deadLetters) {
+            Envelope message;
+            while ((message = dequeue()) != null) deadLetters.enqueue(owner, message);
+        }
     }
 }

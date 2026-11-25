@@ -18,10 +18,16 @@ import io.github.espen7.tapio.actor.ActorSystem;
 
 /** 读取有效配置，并为普通 Dispatcher 保留唯一实例。 */
 final class DispatcherConfigurator {
+    private final Config config;
     private final Dispatcher instance;
 
     DispatcherConfigurator(Config config, ActorSystem system) {
+        this.config = config;
         instance = new Dispatcher(config.getInt("throughput"), config.getDuration("throughput-deadline-time"), system);
+    }
+
+    Config config() {
+        return config;
     }
 
     Dispatcher dispatcher() {

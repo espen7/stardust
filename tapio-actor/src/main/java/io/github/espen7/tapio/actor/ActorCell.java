@@ -16,6 +16,8 @@ package io.github.espen7.tapio.actor;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.Mailbox;
+import io.github.espen7.tapio.dispatch.MailboxType;
+import io.github.espen7.tapio.dispatch.ProducesMessageQueue;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 import io.github.espen7.tapio.event.Debug;
 import io.github.espen7.tapio.event.Error;
@@ -87,6 +89,9 @@ public class ActorCell implements ActorContext {
     /**
      * 创建 ActorCell 并绑定所属 runtime 组件。
      *
+     * <p>Mailbox 由 {@link #init(boolean, io.github.espen7.tapio.dispatch.MailboxType)} 创建，
+     * 因此构造函数不建立消息队列。</p>
+     *
      * @param system     所属 ActorSystem
      * @param self       此 cell 对应的本地 ActorRef
      * @param props      创建或重新创建 Actor 实例所用的 Props
@@ -99,8 +104,6 @@ public class ActorCell implements ActorContext {
         this.initialProps = props;
         this.dispatcher = dispatcher;
         this.parent = parent;
-        this.mailbox = new Mailbox(new io.github.espen7.tapio.dispatch.UnboundedMailbox());
-        mailbox.setActor(this, dispatcher);
     }
 
     /**
@@ -296,23 +299,59 @@ public class ActorCell implements ActorContext {
 
 
     /**
-     * 初始化 ActorCell，并向 Mailbox 放入 Create 系统消息。
+     * 初始化 ActorCell，创建 Mailbox 并向其放入 Create 系统消息。
+     *
+     * <p>对应上游 {@code ActorCell.init}。MailboxType 已按 actor requirement 计算过，
+     * 这里再次校验实际创建的队列，校验失败时把异常延迟到 Actor 创建阶段处理。</p>
      *
      * @param sendSupervise 是否向 parent 发送 Supervise 系统消息
+     * @param mailboxType 创建普通消息队列的 mailbox type
      */
-    public void init(boolean sendSupervise) {
-        mailbox.systemEnqueue(self, new SystemMessage.Create(null));
+    public void init(boolean sendSupervise, MailboxType mailboxType) {
+        Mailbox created = dispatcher.createMailbox(this, mailboxType);
+        Class<?> requirement = mailboxType instanceof ProducesMessageQueue<?>
+                && system.mailboxes().hasRequiredType(initialProps.actorClass())
+                ? system.mailboxes().getRequiredType(initialProps.actorClass()) : null;
+        SystemMessage.Create createMessage;
+        if (requirement != null && !requirement.isInstance(created.messageQueue())) {
+            String gotType = created.messageQueue() == null ? "null" : created.messageQueue().getClass().getName();
+            createMessage = new SystemMessage.Create(new ActorInitializationException(
+                    "Actor [" + self + "] requires mailbox type [" + requirement + "] got [" + gotType + "]"));
+        } else {
+            createMessage = new SystemMessage.Create(null);
+        }
+        swapMailbox(created);
+        created.setActor(this, dispatcher);
+        created.systemEnqueue(self, createMessage);
         if (sendSupervise && parent != null) {
             ((LocalActorRef) parent).underlying().sendSystemMessage(new SystemMessage.Supervise(self, false));
         }
-        dispatcher.registerForExecution(mailbox, false, true);
+        dispatcher.registerForExecution(created, false, true);
+    }
+
+    /**
+     * 返回创建或重建此 Actor 使用的 Props。
+     *
+     * @return 此 cell 的 Props
+     */
+    public Props props() {
+        return initialProps;
+    }
+
+    /**
+     * 返回调度此 cell mailbox 的 Dispatcher。
+     *
+     * @return 此 cell 的 Dispatcher
+     */
+    public Dispatcher dispatcher() {
+        return dispatcher;
     }
 
     /**
      * 启动此 ActorCell。
      *
-     * <p>当前实现由 {@link #init(boolean)} 中的 Create 系统消息启动 mailbox，
-     * 此方法暂时保留上游入口但没有额外动作。</p>
+     * <p>当前实现由 {@link #init(boolean, io.github.espen7.tapio.dispatch.MailboxType)} 中的
+     * Create 系统消息启动 mailbox，此方法暂时保留上游入口但没有额外动作。</p>
      */
     public void start() {
     }
