@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * status 的位布局沿用 Pekko，Scheduled 位用于保证同一个 Mailbox 同时只有一个
  * Dispatcher task。</p>
  */
-public class Mailbox implements Runnable {
+public class Mailbox implements Runnable, DefaultSystemMessageQueue {
     public static final int Open = 0;
     public static final int Closed = 1;
     public static final int Scheduled = 2;
@@ -43,7 +43,7 @@ public class Mailbox implements Runnable {
     /* 只保存系统消息链表的 head，消息本身就是链表节点，避免额外 node 分配。 */
     private final AtomicReference<SystemMessage> systemMessage = new AtomicReference<>();
     private volatile ActorCell actor;
-    private Dispatcher dispatcher;
+    private MessageDispatcher dispatcher;
 
     /**
      * 创建一个 Mailbox，并绑定普通消息队列。
@@ -57,7 +57,7 @@ public class Mailbox implements Runnable {
     /**
      * 将 Mailbox 绑定到所属 ActorCell 和调度它的 Dispatcher。
      */
-    public void setActor(ActorCell actor, Dispatcher dispatcher) {
+    public void setActor(ActorCell actor, MessageDispatcher dispatcher) {
         this.actor = actor;
         this.dispatcher = dispatcher;
     }
@@ -67,6 +67,15 @@ public class Mailbox implements Runnable {
      */
     public ActorCell actor() {
         return actor;
+    }
+
+    /**
+     * 返回调度此 Mailbox 的 MessageDispatcher。
+     *
+     * @return 调度此 Mailbox 的 MessageDispatcher
+     */
+    public MessageDispatcher dispatcher() {
+        return dispatcher;
     }
 
     /**
@@ -205,7 +214,7 @@ public class Mailbox implements Runnable {
         for (; ; ) {
             SystemMessage old = systemMessage.get();
             if (old == SystemMessage.NoMessage) {
-                dispatcher.deadLetterMailbox().systemEnqueue(receiver, message);
+                dispatcher.mailboxes.deadLetterMailbox().systemEnqueue(receiver, message);
                 break;
             }
             message.next(old);
@@ -306,7 +315,7 @@ public class Mailbox implements Runnable {
         while (current != null) {
             SystemMessage next = current.next();
             current.unlink();
-            dispatcher.deadLetterMailbox().systemEnqueue(actor.self(), current);
+            dispatcher.mailboxes.deadLetterMailbox().systemEnqueue(actor.self(), current);
             current = next;
         }
     }

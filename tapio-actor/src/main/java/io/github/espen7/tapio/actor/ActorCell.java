@@ -13,7 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.Mailbox;
 import io.github.espen7.tapio.dispatch.MailboxType;
@@ -93,7 +93,7 @@ public class ActorCell implements ActorContext, Cell {
     /** 创建或重建 Actor 实例时使用的 Props。 */
     private final Props initialProps;
     /** 调度此 cell mailbox 的 Dispatcher。 */
-    private final Dispatcher dispatcher;
+    private final MessageDispatcher dispatcher;
     /** 此 Actor 的 parent 和 supervisor。 */
     private final ActorRef parent;
     private volatile Mailbox mailbox;
@@ -131,7 +131,7 @@ public class ActorCell implements ActorContext, Cell {
      * @param dispatcher 调度此 cell mailbox 的 Dispatcher
      * @param parent     负责监督该 cell 的父级引用
      */
-    public ActorCell(ActorSystemImpl system, ActorRefWithCell self, Props props, Dispatcher dispatcher, ActorRef parent) {
+    public ActorCell(ActorSystemImpl system, ActorRefWithCell self, Props props, MessageDispatcher dispatcher, ActorRef parent) {
         this.system = system;
         this.self = self;
         this.initialProps = props;
@@ -415,7 +415,7 @@ public class ActorCell implements ActorContext, Cell {
      * @return 此 cell 的 Dispatcher
      */
     @Override
-    public Dispatcher dispatcher() {
+    public MessageDispatcher dispatcher() {
         return dispatcher;
     }
 

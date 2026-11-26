@@ -97,6 +97,13 @@ executor，不再额外关闭。`DispatcherConfigurator` 每次返回同一个�
 `actor/src/main/scala/org/apache/pekko/dispatch/Dispatchers.scala`、`dispatch/Dispatcher.scala`、
 `dispatch/AbstractDispatcher.scala` 和 `actor/src/main/resources/reference.conf`。
 
+Dispatcher 层级恢复为 `BatchingExecutor → AbstractMessageDispatcher → MessageDispatcher →
+Dispatcher / PinnedDispatcher`。`MessageDispatcher` 负责 inhabitants、attach/detach、suspend/resume、
+unbatched `TaskInvocation` 和延迟 shutdown；`Dispatcher` 负责 mailbox 调度、lazy
+`ExecutorServiceDelegate`、普通 executor 配置与重试。上游 Java 版 `AbstractMessageDispatcher` 与
+`BatchingExecutor` 的组合关系在 Java 单继承下合并为前者继承后者，字段名、三态常量和 VarHandle
+名称保持一致。
+
 普通 `Dispatcher` 使用 lazy `ExecutorService` delegate。首次提交 mailbox 或普通 Runnable 才按
 `executor` 配置创建 ForkJoinPool 或 ThreadPoolExecutor；`shutdown` 先原子换入新的 delegate，再关闭旧
 executor，因此后续任务可以创建并使用新 executor。inhabitants 统计已注册 Actor 和正在执行的普通
@@ -111,7 +118,10 @@ Scheduler 已关闭导致无法安排，则立即 shutdown 并恢复 `UNSCHEDULE
 `dispatch/AbstractDispatcher.scala` 的 inhabitants、attach/detach 和 shutdown action。
 
 `tapio.actor.default-dispatcher.executor` 支持 `default-executor`、`fork-join-executor` 和
-`thread-pool-executor`。默认 executor 通过同一配置段内的 `default-executor.fallback` 回退；
+`thread-pool-executor`。默认 executor 优先使用 `DispatcherPrerequisites.defaultExecutionContext`，
+发布与上游一致的 DEBUG 事件并通过不接管外部生命周期的 `ExecutorService` 适配器委托；Java 将
+上游匿名 mixin 适配为私有具名类 `ExecutionContextExecutorService`。未提供时通过同一配置段内的
+`default-executor.fallback` 回退；
 三种 executor 的参数段均嵌在 `default-dispatcher` 下，与上游 `reference.conf` 层级一致。
 fork-join 按 `min(max(ceil(availableProcessors × factor), minimum), maximum)` 计算 parallelism，
 `FIFO` 对应 async mode、`LIFO` 对应 sync mode，并传递 `maximum-pool-size`。`minimum-runnable`
@@ -130,18 +140,20 @@ worker 复用；现有 `DispatcherLifecycleTest` 继续验证 lazy 创建、shut
 未注销时注册其他 ActorCell 会抛出 `IllegalArgumentException`，注销后允许绑定新 owner。配置的
 executor 不是 `ThreadPoolExecutorConfigurator` 时发布与上游一致的 Warning，并回退到
 `ThreadPoolConfig` 默认值。`PinnedDispatcherTest` 覆盖独立单线程、别名、owner 生命周期、回退告警
-和非法 executor；`ActorRuntimeTest` 覆盖 internal dispatcher 的初始化、guardian 归属、别名和公开
-Dispatcher 构造器读取有效应用配置。对应上游 `dispatch/PinnedDispatcher.scala`、
+和非法 executor；`ActorRuntimeTest` 覆盖 internal dispatcher 的初始化、guardian 归属、别名，以及
+通过 `DispatcherTestSupport` 按有效应用配置创建 Dispatcher。对应上游 `dispatch/PinnedDispatcher.scala`、
 `dispatch/Dispatchers.scala`、`dispatch/AbstractDispatcher.scala` 和 `dispatch/ThreadPoolBuilder.scala`。
 
 `ActorSystem.threadFactory()` 返回共享的 `MonitorableThreadFactory`。Scheduler 使用
 `<system>-scheduler-<n>`，Dispatcher 使用 `<system>-<dispatcher-id>-<n>`；daemon、上下文类加载器和
 uncaught exception handler 保持一致。fatal error 按 `tapio.jvm-exit-on-fatal-error` 决定退出 JVM
-或终止 ActorSystem，非 fatal 异常记录到 EventStream。Java 没有 Scala `BlockContext`，因此
-ForkJoin worker 只保留线程工厂语义，没有 `PekkoManagedBlocker`；Scala `ControlThrowable` 和
-fatal 日志的 Security marker 也未移植，属于已记录的 Java/SLF4J 边界差异。
-`virtualize=on`、virtual/affinity executor、自定义 executor configurator 和外部默认
-`ExecutionContext` 当前会明确拒绝或尚未提供入口，不会静默忽略。对应上游
+或终止 ActorSystem，非 fatal 异常记录到 EventStream。`BlockContext` 已恢复线程私有上下文与
+`blockOn` 重投剩余批次的语义；Java 没有 Scala `Batchable` 和 `ControlThrowable`，因此
+`ScalaBatchable` 只识别 Tapio `Batchable`，不能识别真正 Scala `Batchable`。ForkJoin worker
+仍只保留线程工厂语义，没有 `PekkoManagedBlocker`；fatal 日志的 Security marker 也未移植，
+属于已记录的 Java/SLF4J 边界差异。
+fork-join 的 `virtualize=on` 会明确拒绝；virtual/affinity executor 和自定义 executor configurator
+尚未提供受支持入口。对应上游
 `actor/ActorSystem.scala` 的 `threadFactory` 与 `uncaughtExceptionHandler`。
 
 当前支持普通 `Dispatcher` 的 `throughput`、`throughput-deadline-time`、`shutdown-timeout`
@@ -172,27 +184,42 @@ Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此
 `WildcardTree` 的 exact、`*`、`**` 匹配顺序。对应上游
 `util/WildcardIndex.scala`。
 
-自定义 dispatcher/executor configurator、virtual/affinity executor、外部默认 `ExecutionContext`、
-`CachingConfig` 优化、router 分支、其他 mailbox 类型（priority、deque、control-aware、
-single-consumer）仍待移植。logger mailbox 已按 `LoggerMessageQueueSemantics` 选择 `LoggerMailbox`，
+`DispatcherPrerequisites.dynamicAccess`、`Dispatchers.registerConfigurator` / `from`、
+`CachingConfig` 优化、自定义 dispatcher/executor configurator、virtual/affinity executor、
+router 分支、其他 mailbox 类型（priority、deque、control-aware、single-consumer）仍待移植。
+`configureExecutor` 对未知 executor 名（包括 FQCN）明确抛出 `ConfigurationException`，不会静默回退。
+上游 ForkJoin/ThreadPool configurator 内部的 Pool、Task、Factory 和 `LoadMetrics` 类型尚未逐类
+对齐；当前保留可观察的池参数、任务包装、拒绝和生命周期语义，不将这部分描述为完整结构 parity。
+logger mailbox 已按 `LoggerMessageQueueSemantics` 选择 `LoggerMailbox`，
 其终止清理会把满足当前级别的剩余 `LogEvent` 同步刷到 `StandardOutLogger`，其余消息丢弃。
-Java 公开 Dispatcher 构造器要求 `ActorSystem`，
-不再提供没有 Scheduler 的无参或仅含 throughput 的假生命周期入口；默认参数读取该 ActorSystem
-的有效配置，而不是绕过应用配置直接读取 `reference.conf`。
+`Dispatcher` 与 `PinnedDispatcher` 的公开构造器恢复上游的 configurator/prerequisites 形状，
+不再提供要求 `ActorSystem` 或仅含 throughput 的便捷构造器。测试需要直接创建实例时使用
+`DispatcherTestSupport` 按完整参数构造，不在生产 API 中增加上游没有的重载。
 
 ## 消息分发
 
 `ActorRef.tell` 创建 `Envelope`，`Dispatcher.dispatch` 将它入队，`Mailbox.run` 优先处理 system
 message，再按 throughput 批量处理用户消息。每条普通消息处理完并清理系统消息后，Mailbox 检查批次截止时间。
 Mailbox 的 `Open`、`Closed`、`Scheduled` 和 suspend 位
-布局与 Pekko 对齐。普通 `Dispatcher.execute(Runnable)` 当前只走 unbatched `TaskInvocation`，
-没有移植 batching；task 结束或提交失败都会释放 inhabitants。`executeTask` 与
+布局与 Pekko 对齐。`BatchingExecutor` 使用 `ThreadLocal<AbstractBatch>` 合并当前线程的嵌套
+Batchable 提交；`AbstractBatch` 继承 `ArrayDeque<Runnable>`，普通批次与 `BlockableBatch` 分别恢复
+此前的 batch 和 BlockContext。异常时先 `resubmitUnbatched` 重投未执行任务再抛出；`blockOn` 也会
+重投剩余批次。非 Batchable 直接 `unbatchedExecute`，virtualized Dispatcher 关闭合并。
+`TaskInvocation` 实现 `Batchable` 并委托 `ScalaBatchable`。Java mixin `DefaultSystemMessageQueue`
+由 marker interface 表达；为保留 `createMailbox` 的普通 `Mailbox` 返回类型，当前所有 `Mailbox`
+都实现该 marker，这是比上游匿名 mixin 更宽的 Java 适配。task 结束或提交失败都会释放
+inhabitants。`executeTask` 与
 `registerForExecution` 连续两次拒绝时发布固定消息 `executeTask was rejected twice!` 或
 `registerForExecution was rejected twice!`，Error 的 cause 保留第一次拒绝异常，并抛出第二次异常。
 失败报告用线程集合防止 EventStream 重新进入 Dispatcher 时递归；递归分支直接调用
 `StandardOutLogger.INSTANCE.tell`，与上游 `StandardOutLogger` 的同步输出路径一致。
-对应上游 `dispatch/Dispatcher.scala`、`dispatch/Mailbox.scala`、`dispatch/AbstractMailbox.scala`
-和 `dispatch/AbstractDispatcher.scala`。
+`TaskInvocation` 对 null 异常消息使用字符串 `"null"`，因为 Tapio `LogEvent` 要求 message 非空；
+上游 Scala 可直接保存 null。shutdown action 通过实现 `ExecutionContext` 的同步 Executor 调度，
+其 `reportFailure` 回传当前 MessageDispatcher，避免 shutdown 异常改走线程默认 handler。
+对应上游 `dispatch/BatchingExecutor.scala`、`scala.concurrent.BlockContext`、
+`dispatch/Dispatcher.scala`、`dispatch/Mailbox.scala`、`dispatch/AbstractMailbox.scala` 和
+`dispatch/AbstractDispatcher.scala`。`BatchingExecutorTest` 覆盖嵌套合并、非 Batchable 旁路、
+异常重投、blockOn 重投、virtualized 关闭合并与 `LogEventException` 原样发布。
 
 ## 失败与 DeathWatch
 

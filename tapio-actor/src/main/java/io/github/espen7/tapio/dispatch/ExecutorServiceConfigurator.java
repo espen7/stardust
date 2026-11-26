@@ -13,9 +13,26 @@
  */
 package io.github.espen7.tapio.dispatch;
 
+import com.typesafe.config.Config;
+
 import java.util.concurrent.ThreadFactory;
 
-/** 根据 Dispatcher 配置创建 ExecutorService 工厂。 */
-abstract class ExecutorServiceConfigurator {
-    abstract ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory);
+/** 根据 Dispatcher 配置和运行时组件创建 ExecutorService 工厂。 */
+public abstract class ExecutorServiceConfigurator implements ExecutorServiceFactoryProvider {
+    protected final Config config;
+    protected final DispatcherPrerequisites prerequisites;
+
+    /**
+     * 保存 executor 配置和构造工厂所需的运行时组件。
+     *
+     * @param config executor 配置
+     * @param prerequisites Dispatcher 运行时组件
+     */
+    protected ExecutorServiceConfigurator(Config config, DispatcherPrerequisites prerequisites) {
+        this.config = config;
+        this.prerequisites = prerequisites;
+    }
+
+    @Override
+    public abstract ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory);
 }

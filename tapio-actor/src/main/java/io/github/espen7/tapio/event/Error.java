@@ -20,6 +20,18 @@ import java.util.Map;
  */
 public final class Error extends LogEvent {
     /**
+     * 创建带 cause 的 ERROR 事件。
+     *
+     * @param cause 异常原因
+     * @param source 日志 source
+     * @param sourceClass 日志 source class
+     * @param message 日志消息
+     */
+    public Error(Throwable cause, String source, Class<?> sourceClass, String message) {
+        super(Level.ERROR, source, sourceClass, message, cause);
+    }
+
+    /**
      * 创建不带 cause 的 ERROR 事件。
      *
      * @param source 日志 source

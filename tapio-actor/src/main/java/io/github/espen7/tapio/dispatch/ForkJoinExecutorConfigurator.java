@@ -22,7 +22,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 /** 按 Pekko fork-join-executor 配置创建 ForkJoinPool。 */
-final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigurator {
+public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigurator {
     static int resolveMinimumRunnable(int configured, int parallelism, int jdkMajorVersion) {
         if (configured >= 0) return configured;
         return jdkMajorVersion >= 25 ? Math.min(8, Math.max(1, parallelism / 2)) : 1;
@@ -33,7 +33,14 @@ final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigurator {
     private final int maximumPoolSize;
     private final int minimumRunnable;
 
-    ForkJoinExecutorConfigurator(Config config) {
+    /**
+     * 创建 fork-join-executor configurator。
+     *
+     * @param config fork-join-executor 配置
+     * @param prerequisites Dispatcher 运行时组件
+     */
+    public ForkJoinExecutorConfigurator(Config config, DispatcherPrerequisites prerequisites) {
+        super(config, prerequisites);
         if (config.getBoolean("virtualize")) {
             throw new ConfigurationException("Virtualized fork-join-executor is not supported");
         }
@@ -52,7 +59,7 @@ final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigurator {
     }
 
     @Override
-    ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
+    public ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
         ThreadFactory namedFactory = threadFactory instanceof MonitorableThreadFactory monitorable
                 ? monitorable.withName(monitorable.name() + "-" + id)
                 : threadFactory;

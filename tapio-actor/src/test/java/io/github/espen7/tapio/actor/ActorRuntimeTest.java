@@ -18,6 +18,8 @@ import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.DispatcherTestSupport;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailbox;
 import io.github.espen7.tapio.dispatch.MailboxType;
@@ -94,7 +96,7 @@ class ActorRuntimeTest {
 
         assertTrue(dispatchers.hasDispatcher("dispatchers.alias"));
         assertFalse(dispatchers.hasDispatcher("dispatchers.missing"));
-        Dispatcher shared = dispatchers.lookup("dispatchers.next");
+        MessageDispatcher shared = dispatchers.lookup("dispatchers.next");
         assertEquals(9, shared.throughput());
         assertNotSame(system.dispatcher(), shared);
         assertSame(shared, dispatchers.lookup("dispatchers.shared"));
@@ -110,7 +112,7 @@ class ActorRuntimeTest {
     @Test
     void internalDispatcherIsSharedByGuardiansAndSeparateFromUserActors() throws Exception {
         system = ActorSystem.create("internal-dispatcher");
-        Dispatcher internal = system.dispatchers().internalDispatcher();
+        MessageDispatcher internal = system.dispatchers().internalDispatcher();
         LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
 
         assertNotSame(system.dispatcher(), internal);
@@ -121,7 +123,8 @@ class ActorRuntimeTest {
 
         ActorRef user = system.actorOf(Props.create(EchoActor.class), "user-actor");
         assertEquals("ready", ask(user, "ready"));
-        ActorCell cell = (ActorCell) ((ActorRefWithCell) user).underlying();
+        ActorRefWithCell started = assertInstanceOf(ActorRefWithCell.class, provider.resolveActorRef(user.path()));
+        ActorCell cell = (ActorCell) started.underlying();
         assertSame(system.dispatcher(), cell.dispatcher());
     }
 
@@ -136,7 +139,7 @@ class ActorRuntimeTest {
                   thread-pool-executor.fixed-pool-size = 1
                 }
                 """));
-        Dispatcher internal = system.dispatchers().internalDispatcher();
+        MessageDispatcher internal = system.dispatchers().internalDispatcher();
         LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
 
         assertSame(internal, system.dispatchers().lookup("dispatchers.internal-target"));
@@ -147,13 +150,13 @@ class ActorRuntimeTest {
     }
 
     @Test
-    void publicDispatcherConstructorUsesEffectiveApplicationConfig() throws Exception {
+    void configuredDispatcherConstructorUsesEffectiveApplicationConfig() throws Exception {
         system = ActorSystem.create("public-dispatcher", ConfigFactory.parseString("""
                 tapio.actor.default-dispatcher.throughput = 13
                 tapio.actor.default-dispatcher.default-executor.fallback = "thread-pool-executor"
                 tapio.actor.default-dispatcher.thread-pool-executor.fixed-pool-size = 1
                 """));
-        Dispatcher dispatcher = new Dispatcher(system);
+        Dispatcher dispatcher = DispatcherTestSupport.configuredDispatcher(system);
         CountDownLatch ran = new CountDownLatch(1);
         AtomicReference<String> threadName = new AtomicReference<>();
         try {

@@ -28,6 +28,7 @@ import io.github.espen7.tapio.actor.LocalActorRef;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.actor.Scheduler;
 import io.github.espen7.tapio.actor.Terminated;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LogEvent;
@@ -131,6 +132,26 @@ class DispatcherLifecycleTest {
     }
 
     @Test
+    void shutdownFailureIsReportedThroughDispatcherExecutionContext() throws Exception {
+        system = ActorSystem.create("dispatcher-shutdown-failure");
+        ManualScheduler scheduler = new ManualScheduler();
+        RuntimeException failure = new IllegalStateException("shutdown failed");
+        Dispatcher dispatcher = dispatcher(scheduler, () -> new FailingShutdownExecutor(failure));
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        system.eventStream().subscribe(new CaptureActorRef(events), Error.class);
+
+        runAndAwaitCleanup(dispatcher, scheduler);
+        scheduler.runNext();
+
+        Error event = (Error) events.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS);
+        assertNotNull(event);
+        assertEquals(Dispatcher.class.getName(), event.source());
+        assertSame(Dispatcher.class, event.sourceClass());
+        assertEquals("shutdown failed", event.message());
+        assertSame(failure, event.cause());
+    }
+
+    @Test
     void submissionFailureRollsBackInhabitantsAndReportsFirstRejection() {
         system = ActorSystem.create("dispatcher-rejected-task");
         ManualScheduler scheduler = new ManualScheduler();
@@ -197,7 +218,7 @@ class DispatcherLifecycleTest {
         assertTrue(actor.stopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         await("detach did not schedule shutdown", () -> dispatcher.inhabitants() == 0 && scheduler.pendingCount() == 1);
         assertTrue(oldMailbox.isClosed());
-        assertSame(dispatcher.deadLetterMailbox(), actor.ref.underlying().mailbox());
+        assertSame(dispatcher.mailboxes.deadLetterMailbox(), actor.ref.underlying().mailbox());
     }
 
     @Test
@@ -297,7 +318,7 @@ class DispatcherLifecycleTest {
                 "dispatchers.reused.shutdown-timeout", "0ms",
                 "tapio.log-dead-letters", "off"));
         system = ActorSystem.create("dispatcher-reuse", config);
-        Dispatcher dispatcher = system.dispatchers().lookup("dispatchers.reused");
+        MessageDispatcher dispatcher = system.dispatchers().lookup("dispatchers.reused");
         CountDownLatch firstReady = new CountDownLatch(1);
         CountDownLatch firstStopped = new CountDownLatch(1);
         ActorRef first = system.actorOf(Props.create(LifecycleActor.class, firstReady, firstStopped)
@@ -314,7 +335,7 @@ class DispatcherLifecycleTest {
         assertSame(first, terminated.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         assertTrue(firstStopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         assertTrue(oldMailbox.isClosed());
-        assertSame(dispatcher.deadLetterMailbox(), ((ActorCell) ((ActorRefWithCell) first).underlying()).mailbox());
+        assertSame(dispatcher.mailboxes.deadLetterMailbox(), ((ActorCell) ((ActorRefWithCell) first).underlying()).mailbox());
         await("dispatcher did not return to zero inhabitants", () -> dispatcher.inhabitants() == 0);
 
         CountDownLatch secondReady = new CountDownLatch(1);
@@ -334,7 +355,7 @@ class DispatcherLifecycleTest {
                 "tapio.log-dead-letters", "off"));
         system = ActorSystem.create("dispatcher-termination", config);
         RecordingScheduler scheduler = RecordingScheduler.LAST.get();
-        Dispatcher dispatcher = system.dispatchers().lookup("dispatchers.pending");
+        MessageDispatcher dispatcher = system.dispatchers().lookup("dispatchers.pending");
         CountDownLatch ready = new CountDownLatch(1);
         CountDownLatch stopped = new CountDownLatch(1);
         ActorRef actor = system.actorOf(Props.create(LifecycleActor.class, ready, stopped)
@@ -368,10 +389,10 @@ class DispatcherLifecycleTest {
                   throughput = 1
                 }
                 """));
-        Dispatcher defaultDispatcher = system.dispatcher();
-        Dispatcher otherDispatcher = system.dispatchers().lookup("dispatchers.other");
+        MessageDispatcher defaultDispatcher = system.dispatcher();
+        MessageDispatcher otherDispatcher = system.dispatchers().lookup("dispatchers.other");
 
-        assertSame(defaultDispatcher.deadLetterMailbox(), otherDispatcher.deadLetterMailbox());
+        assertSame(defaultDispatcher.mailboxes.deadLetterMailbox(), otherDispatcher.mailboxes.deadLetterMailbox());
         assertSame(defaultDispatcher.deadLetters(), otherDispatcher.deadLetters());
     }
 
@@ -379,8 +400,7 @@ class DispatcherLifecycleTest {
     void taskAfterSystemTerminationRecreatesAndShutsDownExecutor() throws Exception {
         system = ActorSystem.create("dispatcher-after-termination");
         CountingExecutorFactory factory = new CountingExecutorFactory();
-        Dispatcher dispatcher = new Dispatcher(5, Duration.ofMillis(100), system, system.scheduler(),
-                SHUTDOWN_DELAY, factory);
+        Dispatcher dispatcher = DispatcherTestSupport.dispatcher(system, system.scheduler(), factory);
         CountDownLatch firstRun = new CountDownLatch(1);
         dispatcher.execute(firstRun::countDown);
         assertTrue(firstRun.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
@@ -401,7 +421,7 @@ class DispatcherLifecycleTest {
     }
 
     private Dispatcher dispatcher(Scheduler scheduler, ExecutorServiceFactory factory) {
-        return new Dispatcher(5, Duration.ofMillis(100), system, scheduler, SHUTDOWN_DELAY, factory);
+        return DispatcherTestSupport.dispatcher(system, scheduler, factory);
     }
 
     private TestActor detachedActor(Dispatcher dispatcher, String name) {
@@ -450,6 +470,44 @@ class DispatcherLifecycleTest {
             ExecutorService executor = Executors.newSingleThreadExecutor(threadFactory);
             executors.add(executor);
             return executor;
+        }
+    }
+
+    private static final class FailingShutdownExecutor extends AbstractExecutorService {
+        private final RuntimeException failure;
+
+        private FailingShutdownExecutor(RuntimeException failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            command.run();
+        }
+
+        @Override
+        public void shutdown() {
+            throw failure;
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            return List.of();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return false;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return false;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return false;
         }
     }
 
@@ -530,7 +588,12 @@ class DispatcherLifecycleTest {
         synchronized void runNext() {
             Holder holder = tasks.pollFirst();
             if (holder == null || holder.cancelled) return;
-            holder.executor.execute(holder.task);
+            try {
+                holder.executor.execute(holder.task);
+            } catch (Throwable error) {
+                if (holder.executor instanceof ExecutionContext context) context.reportFailure(error);
+                else throw error;
+            }
         }
 
         synchronized int pendingCount() {
@@ -608,7 +671,7 @@ class DispatcherLifecycleTest {
         }
     }
 
-    private static final class CaptureActorRef extends ActorRef {
+    static final class CaptureActorRef extends ActorRef {
         private final ActorPath path = new ActorPath("tapio://dispatcher-lifecycle/capture");
         private final BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         private final Consumer<Object> consumer;
@@ -617,7 +680,7 @@ class DispatcherLifecycleTest {
             this(message -> {});
         }
 
-        private CaptureActorRef(BlockingQueue<Object> events) {
+        CaptureActorRef(BlockingQueue<Object> events) {
             this(events::add);
         }
 

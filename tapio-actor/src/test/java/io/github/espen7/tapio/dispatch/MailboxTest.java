@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,7 +55,10 @@ class MailboxTest {
         try (ActorSystem system = ActorSystem.create("mailbox-deadline", config)) {
             Duration deadline = system.dispatcher().throughputDeadlineTime();
             assertEquals(Duration.ofMillis(1), deadline);
-            try (Dispatcher dispatcher = new Dispatcher(system.dispatcher().throughput(), deadline, system) {
+            ExecutorServiceFactory factory = () -> Executors.newSingleThreadExecutor();
+            try (Dispatcher dispatcher = new Dispatcher(DispatcherTestSupport.configurator(system, system.scheduler()),
+                    Dispatchers.DefaultDispatcherId, system.dispatcher().throughput(), deadline,
+                    (id, threadFactory) -> factory, Duration.ofHours(1)) {
                 @Override
                 public boolean registerForExecution(Mailbox mailbox, boolean hasMessageHint, boolean hasSystemMessageHint) {
                     return false;

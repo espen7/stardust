@@ -13,7 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
@@ -40,7 +40,7 @@ final class RepointableActorRef extends ActorRefWithCell {
 
     private final ActorSystemImpl system;
     private final Props props;
-    private final Dispatcher dispatcher;
+    private final MessageDispatcher dispatcher;
     private final MailboxType mailboxType;
     private final InternalActorRef supervisor;
     private final ActorPath path;
@@ -49,7 +49,7 @@ final class RepointableActorRef extends ActorRefWithCell {
     @SuppressWarnings("unused")
     private volatile Cell lookup;
 
-    RepointableActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher, MailboxType mailboxType,
+    RepointableActorRef(ActorSystemImpl system, Props props, MessageDispatcher dispatcher, MailboxType mailboxType,
                         InternalActorRef supervisor, ActorPath path) {
         this.system = system;
         this.props = props;

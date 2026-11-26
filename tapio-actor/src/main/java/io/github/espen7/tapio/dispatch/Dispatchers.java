@@ -19,15 +19,17 @@ import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.event.LoggingAdapter;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 按配置 ID 查找或创建 Dispatcher。普通 Dispatcher 及其别名共享同一个实例，
+ * 按配置 ID 查找或创建 MessageDispatcher。普通 Dispatcher 及其别名共享同一个实例，
  * PinnedDispatcher 及其别名则在每次查找时创建新实例。
  */
-public final class Dispatchers {
+public class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
     public static final String DefaultDispatcherId = ActorPath.Scheme + ".actor.default-dispatcher";
     /** INTERNAL API：Pekko 内部 Dispatcher 的配置路径。 */
@@ -36,21 +38,35 @@ public final class Dispatchers {
     private static final int MaxDispatcherAliasDepth = 20;
 
     private final ActorSystem.Settings settings;
-    private final ActorSystem system;
+    private final DispatcherPrerequisites prerequisites;
+    private final LoggingAdapter logger;
     private final Config defaultDispatcherConfig;
     private final ConcurrentHashMap<String, MessageDispatcherConfigurator> dispatcherConfigurators =
             new ConcurrentHashMap<>();
-    private final Dispatcher internalDispatcher;
+    private final MessageDispatcher internalDispatcher;
 
     /**
-     * 创建 ActorSystem 使用的 Dispatcher 注册表。
+     * 从 ActorSystem 当前组件创建 Dispatcher 注册表。
      *
      * @param settings 所属系统的有效配置
      * @param system 接收 dead-letter 事件并提供 Scheduler 的系统
      */
     public Dispatchers(ActorSystem.Settings settings, ActorSystem system) {
+        this(settings, new DefaultDispatcherPrerequisites(system.threadFactory(), system.eventStream(),
+                system.scheduler(), settings, system.mailboxes(), Optional.empty()), system.log());
+    }
+
+    /**
+     * 从显式运行时组件创建 Dispatcher 注册表。
+     *
+     * @param settings 系统设置
+     * @param prerequisites Dispatcher 运行时组件
+     * @param logger 注册表日志适配器
+     */
+    public Dispatchers(ActorSystem.Settings settings, DispatcherPrerequisites prerequisites, LoggingAdapter logger) {
         this.settings = settings;
-        this.system = system;
+        this.prerequisites = prerequisites;
+        this.logger = logger;
         this.defaultDispatcherConfig = idConfig(DefaultDispatcherId)
                 .withFallback(settings.config().getConfig(DefaultDispatcherId));
         this.internalDispatcher = lookup(InternalDispatcherId);
@@ -62,7 +78,7 @@ public final class Dispatchers {
      * @return 此 ActorSystem 唯一的 internal Dispatcher
      */
     @InternalApi
-    public Dispatcher internalDispatcher() {
+    public MessageDispatcher internalDispatcher() {
         return internalDispatcher;
     }
 
@@ -72,7 +88,7 @@ public final class Dispatchers {
      * @return 默认 Dispatcher
      * @throws ConfigurationException 当默认 Dispatcher 的类型不受支持时
      */
-    public Dispatcher defaultGlobalDispatcher() {
+    public MessageDispatcher defaultGlobalDispatcher() {
         return lookup(DefaultDispatcherId);
     }
 
@@ -85,7 +101,7 @@ public final class Dispatchers {
      * @throws ConfigurationException 当配置缺失、别名超过深度限制或类型不受支持时
      * @throws com.typesafe.config.ConfigException 当 Dispatcher 参数无效时
      */
-    public Dispatcher lookup(String id) {
+    public MessageDispatcher lookup(String id) {
         return lookupConfigurator(id, 0).dispatcher();
     }
 
@@ -126,7 +142,7 @@ public final class Dispatchers {
         MessageDispatcherConfigurator newConfigurator = switch (valueAtPath.valueType()) {
             case STRING -> {
                 String actualId = (String) valueAtPath.unwrapped();
-                system.log().debug("Dispatcher id [{}] is an alias, actual dispatcher will be [{}]", id, actualId);
+                logger.debug("Dispatcher id [{}] is an alias, actual dispatcher will be [{}]", id, actualId);
                 yield lookupConfigurator(actualId, depth + 1);
             }
             case OBJECT -> configuratorFrom(config(id, config.getConfig(id)));
@@ -153,8 +169,8 @@ public final class Dispatchers {
 
     private MessageDispatcherConfigurator configuratorFrom(Config config) {
         String type = config.getString("type");
-        if ("Dispatcher".equals(type)) return new DispatcherConfigurator(config, system);
-        if ("PinnedDispatcher".equals(type)) return new PinnedDispatcherConfigurator(config, system);
+        if ("Dispatcher".equals(type)) return new DispatcherConfigurator(config, prerequisites);
+        if ("PinnedDispatcher".equals(type)) return new PinnedDispatcherConfigurator(config, prerequisites);
         throw new ConfigurationException("Cannot instantiate MessageDispatcherConfigurator type [" + type
                 + "], defined in [" + config.getString("id") + "]");
     }

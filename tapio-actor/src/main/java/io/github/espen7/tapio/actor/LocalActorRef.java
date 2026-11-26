@@ -13,7 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
@@ -43,12 +43,12 @@ public class LocalActorRef extends ActorRefWithCell {
      * @param path ActorPath
      * @param name parent 下的 child name
      */
-    public LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher,
+    public LocalActorRef(ActorSystemImpl system, Props props, MessageDispatcher dispatcher,
                          MailboxType mailboxType, ActorRef supervisor, ActorPath path, String name) {
         this(system, props, dispatcher, mailboxType, supervisor, path, name, true);
     }
 
-    LocalActorRef(ActorSystemImpl system, Props props, Dispatcher dispatcher, MailboxType mailboxType,
+    LocalActorRef(ActorSystemImpl system, Props props, MessageDispatcher dispatcher, MailboxType mailboxType,
                   ActorRef supervisor, ActorPath path, String name, boolean start) {
         this.system = system;
         this.path = path;
@@ -112,7 +112,7 @@ public class LocalActorRef extends ActorRefWithCell {
      * @param supervisor supervisor ActorRef
      * @return 新 ActorCell
      */
-    protected ActorCell newActorCell(ActorSystemImpl system, LocalActorRef ref, Props props, Dispatcher dispatcher, ActorRef supervisor) {
+    protected ActorCell newActorCell(ActorSystemImpl system, LocalActorRef ref, Props props, MessageDispatcher dispatcher, ActorRef supervisor) {
         return new ActorCell(system, ref, props, dispatcher, supervisor);
     }
 

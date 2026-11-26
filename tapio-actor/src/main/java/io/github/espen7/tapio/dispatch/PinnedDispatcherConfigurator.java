@@ -14,22 +14,25 @@
 package io.github.espen7.tapio.dispatch;
 
 import com.typesafe.config.Config;
-import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.event.Warning;
 
 /** 为 PinnedDispatcher 保留配置，并在每次查找时创建新实例。 */
-final class PinnedDispatcherConfigurator extends MessageDispatcherConfigurator {
-    private final ActorSystem system;
+public class PinnedDispatcherConfigurator extends MessageDispatcherConfigurator {
     private final ThreadPoolConfig threadPoolConfig;
 
-    PinnedDispatcherConfigurator(Config config, ActorSystem system) {
-        super(config);
-        this.system = system;
-        ExecutorServiceConfigurator executor = DispatcherConfigurator.executorConfigurator(config);
+    /**
+     * 创建 PinnedDispatcher configurator。
+     *
+     * @param config 有效配置
+     * @param prerequisites Dispatcher 运行时组件
+     */
+    public PinnedDispatcherConfigurator(Config config, DispatcherPrerequisites prerequisites) {
+        super(config, prerequisites);
+        ExecutorServiceConfigurator executor = configureExecutor();
         if (executor instanceof ThreadPoolExecutorConfigurator threadPool) {
             this.threadPoolConfig = threadPool.threadPoolConfig();
         } else {
-            system.eventStream().publish(new Warning("PinnedDispatcherConfigurator", getClass(),
+            prerequisites.eventStream().publish(new Warning("PinnedDispatcherConfigurator", getClass(),
                     "PinnedDispatcher [" + config.getString("id")
                             + "] not configured to use ThreadPoolExecutor, falling back to default config."));
             this.threadPoolConfig = ThreadPoolConfig.defaults();
@@ -37,8 +40,8 @@ final class PinnedDispatcherConfigurator extends MessageDispatcherConfigurator {
     }
 
     @Override
-    Dispatcher dispatcher() {
-        return new PinnedDispatcher(system, null, config().getString("id"),
+    public MessageDispatcher dispatcher() {
+        return new PinnedDispatcher(this, null, config().getString("id"),
                 config().getDuration("shutdown-timeout"), threadPoolConfig);
     }
 }

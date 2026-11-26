@@ -16,12 +16,16 @@ package io.github.espen7.tapio.dispatch;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
+import io.github.espen7.tapio.event.EventStream;
+import io.github.espen7.tapio.event.LogEvent;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -37,6 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,6 +73,45 @@ class DispatcherExecutorConfigTest {
             assertEquals(2, ((ThreadPoolExecutor) pool).getMaximumPoolSize());
         } finally {
             shutdown(pool);
+        }
+    }
+
+    @Test
+    void defaultExecutorUsesPassedExecutionContextWithoutOwningItsLifecycle() throws Exception {
+        Config config = config(Map.of(
+                "tapio.actor.default-dispatcher.default-executor.fallback", "thread-pool-executor"));
+        ExecutorService external = Executors.newSingleThreadExecutor();
+        AtomicReference<Throwable> reported = new AtomicReference<>();
+        ExecutionContext executionContext = new ExecutionContext() {
+            @Override
+            public void execute(Runnable command) {
+                external.execute(command);
+            }
+
+            @Override
+            public void reportFailure(Throwable cause) {
+                reported.set(cause);
+            }
+        };
+        try {
+            DispatcherPrerequisites prerequisites = new DefaultDispatcherPrerequisites(
+                    new MonitorableThreadFactory("executor-test", false, getClass().getClassLoader(), null),
+                    new EventStream(LogEvent.Level.ERROR), null, null, null, Optional.of(executionContext));
+            ExecutorService adapter = factory(config, prerequisites).createExecutorService();
+            CountDownLatch done = new CountDownLatch(1);
+
+            adapter.execute(done::countDown);
+            assertTrue(done.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            adapter.shutdown();
+
+            assertFalse(adapter.isShutdown());
+            assertFalse(adapter.isTerminated());
+            assertFalse(adapter.awaitTermination(1, TimeUnit.MILLISECONDS));
+            assertTrue(adapter.shutdownNow().isEmpty());
+            assertFalse(external.isShutdown());
+            assertNull(reported.get());
+        } finally {
+            shutdown(external);
         }
     }
 
@@ -334,7 +378,20 @@ class DispatcherExecutorConfigTest {
     }
 
     private static ExecutorServiceFactory factory(Config config, ThreadFactory threadFactory) {
-        return DispatcherConfigurator.createExecutorServiceFactory(config, threadFactory);
+        DispatcherPrerequisites prerequisites = new DefaultDispatcherPrerequisites(
+                threadFactory, null, null, null, null, Optional.empty());
+        return factory(config, prerequisites);
+    }
+
+    private static ExecutorServiceFactory factory(Config config, DispatcherPrerequisites prerequisites) {
+        ThreadFactory threadFactory = prerequisites.threadFactory();
+        MessageDispatcherConfigurator configurator = new MessageDispatcherConfigurator(config, prerequisites) {
+            @Override
+            public MessageDispatcher dispatcher() {
+                throw new UnsupportedOperationException();
+            }
+        };
+        return configurator.configureExecutor().createExecutorServiceFactory(config.getString("id"), threadFactory);
     }
 
     private static void shutdown(ExecutorService executor) throws InterruptedException {

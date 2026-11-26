@@ -78,8 +78,8 @@ class PinnedDispatcherTest {
         String firstThread = (String) ask(first, "one");
         String firstThreadAgain = (String) ask(first, "two");
         String secondThread = (String) ask(second, "one");
-        Dispatcher firstDispatcher = underlying(first).dispatcher();
-        Dispatcher secondDispatcher = underlying(second).dispatcher();
+        MessageDispatcher firstDispatcher = underlying(first).dispatcher();
+        MessageDispatcher secondDispatcher = underlying(second).dispatcher();
         assertInstanceOf(PinnedDispatcher.class, firstDispatcher);
         assertInstanceOf(PinnedDispatcher.class, secondDispatcher);
         assertNotSame(firstDispatcher, secondDispatcher);
@@ -131,7 +131,7 @@ class PinnedDispatcherTest {
         ActorRef collector = system.actorOf(Props.create(EventCollector.class, events), "events");
         system.eventStream().subscribe(collector, Warning.class);
 
-        Dispatcher dispatcher = system.dispatchers().lookup("dispatchers.pinned");
+        MessageDispatcher dispatcher = system.dispatchers().lookup("dispatchers.pinned");
         assertInstanceOf(PinnedDispatcher.class, dispatcher);
         Warning warning = assertInstanceOf(Warning.class, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals("PinnedDispatcherConfigurator", warning.source());
@@ -157,7 +157,7 @@ class PinnedDispatcherTest {
         assertTrue(error.getMessage().contains("Supported built-ins"));
     }
 
-    private LocalActorRef detachedActor(Dispatcher dispatcher, String name, CountDownLatch ready,
+    private LocalActorRef detachedActor(MessageDispatcher dispatcher, String name, CountDownLatch ready,
                                         CountDownLatch stopped) {
         LocalActorRef actor = new LocalActorRef((ActorSystemImpl) system,
                 Props.create(LifecycleActor.class, ready, stopped), dispatcher, new UnboundedMailbox(),

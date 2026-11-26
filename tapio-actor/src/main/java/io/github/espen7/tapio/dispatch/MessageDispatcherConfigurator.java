@@ -14,18 +14,75 @@
 package io.github.espen7.tapio.dispatch;
 
 import com.typesafe.config.Config;
+import io.github.espen7.tapio.ConfigurationException;
 
 /** 根据有效配置创建 MessageDispatcher。 */
-abstract class MessageDispatcherConfigurator {
+public abstract class MessageDispatcherConfigurator {
     private final Config config;
+    private final DispatcherPrerequisites prerequisites;
 
-    MessageDispatcherConfigurator(Config config) {
-        this.config = config;
+    /**
+     * 保存配置和构造 Dispatcher 所需的运行时组件。
+     *
+     * @param _config 有效配置
+     * @param prerequisites 运行时组件
+     */
+    protected MessageDispatcherConfigurator(Config _config, DispatcherPrerequisites prerequisites) {
+        this.config = _config;
+        this.prerequisites = prerequisites;
     }
 
-    Config config() {
+    /**
+     * 返回有效配置。
+     *
+     * @return 配置
+     */
+    public Config config() {
         return config;
     }
 
-    abstract Dispatcher dispatcher();
+    /**
+     * 返回运行时组件。
+     *
+     * @return prerequisites
+     */
+    public DispatcherPrerequisites prerequisites() {
+        return prerequisites;
+    }
+
+    /**
+     * 创建或返回 MessageDispatcher。
+     *
+     * @return MessageDispatcher
+     */
+    public abstract MessageDispatcher dispatcher();
+
+    /**
+     * 按配置创建 executor configurator。
+     *
+     * @return executor configurator
+     */
+    public ExecutorServiceConfigurator configureExecutor() {
+        String executor = config.getString("executor");
+        if ("default-executor".equals(executor)) {
+            Config defaultConfig = config.getConfig("default-executor");
+            return new DefaultExecutorServiceConfigurator(defaultConfig, prerequisites,
+                    configurator(defaultConfig.getString("fallback")));
+        }
+        return configurator(executor);
+    }
+
+    private ExecutorServiceConfigurator configurator(String executor) {
+        if (executor == null) return new ForkJoinExecutorConfigurator(
+                config.getConfig("fork-join-executor"), prerequisites);
+        return switch (executor) {
+            case "", "fork-join-executor" -> new ForkJoinExecutorConfigurator(
+                    config.getConfig("fork-join-executor"), prerequisites);
+            case "thread-pool-executor" -> new ThreadPoolExecutorConfigurator(
+                    config.getConfig("thread-pool-executor"), prerequisites);
+            default -> throw new ConfigurationException("Cannot instantiate ExecutorServiceConfigurator type [" + executor
+                    + "], defined in [" + config.getString("id")
+                    + "]. Supported built-ins are default-executor, fork-join-executor and thread-pool-executor.");
+        };
+    }
 }

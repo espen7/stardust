@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.ConfigurationException;
-import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 
 /**
  * ActorSystem 和 ActorContext 共用的 Actor 创建与停止入口。
@@ -28,7 +28,7 @@ public interface ActorRefFactory {
      *
      * @return ActorSystem 的默认 Dispatcher，或当前 Actor 使用的 Dispatcher
      */
-    Dispatcher dispatcher();
+    MessageDispatcher dispatcher();
 
     /**
      * 使用自动生成的名称创建 Actor。

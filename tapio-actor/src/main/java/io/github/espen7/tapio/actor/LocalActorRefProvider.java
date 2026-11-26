@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.ConfigurationException;
-import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.dispatch.RequiresMessageQueue;
@@ -220,7 +220,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
             throw new ConfigurationException(
                     "Dispatcher [" + props2.dispatcher() + "] not configured for path " + path);
         try {
-            Dispatcher dispatcher = system.dispatchers().lookup(props2.dispatcher());
+            MessageDispatcher dispatcher = system.dispatchers().lookup(props2.dispatcher());
             MailboxType mailboxType = system.mailboxes().getMailboxType(props2,
                     system.dispatchers().config(props2.dispatcher()));
             if (async) {

@@ -16,7 +16,7 @@ package io.github.espen7.tapio.actor;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
-import io.github.espen7.tapio.dispatch.Dispatcher;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.event.EventStream;
@@ -233,7 +233,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @return 此系统的 Dispatcher
      */
     @Override
-    public abstract Dispatcher dispatcher();
+    public abstract MessageDispatcher dispatcher();
 
     /**
      * 返回此系统的 Dispatcher 注册表。注册表与系统同生命周期。

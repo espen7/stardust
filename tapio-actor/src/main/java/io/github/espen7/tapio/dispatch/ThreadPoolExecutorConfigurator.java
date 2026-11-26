@@ -23,10 +23,17 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Supplier;
 
 /** 按 Pekko thread-pool-executor 配置创建 ThreadPoolExecutor。 */
-final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigurator {
+public final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigurator {
     private final ThreadPoolConfig threadPoolConfig;
 
-    ThreadPoolExecutorConfigurator(Config config) {
+    /**
+     * 创建 thread-pool-executor configurator。
+     *
+     * @param config thread-pool-executor 配置
+     * @param prerequisites Dispatcher 运行时组件
+     */
+    public ThreadPoolExecutorConfigurator(Config config, DispatcherPrerequisites prerequisites) {
+        super(config, prerequisites);
         if (config.getBoolean("virtualize")) {
             throw new ConfigurationException("Virtualized thread-pool-executor is not supported");
         }
@@ -62,7 +69,7 @@ final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigurator {
     }
 
     @Override
-    ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
+    public ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
         return createExecutorServiceFactory(threadPoolConfig, id, threadFactory);
     }
 

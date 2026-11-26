@@ -13,11 +13,13 @@
  */
 package io.github.espen7.tapio.dispatch;
 
+import io.github.espen7.tapio.dispatch.internal.ScalaBatchable;
 import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.event.EventStream;
+import io.github.espen7.tapio.util.NonFatal;
 
 /** 包装普通 Runnable，并在执行结束后释放 Dispatcher inhabitants。 */
-final class TaskInvocation implements Runnable {
+final class TaskInvocation implements Batchable {
     private final EventStream eventStream;
     private final Runnable runnable;
     private final Runnable cleanup;
@@ -29,16 +31,18 @@ final class TaskInvocation implements Runnable {
     }
 
     @Override
+    public final boolean isBatchable() {
+        return ScalaBatchable.isBatchable(runnable);
+    }
+
+    @Override
     public void run() {
         try {
             runnable.run();
         } catch (Throwable error) {
-            if (error instanceof VirtualMachineError || error instanceof ThreadDeath || error instanceof LinkageError) {
-                throw error;
-            }
+            if (!NonFatal.apply(error)) throw error;
             DispatchFailureReporting.report(eventStream,
-                    new Error("TaskInvocation", TaskInvocation.class,
-                            String.valueOf(error.getMessage()), error));
+                    new Error(error, "TaskInvocation", TaskInvocation.class, String.valueOf(error.getMessage())));
         } finally {
             cleanup.run();
         }
