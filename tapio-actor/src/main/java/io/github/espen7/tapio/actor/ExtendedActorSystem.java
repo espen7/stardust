@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.event.LoggingFilter;
+
 import java.util.concurrent.ThreadFactory;
 
 /**
@@ -48,4 +50,11 @@ public abstract class ExtendedActorSystem extends ActorSystem {
      * @return DynamicAccess 实例
      */
     public abstract DynamicAccess dynamicAccess();
+
+    /**
+     * 返回此系统使用的 {@link LoggingFilter}。
+     *
+     * @return LoggingFilter 实例
+     */
+    public abstract LoggingFilter logFilter();
 }

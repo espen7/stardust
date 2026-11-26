@@ -500,3 +500,11 @@ Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.
 - `DequeBasedMessageQueueSemantics`、`UnboundedDequeBasedMailbox`、`BoundedDequeBasedMailbox`、`AbstractActorWithStash`、`AbstractActorWithUnboundedStash`、`AbstractActorWithUnrestrictedStash` 和 `StashOverflowException` 对应上游 `actor/Stash.scala`、`actor/AbstractActor.scala` 和 `dispatch/Mailbox.scala`，并支持 `stash-capacity` 配置与 `preRestart`/`postStop` 自动释放到 `deadLetters`。
 - `PriorityGenerator`、`UnboundedPriorityMailbox`、`ControlMessage` 和 `UnboundedControlAwareMailbox` 对应上游 `dispatch/Mailbox.scala` 中的优先级与控制感知邮箱。
 - `LoggingReceive` 对应上游 `event/LoggingReceive.scala`，在 `tapio.actor.debug.receive = on` 时发布已处理/未处理消息的 `DEBUG` 日志。
+
+## BackoffSupervisor、CircuitBreaker、FSM 与 LoggingFilter
+
+- `BackoffSupervisor`、`BackoffOpts`、`BackoffOnFailureOptions`、`BackoffOnStopOptions`、`RetrySupport`、`BackoffOnRestartSupervisor` 和 `BackoffOnStopSupervisor` 对应上游 `pattern/BackoffSupervisor.scala`、`pattern/BackoffOptions.scala`、`pattern/HandleBackoff.scala`、`pattern/RetrySupport.scala` 及 `pattern/internal/` 对应实现。Java 将 `HandleBackoff` 提取为抽象基类 `AbstractBackoffSupervisor` 复用状态与协议处理。
+- `CircuitBreaker` 和 `CircuitBreakerOpenException` 对应上游 `pattern/CircuitBreaker.scala`，保留 `Closed` / `Open` / `HalfOpen` 原子状态机、`callWithCircuitBreaker`、`callWithSyncCircuitBreaker` 与状态转换监听器。
+- `FSM`、`AbstractFSM`、`FSMStateFunctionBuilder` 和 `FSMTransitionHandlerBuilder` 对应上游 `actor/FSM.scala`、`actor/AbstractFSM.scala` 与 `japi/pf/FSM*.scala`，支持状态超时（`FSM.StateTimeout`）、`onTransition`、`onTermination` 与 `whenUnhandled`。
+- `LoggingFilter`、`DefaultLoggingFilter`、`tapio.logging-filter` 和 `tapio.log-config-on-start`（以及 `ActorSystem.logConfiguration()`）对应上游 `event/Logging.scala` 与 `actor/ActorSystem.scala`。
+- `AbstractLoggingActorWithStash` 和 `AbstractActorWithUnrestrictedStash.unstashAll(Predicate<Object>)` 补齐了 `Stash` 体系的日志组合与过滤重放能力。

@@ -96,6 +96,10 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
 
         /** 系统日志级别，默认 {@code INFO}。 */
         public final String LogLevel;
+        /** 日志过滤器全限定类名。 */
+        public final String LoggingFilter;
+        /** 启动时是否打印生效配置，默认关闭。 */
+        public final boolean LogConfigOnStart;
         /** ActorSystem 启动前的标准输出日志级别，默认 {@code WARNING}。 */
         public final String StdoutLogLevel;
         /** 启动时创建的默认 logger 类名；空列表使用 DefaultLogger。 */
@@ -143,6 +147,8 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             this.classLoader = classLoader;
             this.name = name;
             LogLevel = config.getString(ActorPath.Scheme + ".loglevel");
+            LoggingFilter = config.getString(ActorPath.Scheme + ".logging-filter");
+            LogConfigOnStart = config.getBoolean(ActorPath.Scheme + ".log-config-on-start");
             StdoutLogLevel = config.getString(ActorPath.Scheme + ".stdout-loglevel");
             Loggers = List.copyOf(config.getStringList(ActorPath.Scheme + ".loggers"));
             LoggersDispatcher = config.getString(ActorPath.Scheme + ".loggers-dispatcher");
@@ -274,6 +280,9 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @return 可发布到 EventStream 的日志适配器
      */
     public abstract LoggingAdapter log();
+
+    /** 将当前系统的有效配置输出到 INFO 日志。 */
+    public abstract void logConfiguration();
 
     /**
      * 异步停止 ActorSystem。

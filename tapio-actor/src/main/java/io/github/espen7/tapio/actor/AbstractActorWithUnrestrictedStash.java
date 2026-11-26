@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * 不强制邮箱类型限制的暂存 Actor 基类，对应 Pekko {@code AbstractActorWithUnrestrictedStash}。
@@ -45,6 +46,15 @@ public abstract class AbstractActorWithUnrestrictedStash extends AbstractActor {
     /** 将所有暂存消息按原顺序放回邮箱头部并清空暂存队列。 */
     public void unstashAll() {
         stash.unstashAll();
+    }
+
+    /**
+     * 将满足谓词的暂存消息按原顺序放回邮箱头部并清空暂存队列。
+     *
+     * @param filterPredicate 消息过滤谓词
+     */
+    public void unstashAll(Predicate<Object> filterPredicate) {
+        stash.unstashAll(filterPredicate);
     }
 
     @Override

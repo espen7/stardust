@@ -25,6 +25,7 @@ import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.Logging;
 import io.github.espen7.tapio.event.LoggingAdapter;
+import io.github.espen7.tapio.event.LoggingFilter;
 import io.github.espen7.tapio.event.DeadLetterListener;
 import io.github.espen7.tapio.util.NonFatal;
 
@@ -73,6 +74,8 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     private final EventStream eventStream;
     /** 绑定系统 source 的 LoggingAdapter。 */
     private final LoggingAdapter log;
+    /** 当前系统的日志过滤器。 */
+    private final LoggingFilter logFilter;
     /** 创建本地 ActorRef、guardian 和临时引用的 Provider。 */
     private final LocalActorRefProvider provider;
     /** 系统级 dead-letter listener；关闭期间可按配置保留或停止。 */
@@ -108,6 +111,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         this.eventStream = new EventStream(this, settings.DebugEventStream);
         eventStream.startStdoutLogger(settings);
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
+        this.logFilter = createLoggingFilter();
         this.threadFactory = new MonitorableThreadFactory(name, settings.Daemonicity, classLoader,
                 uncaughtExceptionHandler());
         MessageDispatcher startedDispatcher = null;
@@ -132,6 +136,9 @@ public class ActorSystemImpl extends ExtendedActorSystem {
             }
             eventStream.startUnsubscriber();
             loadExtensions();
+            if (settings.LogConfigOnStart) {
+                logConfiguration();
+            }
             if (settings.CoordinatedShutdownTerminateActorSystem) {
                 coordinatedShutdown.addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-system", () -> {
                     finalTerminate();
@@ -357,6 +364,28 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     @Override
     public LoggingAdapter log() {
         return log;
+    }
+
+    @Override
+    public LoggingFilter logFilter() {
+        return logFilter;
+    }
+
+    @Override
+    public void logConfiguration() {
+        log.info(settings.config().root().render());
+    }
+
+    private LoggingFilter createLoggingFilter() {
+        try {
+            return dynamicAccess.createInstanceFor(settings.LoggingFilter, LoggingFilter.class, List.of(
+                    Map.entry(Settings.class, settings),
+                    Map.entry(EventStream.class, eventStream)));
+        } catch (Throwable error) {
+            if (error instanceof RuntimeException runtimeError) throw runtimeError;
+            if (error instanceof Error fatal) throw fatal;
+            throw new IllegalArgumentException("Could not instantiate LoggingFilter [" + settings.LoggingFilter + "]", error);
+        }
     }
 
     boolean debugLifecycle() {
