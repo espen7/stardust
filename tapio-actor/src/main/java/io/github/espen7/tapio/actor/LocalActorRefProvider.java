@@ -129,7 +129,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
             }
         };
         this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class, rootGuardianStrategy()),
-                system.dispatcher(), system.mailboxes().lookup(Mailboxes.DefaultMailboxId),
+                system.dispatchers().internalDispatcher(), system.mailboxes().lookup(Mailboxes.DefaultMailboxId),
                 theOneWhoWalksTheBubblesOfSpaceTime, rootPath, rootPath.name(), false) {
             @Override
             InternalActorRef getParent() {
@@ -156,14 +156,14 @@ public class LocalActorRefProvider extends ActorRefProvider {
 
         cell.reserveChild("user");
         guardian = new LocalActorRef(system, Props.create(Guardian.class, guardianSupervisorStrategy(system)),
-                system.dispatcher(), defaultMailbox, rootGuardian,
+                system.dispatchers().internalDispatcher(), defaultMailbox, rootGuardian,
                 new ActorPath(rootPath, "user"), "user", false);
         cell.initChild(guardian);
         guardian.start();
 
         cell.reserveChild("system");
         systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, guardian),
-                system.dispatcher(), defaultMailbox, rootGuardian,
+                system.dispatchers().internalDispatcher(), defaultMailbox, rootGuardian,
                 new ActorPath(rootPath, "system"), "system", false);
         cell.initChild(systemGuardian);
         systemGuardian.start();

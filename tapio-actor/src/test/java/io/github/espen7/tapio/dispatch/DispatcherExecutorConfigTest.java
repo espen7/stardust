@@ -23,12 +23,15 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RecursiveTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -97,6 +100,88 @@ class DispatcherExecutorConfigTest {
             assertTrue(worker.get().isDaemon());
             assertSame(getClass().getClassLoader(), worker.get().getContextClassLoader());
             assertSame(handler, worker.get().getUncaughtExceptionHandler());
+        } finally {
+            shutdown(executor);
+        }
+    }
+
+    @Test
+    void forkJoinPreservesExistingTaskCancellationAndCompletion() throws Exception {
+        Config config = config(Map.of(
+                "tapio.actor.default-dispatcher.executor", "fork-join-executor",
+                "tapio.actor.default-dispatcher.fork-join-executor.parallelism-min", 1,
+                "tapio.actor.default-dispatcher.fork-join-executor.parallelism-factor", 0.0,
+                "tapio.actor.default-dispatcher.fork-join-executor.parallelism-max", 1,
+                "tapio.actor.default-dispatcher.fork-join-executor.maximum-pool-size", 1,
+                "tapio.actor.default-dispatcher.fork-join-executor.minimum-runnable", 0));
+        ForkJoinPool pool = (ForkJoinPool) factory(config).createExecutorService();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean cancelledTaskRan = new AtomicBoolean();
+        try {
+            pool.execute(() -> {
+                started.countDown();
+                await(release);
+            });
+            assertTrue(started.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            ForkJoinTask<Integer> cancelled = new RecursiveTask<>() {
+                @Override
+                protected Integer compute() {
+                    cancelledTaskRan.set(true);
+                    return 1;
+                }
+            };
+            pool.execute(cancelled);
+            assertTrue(cancelled.cancel(false));
+            release.countDown();
+            assertTrue(cancelled.isCancelled());
+            assertFalse(cancelledTaskRan.get());
+
+            ForkJoinTask<String> completed = new RecursiveTask<>() {
+                @Override
+                protected String compute() {
+                    return "done";
+                }
+            };
+            pool.execute(completed);
+            assertEquals("done", completed.get(WAIT_SECONDS, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+            shutdown(pool);
+        }
+    }
+
+    @Test
+    void forkJoinWorkerCanReuseRunnableAfterFailure() throws Exception {
+        Config config = config(Map.of(
+                "tapio.actor.default-dispatcher.executor", "fork-join-executor",
+                "tapio.actor.default-dispatcher.fork-join-executor.parallelism-min", 1,
+                "tapio.actor.default-dispatcher.fork-join-executor.parallelism-factor", 0.0,
+                "tapio.actor.default-dispatcher.fork-join-executor.parallelism-max", 1,
+                "tapio.actor.default-dispatcher.fork-join-executor.maximum-pool-size", 1,
+                "tapio.actor.default-dispatcher.fork-join-executor.minimum-runnable", 0));
+        RuntimeException failure = new IllegalStateException("expected failure");
+        AtomicReference<Throwable> uncaught = new AtomicReference<>();
+        CountDownLatch failed = new CountDownLatch(1);
+        CountDownLatch succeeded = new CountDownLatch(1);
+        MonitorableThreadFactory threadFactory = new MonitorableThreadFactory("executor-test", true,
+                getClass().getClassLoader(), (thread, cause) -> {
+                    uncaught.set(cause);
+                    failed.countDown();
+                });
+        ExecutorService executor = factory(config, threadFactory).createExecutorService();
+        AtomicInteger attempts = new AtomicInteger();
+        Runnable runnable = () -> {
+            if (attempts.incrementAndGet() == 1) throw failure;
+            succeeded.countDown();
+        };
+        try {
+            executor.execute(runnable);
+            assertTrue(failed.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            assertSame(failure, uncaught.get());
+            executor.execute(runnable);
+            assertTrue(succeeded.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            assertEquals(2, attempts.get());
         } finally {
             shutdown(executor);
         }

@@ -31,6 +31,16 @@ record ThreadPoolConfig(boolean allowCorePoolTimeout, int corePoolSize, int maxP
     static final Duration defaultTimeout = Duration.ofMillis(60000L);
     static final RejectedExecutionHandler defaultRejectionPolicy = new SaneRejectedExecutionHandler();
 
+    static ThreadPoolConfig defaults() {
+        return new ThreadPoolConfig(defaultAllowCoreThreadTimeout, defaultCorePoolSize, defaultMaxPoolSize,
+                defaultTimeout, linkedBlockingQueue(), defaultRejectionPolicy);
+    }
+
+    ThreadPoolConfig withPoolSize(int corePoolSize, int maxPoolSize) {
+        return new ThreadPoolConfig(allowCorePoolTimeout, corePoolSize, maxPoolSize, threadTimeout, queueFactory,
+                rejectionPolicy);
+    }
+
     static int scaledPoolSize(int floor, double multiplier, int ceiling) {
         return Math.min(Math.max((int) Math.ceil(Runtime.getRuntime().availableProcessors() * multiplier), floor), ceiling);
     }

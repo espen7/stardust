@@ -35,9 +35,11 @@ Java 的 `InvalidActorNameException` 继承原入口抛出的 `IllegalArgumentEx
 `getSingleChild` 直接返回，对应 `actor/src/main/scala/org/apache/pekko/actor/ActorRefProvider.scala`。
 根引用在路径遍历中以自身为 parent，在 `ActorCell` 内由 `/bubble-walker` 监督。
 Java 继续使用现有 `ActorPath` 类表示根路径与子路径，并用 `null` 表示内部单级查找未命中。
-对应上游 `actor/ActorPath.scala`、`actor/ActorRef.scala`、`actor/dungeon/Children.scala`
-和 `actor/dungeon/Dispatch.scala`。guardian 复用现有默认 Dispatcher。独立 internal dispatcher、
-额外顶级名称注册和 Remote 仍待移植。
+内置 root、user 和 system guardian 均使用 `tapio.actor.internal-dispatcher`，应用 Actor 仍按
+Props、部署配置或默认配置选择 Dispatcher。对应上游 `actor/ActorPath.scala`、`actor/ActorRef.scala`、
+`actor/dungeon/Children.scala`、`actor/dungeon/Dispatch.scala` 和 `actor/ActorRefProvider.scala`。
+当前只移植内置 guardian；上游 `system.guardianProps` 的自定义 user guardian 及其独立
+Dispatcher/Mailbox 选择尚未提供。额外顶级名称注册和 Remote 仍待移植。
 
 Provider 的 `rootGuardianAt`、`getDefaultAddress` 和 `getExternalAddressFor` 按本地
 `Address` 匹配。两个 `resolveActorRef` 重载从 root guardian 查询。本地有效路径未命中时返回保留
@@ -83,12 +85,14 @@ Java 版本保留本地 runtime 已消费的 Settings 字段。`tapio.actor.logl
 无限期以 `null` 表示。日志沿用原配置文本，Pekko 使用 Scala Duration 的 `pretty` 格式。
 
 系统 Dispatcher 通过 `Dispatchers.defaultGlobalDispatcher`、`lookup` 和
-`DispatcherConfigurator.dispatcher` 创建。命名配置继承默认配置段，别名解析以 20 层为限。
+`MessageDispatcherConfigurator.dispatcher` 创建。命名配置继承默认配置段，别名解析以 20 层为限。
 按上游用 `ConcurrentHashMap.putIfAbsent` 缓存 configurator；竞争落败的 lazy 实例没有创建
-executor，不再额外关闭。注册表不在 ActorSystem 终止时批量关闭实例，实例由各自的 idle
-shutdown action 释放。对应上游 `actor/src/main/scala/org/apache/pekko/dispatch/Dispatchers.scala`、
-`dispatch/Dispatcher.scala`、`dispatch/AbstractDispatcher.scala` 和
-`actor/src/main/resources/reference.conf`。
+executor，不再额外关闭。`DispatcherConfigurator` 每次返回同一个普通 Dispatcher，
+`PinnedDispatcherConfigurator` 每次返回新实例；别名共享目标 configurator，因此 Pinned 别名也会
+每次创建独立实例。`Dispatchers` 构造时先创建唯一的 internal Dispatcher，供内置 guardian 使用。
+注册表不在 ActorSystem 终止时批量关闭实例，实例由各自的 idle shutdown action 释放。对应上游
+`actor/src/main/scala/org/apache/pekko/dispatch/Dispatchers.scala`、`dispatch/Dispatcher.scala`、
+`dispatch/AbstractDispatcher.scala` 和 `actor/src/main/resources/reference.conf`。
 
 普通 `Dispatcher` 使用 lazy `ExecutorService` delegate。首次提交 mailbox 或普通 Runnable 才按
 `executor` 配置创建 ForkJoinPool 或 ThreadPoolExecutor；`shutdown` 先原子换入新的 delegate，再关闭旧
@@ -115,8 +119,17 @@ thread-pool 支持 fixed pool 或 core/max 两组 factor 缩放、毫秒 keep-al
 `RejectedExecutionException("Shutdown")`。对应上游 `dispatch/AbstractDispatcher.scala`、
 `dispatch/ForkJoinExecutorConfigurator.scala`、`dispatch/ThreadPoolBuilder.scala` 和
 `actor/src/main/resources/reference.conf`。`DispatcherExecutorConfigTest` 覆盖默认回退、显式 executor、
-池大小、队列、拒绝策略、线程工厂、JDK 25 minimum-runnable 和非法配置；现有
-`DispatcherLifecycleTest` 继续验证 lazy 创建、shutdown 与重建。
+池大小、队列、拒绝策略、线程工厂、JDK 25 minimum-runnable、ForkJoinTask 原样提交及失败后
+worker 复用；现有 `DispatcherLifecycleTest` 继续验证 lazy 创建、shutdown 与重建。
+
+`PinnedDispatcher` 将 thread-pool 的 core/max pool size 固定为 1，其余 thread-pool 参数保持不变，
+并沿用普通 Dispatcher 的 lazy executor、inhabitants 和延迟 shutdown。首次注册绑定 owner；owner
+未注销时注册其他 ActorCell 会抛出 `IllegalArgumentException`，注销后允许绑定新 owner。配置的
+executor 不是 `ThreadPoolExecutorConfigurator` 时发布与上游一致的 Warning，并回退到
+`ThreadPoolConfig` 默认值。`PinnedDispatcherTest` 覆盖独立单线程、别名、owner 生命周期、回退告警
+和非法 executor；`ActorRuntimeTest` 覆盖 internal dispatcher 的初始化、guardian 归属、别名和公开
+Dispatcher 构造器读取有效应用配置。对应上游 `dispatch/PinnedDispatcher.scala`、
+`dispatch/Dispatchers.scala`、`dispatch/AbstractDispatcher.scala` 和 `dispatch/ThreadPoolBuilder.scala`。
 
 `ActorSystem.threadFactory()` 返回共享的 `MonitorableThreadFactory`。Scheduler 使用
 `<system>-scheduler-<n>`，Dispatcher 使用 `<system>-<dispatcher-id>-<n>`；daemon、上下文类加载器和
@@ -156,11 +169,11 @@ Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此
 `WildcardTree` 的 exact、`*`、`**` 匹配顺序。对应上游
 `util/WildcardIndex.scala`。
 
-独立的 internal dispatcher、PinnedDispatcher、自定义 dispatcher/executor configurator、
-virtual/affinity executor、外部默认 `ExecutionContext`、`CachingConfig` 优化、router 分支、
-其他 mailbox 类型（priority、deque、control-aware、single-consumer）和 logger mailbox 仍待移植。
-Java 公开 Dispatcher 构造器要求 `ActorSystem`，
-不再提供没有 Scheduler 的无参或仅含 throughput 的假生命周期入口。
+自定义 dispatcher/executor configurator、virtual/affinity executor、外部默认 `ExecutionContext`、
+`CachingConfig` 优化、router 分支、其他 mailbox 类型（priority、deque、control-aware、
+single-consumer）和 logger mailbox 仍待移植。Java 公开 Dispatcher 构造器要求 `ActorSystem`，
+不再提供没有 Scheduler 的无参或仅含 throughput 的假生命周期入口；默认参数读取该 ActorSystem
+的有效配置，而不是绕过应用配置直接读取 `reference.conf`。
 
 ## 消息分发
 

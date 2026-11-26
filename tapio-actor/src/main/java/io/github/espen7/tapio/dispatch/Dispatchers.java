@@ -16,6 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorSystem;
 
@@ -23,7 +24,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 按配置 ID 查找或创建 Dispatcher。普通 Dispatcher 及其别名共享同一个实例。
+ * 按配置 ID 查找或创建 Dispatcher。普通 Dispatcher 及其别名共享同一个实例，
+ * PinnedDispatcher 及其别名则在每次查找时创建新实例。
  */
 public final class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
@@ -35,7 +37,9 @@ public final class Dispatchers {
     private final ActorSystem.Settings settings;
     private final ActorSystem system;
     private final Config defaultDispatcherConfig;
-    private final ConcurrentHashMap<String, DispatcherConfigurator> dispatcherConfigurators = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MessageDispatcherConfigurator> dispatcherConfigurators =
+            new ConcurrentHashMap<>();
+    private final Dispatcher internalDispatcher;
 
     /**
      * 创建 ActorSystem 使用的 Dispatcher 注册表。
@@ -48,6 +52,17 @@ public final class Dispatchers {
         this.system = system;
         this.defaultDispatcherConfig = idConfig(DefaultDispatcherId)
                 .withFallback(settings.config().getConfig(DefaultDispatcherId));
+        this.internalDispatcher = lookup(InternalDispatcherId);
+    }
+
+    /**
+     * 返回供 Pekko 内部 Actor 和任务使用的 Dispatcher。
+     *
+     * @return 此 ActorSystem 唯一的 internal Dispatcher
+     */
+    @InternalApi
+    public Dispatcher internalDispatcher() {
+        return internalDispatcher;
     }
 
     /**
@@ -61,8 +76,8 @@ public final class Dispatchers {
     }
 
     /**
-     * 查找普通 Dispatcher。配置值可以是配置段，也可以是指向另一个 ID 的字符串。
-     * 首次成功查找后，同一个 ID 会重用已创建的 Dispatcher。
+     * 查找 Dispatcher。配置值可以是配置段，也可以是指向另一个 ID 的字符串。
+     * 注册表缓存 configurator；普通 Dispatcher 复用实例，PinnedDispatcher 每次查找创建新实例。
      *
      * @param id 配置路径或已配置的别名
      * @return 此 ID 对应的 Dispatcher
@@ -95,19 +110,19 @@ public final class Dispatchers {
         return dispatcherConfigurators.containsKey(id) || settings.config().hasPath(id);
     }
 
-    private DispatcherConfigurator lookupConfigurator(String id, int depth) {
+    private MessageDispatcherConfigurator lookupConfigurator(String id, int depth) {
         if (depth > MaxDispatcherAliasDepth) {
             throw new ConfigurationException(
                     "Didn't find a concrete dispatcher config after following " + MaxDispatcherAliasDepth
                             + ", is there a loop in your config? last looked for id was " + id);
         }
-        DispatcherConfigurator existing = dispatcherConfigurators.get(id);
+        MessageDispatcherConfigurator existing = dispatcherConfigurators.get(id);
         if (existing != null) return existing;
 
         Config config = settings.config();
         if (!config.hasPath(id)) throw new ConfigurationException("Dispatcher [" + id + "] not configured");
         var valueAtPath = config.getValue(id);
-        DispatcherConfigurator newConfigurator = switch (valueAtPath.valueType()) {
+        MessageDispatcherConfigurator newConfigurator = switch (valueAtPath.valueType()) {
             case STRING -> {
                 String actualId = (String) valueAtPath.unwrapped();
                 system.log().debug("Dispatcher id [{}] is an alias, actual dispatcher will be [{}]", id, actualId);
@@ -135,9 +150,10 @@ public final class Dispatchers {
         return ConfigFactory.parseMap(Map.of("id", id));
     }
 
-    private DispatcherConfigurator configuratorFrom(Config config) {
+    private MessageDispatcherConfigurator configuratorFrom(Config config) {
         String type = config.getString("type");
         if ("Dispatcher".equals(type)) return new DispatcherConfigurator(config, system);
+        if ("PinnedDispatcher".equals(type)) return new PinnedDispatcherConfigurator(config, system);
         throw new ConfigurationException("Cannot instantiate MessageDispatcherConfigurator type [" + type
                 + "], defined in [" + config.getString("id") + "]");
     }

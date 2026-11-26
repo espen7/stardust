@@ -106,12 +106,12 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
     };
 
     /**
-     * 创建使用 Pekko reference.conf 默认 throughput 的 Dispatcher。
+     * 创建使用 ActorSystem 有效配置中默认 Dispatcher 参数的 Dispatcher。
      *
      * @param system 所属 ActorSystem
      */
     public Dispatcher(ActorSystem system) {
-        this(ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId).getInt("throughput"), system);
+        this(defaultDispatcherConfig(system).getInt("throughput"), system);
     }
 
     /**
@@ -126,8 +126,7 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
 
     Dispatcher(int throughput, Duration throughputDeadlineTime, ActorSystem system) {
         this(throughput, throughputDeadlineTime, system, system.scheduler(),
-                ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId)
-                        .getDuration("shutdown-timeout"),
+                defaultDispatcherConfig(system).getDuration("shutdown-timeout"),
                 defaultExecutorServiceFactory(system));
     }
 
@@ -143,9 +142,12 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
     }
 
     static ExecutorServiceFactory defaultExecutorServiceFactory(ActorSystem system) {
-        Config config = ConfigFactory.parseMap(Map.of("id", Dispatchers.DefaultDispatcherId))
-                .withFallback(ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId));
-        return DispatcherConfigurator.createExecutorServiceFactory(config, system.threadFactory());
+        return DispatcherConfigurator.createExecutorServiceFactory(defaultDispatcherConfig(system), system.threadFactory());
+    }
+
+    private static Config defaultDispatcherConfig(ActorSystem system) {
+        return ConfigFactory.parseMap(Map.of("id", Dispatchers.DefaultDispatcherId))
+                .withFallback(system.settings().config().getConfig(Dispatchers.DefaultDispatcherId));
     }
 
     /**

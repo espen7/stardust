@@ -57,17 +57,26 @@ final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigurator {
                 ThreadPoolConfig.defaultRejectionPolicy);
     }
 
+    ThreadPoolConfig threadPoolConfig() {
+        return threadPoolConfig;
+    }
+
     @Override
     ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
+        return createExecutorServiceFactory(threadPoolConfig, id, threadFactory);
+    }
+
+    static ExecutorServiceFactory createExecutorServiceFactory(ThreadPoolConfig config, String id,
+                                                               ThreadFactory threadFactory) {
         ThreadFactory namedFactory = threadFactory instanceof MonitorableThreadFactory monitorable
                 ? monitorable.withName(monitorable.name() + "-" + id)
                 : threadFactory;
         return () -> {
-            ThreadPoolExecutor pool = new ThreadPoolExecutor(threadPoolConfig.corePoolSize(),
-                    threadPoolConfig.maxPoolSize(), threadPoolConfig.threadTimeout().toNanos(),
-                    java.util.concurrent.TimeUnit.NANOSECONDS, threadPoolConfig.queueFactory().get(), namedFactory,
-                    threadPoolConfig.rejectionPolicy());
-            pool.allowCoreThreadTimeOut(threadPoolConfig.allowCorePoolTimeout());
+            ThreadPoolExecutor pool = new ThreadPoolExecutor(config.corePoolSize(),
+                    config.maxPoolSize(), config.threadTimeout().toNanos(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS, config.queueFactory().get(), namedFactory,
+                    config.rejectionPolicy());
+            pool.allowCoreThreadTimeOut(config.allowCorePoolTimeout());
             return pool;
         };
     }

@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -104,6 +105,85 @@ class ActorRuntimeTest {
         assertSame(system.dispatcher(), dispatchers.lookup(Dispatchers.DefaultDispatcherId));
         system.close();
         assertSame(shared, dispatchers.lookup("dispatchers.shared"));
+    }
+
+    @Test
+    void internalDispatcherIsSharedByGuardiansAndSeparateFromUserActors() throws Exception {
+        system = ActorSystem.create("internal-dispatcher");
+        Dispatcher internal = system.dispatchers().internalDispatcher();
+        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+
+        assertNotSame(system.dispatcher(), internal);
+        assertSame(internal, system.dispatchers().lookup("tapio.actor.internal-dispatcher"));
+        assertSame(internal, provider.rootGuardian().underlying().dispatcher());
+        assertSame(internal, provider.guardian().underlying().dispatcher());
+        assertSame(internal, provider.systemGuardian().underlying().dispatcher());
+
+        ActorRef user = system.actorOf(Props.create(EchoActor.class), "user-actor");
+        assertEquals("ready", ask(user, "ready"));
+        ActorCell cell = (ActorCell) ((ActorRefWithCell) user).underlying();
+        assertSame(system.dispatcher(), cell.dispatcher());
+    }
+
+    @Test
+    void internalDispatcherCanBeConfiguredAsAlias() {
+        system = ActorSystem.create("internal-alias", ConfigFactory.parseString("""
+                tapio.actor.internal-dispatcher = "dispatchers.internal-target"
+                dispatchers.internal-target {
+                  type = "Dispatcher"
+                  throughput = 3
+                  executor = "thread-pool-executor"
+                  thread-pool-executor.fixed-pool-size = 1
+                }
+                """));
+        Dispatcher internal = system.dispatchers().internalDispatcher();
+        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+
+        assertSame(internal, system.dispatchers().lookup("dispatchers.internal-target"));
+        assertEquals(3, internal.throughput());
+        assertSame(internal, provider.rootGuardian().underlying().dispatcher());
+        assertSame(internal, provider.guardian().underlying().dispatcher());
+        assertSame(internal, provider.systemGuardian().underlying().dispatcher());
+    }
+
+    @Test
+    void publicDispatcherConstructorUsesEffectiveApplicationConfig() throws Exception {
+        system = ActorSystem.create("public-dispatcher", ConfigFactory.parseString("""
+                tapio.actor.default-dispatcher.throughput = 13
+                tapio.actor.default-dispatcher.default-executor.fallback = "thread-pool-executor"
+                tapio.actor.default-dispatcher.thread-pool-executor.fixed-pool-size = 1
+                """));
+        Dispatcher dispatcher = new Dispatcher(system);
+        CountDownLatch ran = new CountDownLatch(1);
+        AtomicReference<String> threadName = new AtomicReference<>();
+        try {
+            assertEquals(13, dispatcher.throughput());
+            dispatcher.execute(() -> {
+                threadName.set(Thread.currentThread().getName());
+                ran.countDown();
+            });
+            assertTrue(ran.await(WAIT_SECONDS, TimeUnit.SECONDS));
+            assertTrue(threadName.get().startsWith("public-dispatcher-" + Dispatchers.DefaultDispatcherId + "-"));
+        } finally {
+            dispatcher.close();
+        }
+    }
+
+    @Test
+    void namedDispatcherUsesConfiguredExecutorAndThreadName() throws Exception {
+        system = ActorSystem.create("named-dispatcher", ConfigFactory.parseString("""
+                dispatchers.named {
+                  executor = "thread-pool-executor"
+                  thread-pool-executor.fixed-pool-size = 1
+                }
+                """));
+        ActorRef actor = system.actorOf(Props.create(ThreadNameActor.class)
+                .withDispatcher("dispatchers.named"), "actor");
+
+        String first = (String) ask(actor, "first");
+        String second = (String) ask(actor, "second");
+        assertEquals(first, second);
+        assertTrue(first.startsWith("named-dispatcher-dispatchers.named-"));
     }
 
     @Test
@@ -376,6 +456,14 @@ class ActorRuntimeTest {
         assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
         assertTrue(actor.isTerminated());
         assertEquals("ready", ask(system.actorOf(Props.create(EchoActor.class), "healthy"), "ready"));
+    }
+
+    public static final class ThreadNameActor extends AbstractActor {
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder().match(String.class,
+                    message -> getSender().tell(Thread.currentThread().getName(), getSelf())).build();
+        }
     }
 
     public static final class FailingMailbox implements MailboxType {

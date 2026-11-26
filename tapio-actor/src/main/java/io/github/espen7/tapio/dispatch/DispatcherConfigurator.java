@@ -20,19 +20,22 @@ import io.github.espen7.tapio.actor.ActorSystem;
 import java.util.concurrent.ThreadFactory;
 
 /** 读取有效配置，并为普通 Dispatcher 保留唯一实例。 */
-final class DispatcherConfigurator {
-    private final Config config;
+final class DispatcherConfigurator extends MessageDispatcherConfigurator {
     private final Dispatcher instance;
 
     DispatcherConfigurator(Config config, ActorSystem system) {
-        this.config = config;
+        super(config);
         instance = new Dispatcher(config.getInt("throughput"), config.getDuration("throughput-deadline-time"),
                 system, system.scheduler(), config.getDuration("shutdown-timeout"),
                 createExecutorServiceFactory(config, system.threadFactory()));
     }
 
     static ExecutorServiceFactory createExecutorServiceFactory(Config config, ThreadFactory threadFactory) {
-        return configurator(config.getString("executor"), config).createExecutorServiceFactory(config.getString("id"), threadFactory);
+        return executorConfigurator(config).createExecutorServiceFactory(config.getString("id"), threadFactory);
+    }
+
+    static ExecutorServiceConfigurator executorConfigurator(Config config) {
+        return configurator(config.getString("executor"), config);
     }
 
     private static ExecutorServiceConfigurator configurator(String executor, Config config) {
@@ -45,10 +48,6 @@ final class DispatcherConfigurator {
                     + "], defined in [" + config.getString("id")
                     + "]. Supported built-ins are default-executor, fork-join-executor and thread-pool-executor.");
         };
-    }
-
-    Config config() {
-        return config;
     }
 
     Dispatcher dispatcher() {
