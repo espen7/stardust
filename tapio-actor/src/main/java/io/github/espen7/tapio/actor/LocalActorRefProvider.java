@@ -224,7 +224,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
         try {
             MessageDispatcher dispatcher = system.dispatchers().lookup(props2.dispatcher());
             MailboxType mailboxType = system.mailboxes().getMailboxType(props2,
-                    system.dispatchers().config(props2.dispatcher()));
+                    dispatcher.configurator().config());
             if (async) {
                 return new RepointableActorRef(system, props2, dispatcher, mailboxType, supervisor, path)
                         .initialize(true);

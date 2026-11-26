@@ -43,7 +43,7 @@ class BatchingExecutorTest {
     private ActorSystem system;
 
     @AfterEach
-    void closeSystem() {
+    void closeSystem() throws Exception {
         if (system != null) system.close();
     }
 

@@ -79,7 +79,7 @@ class DispatcherLifecycleTest {
     private ActorSystem system;
 
     @AfterEach
-    void closeSystem() {
+    void closeSystem() throws Exception {
         if (system != null && !system.getWhenTerminated().toCompletableFuture().isDone()) system.close();
     }
 

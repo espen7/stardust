@@ -89,6 +89,15 @@ public abstract class MessageDispatcher extends AbstractMessageDispatcher implem
     }
 
     /**
+     * 返回创建此 Dispatcher 的 {@link MessageDispatcherConfigurator}。
+     *
+     * @return 对应的 configurator
+     */
+    public MessageDispatcherConfigurator configurator() {
+        return configurator;
+    }
+
+    /**
      * 返回当前实现用作 dead letters sink 的消息队列。
      *
      * @return dead letters message queue

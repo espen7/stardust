@@ -66,8 +66,9 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
      *
      * @return 为空返回 {@code true}
      */
+    @SuppressWarnings("unchecked")
     public final boolean isEmpty() {
-        return get() == tail;
+        return ((Node<T>) tailHandle.getAcquire(this)) == get();
     }
 
     /**
@@ -78,13 +79,14 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
     @SuppressWarnings("unchecked")
     public final int count() {
         int count = 0;
+        Node<T> head = get();
         Node<T> current = (Node<T>) tailHandle.getAcquire(this);
         while (true) {
             Node<T> next = current.next();
-            if (next == null) {
+            if (next == null || current == head) {
                 break;
             }
-            count++;
+            if (count < Integer.MAX_VALUE) count++;
             current = next;
         }
         return count;

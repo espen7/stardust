@@ -76,7 +76,7 @@ class Batch3MailboxAndLoggingTest {
     }
 
     @Test
-    void priorityMailboxOrdersMessagesByGenerator() {
+    void priorityMailboxOrdersMessagesByGenerator() throws Exception {
         try (ActorSystem system = ActorSystem.create("prio-mb")) {
             MessageQueue queue = new TestPriorityMailbox().create(ActorRef.noSender, system);
             queue.enqueue(ActorRef.noSender, new Envelope("low", ActorRef.noSender));
@@ -90,7 +90,7 @@ class Batch3MailboxAndLoggingTest {
     }
 
     @Test
-    void controlAwareMailboxPrioritizesControlMessages() {
+    void controlAwareMailboxPrioritizesControlMessages() throws Exception {
         try (ActorSystem system = ActorSystem.create("ctrl-mb")) {
             MessageQueue queue = new UnboundedControlAwareMailbox().create(ActorRef.noSender, system);
             queue.enqueue(ActorRef.noSender, new Envelope("normal-1", ActorRef.noSender));
@@ -125,7 +125,7 @@ class Batch3MailboxAndLoggingTest {
     }
 
     @Test
-    void registerOnTerminationRunsCallbackAfterClose() {
+    void registerOnTerminationRunsCallbackAfterClose() throws Exception {
         AtomicBoolean ran = new AtomicBoolean(false);
         try (ActorSystem system = ActorSystem.create("term-cb")) {
             system.registerOnTermination(() -> ran.set(true));

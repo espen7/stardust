@@ -65,7 +65,7 @@ class LocalDetailsTest {
     }
 
     @Test
-    void stablePriorityQueuesPreserveFifoForEqualPriority() {
+    void stablePriorityQueuesPreserveFifoForEqualPriority() throws Exception {
         record Item(int prio, String id) {}
         Comparator<Item> cmp = Comparator.comparingInt(Item::prio);
         StablePriorityQueue<Item> q1 = new StablePriorityQueue<>(4, cmp);
@@ -135,7 +135,7 @@ class LocalDetailsTest {
     }
 
     @Test
-    void dispatchersRegisterConfiguratorRegistersProgrammatically() {
+    void dispatchersRegisterConfiguratorRegistersProgrammatically() throws Exception {
         try (ActorSystem system = ActorSystem.create("reg-disp")) {
             DispatcherConfigurator custom = new DispatcherConfigurator(
                     system.dispatchers().config(Dispatchers.DefaultDispatcherId),
@@ -148,7 +148,7 @@ class LocalDetailsTest {
     }
 
     @Test
-    void actorSystemSetupIsAccessibleFromSettings() {
+    void actorSystemSetupIsAccessibleFromSettings() throws Exception {
         ActorSystemSetup setup = new CustomSetup("v1").and(new CustomSetup("v2"));
         try (ActorSystem system = ActorSystem.create("setup-test", setup)) {
             assertEquals("v2", system.settings().setup.get(CustomSetup.class).orElseThrow().tag);

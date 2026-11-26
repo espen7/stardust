@@ -78,7 +78,7 @@ public final class RetrySupport {
             Executor executor,
             Scheduler scheduler) {
         return retry(attempt, (value, error) -> error != null, attempts,
-                n -> Optional.of(calculateDelay(n - 1, minBackoff, maxBackoff, randomFactor)),
+                n -> Optional.of(calculateDelay(n, minBackoff, maxBackoff, randomFactor)),
                 executor, Objects.requireNonNull(scheduler, "scheduler must not be null"));
     }
 
@@ -123,12 +123,19 @@ public final class RetrySupport {
             return current;
         }
         return current.handleAsync((value, error) -> {
+            if (error != null && !NonFatal.apply(error)) {
+                return CompletableFuture.<T>failedFuture(error);
+            }
             if (!shouldRetry.test(value, error)) {
                 return error != null
                         ? CompletableFuture.<T>failedFuture(error)
                         : CompletableFuture.completedFuture(value);
             }
             Optional<Duration> delay = delayFunction.apply(attempted + 1);
+            if (delay == null) {
+                return CompletableFuture.<T>failedFuture(
+                        new IllegalArgumentException("delayFunction must not return null"));
+            }
             if (delay.isEmpty() || delay.get().isZero() || delay.get().isNegative()) {
                 return retryInternal(attempt, shouldRetry, attempts, delayFunction, attempted + 1, executor, scheduler);
             }

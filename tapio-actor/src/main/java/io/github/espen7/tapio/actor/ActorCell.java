@@ -299,9 +299,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         boolean watcheeSelf = watchee.equals(self);
         boolean watcherSelf = watcher.equals(self);
         if (watcheeSelf && !watcherSelf) {
-            if (isTerminated()) {
-                sendTerminated(watcher);
-            } else if (!watchedBy.contains(watcher)) {
+            if (!watchedBy.contains(watcher)) {
                 Set<ActorRef> updated = new HashSet<>(watchedBy);
                 updated.add(watcher);
                 watchedBy = Set.copyOf(updated);
@@ -579,9 +577,9 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     }
 
     /**
-     * 返回当前 receive timeout；未设置或已取消时返回 {@link Duration#ZERO}。
+     * 返回当前 receive timeout；未设置或已取消时返回 {@code null}。
      *
-     * @return 当前 receive timeout
+     * @return 当前 receive timeout；未设置时为 {@code null}
      */
     @Override
     public final Duration receiveTimeout() {
@@ -689,20 +687,32 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     @InternalStableApi
     @Override
     public final void handleInvokeFailure(Iterable<ActorRef> childrenNotToSuspend, Throwable error) {
-        suspendNonRecursive();
-        Set<ActorRef> skip = new HashSet<>();
-        childrenNotToSuspend.forEach(skip::add);
-        if (currentMessage != null && currentMessage.message() instanceof Failed failed
-                && !isFailed()) {
-            setFailed(failed.child);
-            skip.add(failed.child);
-        } else if (!isFailed()) {
-            setFailed(self);
+        try {
+            suspendNonRecursive();
+            Set<ActorRef> skip = new HashSet<>();
+            childrenNotToSuspend.forEach(skip::add);
+            if (currentMessage != null && currentMessage.message() instanceof Failed failed
+                    && !isFailed()) {
+                setFailed(failed.child);
+                skip.add(failed.child);
+            } else if (!isFailed()) {
+                setFailed(self);
+            }
+            suspendChildren(skip);
+            Throwable failure = error instanceof InterruptedException
+                    ? new ActorInterruptedException(error) : error;
+            parent.sendSystemMessage(new Failed(self, failure, self.path().uid()));
+        } catch (Throwable e) {
+            rethrowIfFatal(e);
+            publishError(e, "emergency stop: exception in failure handling for " + error.getClass()
+                    + io.github.espen7.tapio.event.Logging.stackTraceFor(error));
+            try {
+                for (ActorRef child : childrenRefs().children()) stop(child);
+            } finally {
+                finishTerminate();
+            }
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
         }
-        suspendChildren(skip);
-        Throwable failure = error instanceof InterruptedException
-                ? new ActorInterruptedException(error) : error;
-        parent.sendSystemMessage(new Failed(self, failure, self.path().uid()));
     }
 
     private sealed interface FailedInfo permits NoFailedInfo, FailedRef, FailedFatally {
@@ -864,7 +874,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
             for (ActorRef child : survivors) {
                 if (child instanceof InternalActorRef internalChild) {
                     try {
-                        internalChild.sendSystemMessage(new Recreate(cause));
+                        internalChild.restart(cause);
                     } catch (Throwable error) {
                         rethrowIfFatal(error);
                         publishError(error, "restarting " + child);
@@ -882,7 +892,6 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     }
 
     private void terminate() {
-        if (isTerminated()) return;
         cancelReceiveTimeout();
         cancelReceiveTimeoutTask();
         unwatchWatchedActors();
@@ -906,20 +915,17 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         if (child == null) {
             system.eventStream().publish(new Debug(self.path().toString(), actorClass(),
                     "dropping Failed(" + failed.cause + ") from unknown child " + failed.child));
-            currentMessage = null;
             return;
         }
         if (child.uid() != failed.uid) {
             system.eventStream().publish(new Debug(self.path().toString(), actorClass(),
                     "dropping Failed(" + failed.cause + ") from old child " + failed.child
                             + " (uid=" + child.uid() + " != " + failed.uid + ")"));
-            currentMessage = null;
             return;
         }
         if (!actor().supervisorStrategy().handleFailure(this, failed.child, failed.cause, child, childrenRefs().stats())) {
             ActorCell.<RuntimeException>throwUnchecked(failed.cause);
         }
-        currentMessage = null;
     }
 
     @SuppressWarnings("unchecked")
@@ -941,10 +947,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         }
         if (stateChange instanceof ChildrenContainer.Recreation recreation) finishRecreate(recreation.cause());
         else if (stateChange instanceof ChildrenContainer.Creation) finishCreate();
-        else if (stateChange == ChildrenContainer.Termination.INSTANCE) {
-            setTerminated();
-            finishTerminate();
-        }
+        else if (stateChange == ChildrenContainer.Termination.INSTANCE) finishTerminate();
     }
 
     private void setTerminated() {
@@ -1048,12 +1051,12 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     }
 
     /** INTERNAL API：返回当前正在处理的 Envelope。 */
-    public Envelope currentMessage() {
+    Envelope currentMessage() {
         return currentMessage;
     }
 
-    /** INTERNAL API：更新当前正在处理的 Envelope。 */
-    public void setCurrentMessage(Envelope message) {
+    /** INTERNAL API：设置当前正在处理的 Envelope。 */
+    void setCurrentMessage(Envelope message) {
         currentMessage = message;
     }
 
@@ -1139,24 +1142,26 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         try {
             ActorPath path = new ActorPath(self.path(), name, newUid());
             child = system.provider().actorOf(system, props, self, path, systemService, Optional.empty(), true, async);
-        } catch (RuntimeException failure) {
+        } catch (Throwable failure) {
+            if (failure instanceof InterruptedException) {
+                unreserveChild(name);
+                /** 按 Java 惯例，在抛出前清除中断标志 */
+                Thread.interrupted();
+                throw new RuntimeException(failure);
+            }
+            rethrowIfFatal(failure);
             unreserveChild(name);
-            throw failure;
+            if (failure instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (failure instanceof java.lang.Error javaError) throw javaError;
+            throw new RuntimeException(failure);
         }
         if (mailbox() != null) {
             int suspendCount = mailbox().suspendCount();
             for (int i = 0; i < suspendCount; i++) {
-                if (child instanceof LocalActorRef localChild) {
-                    localChild.underlying().mailbox().systemEnqueue(child, new Suspend());
-                } else {
-                    child.sendSystemMessage(new Suspend());
-                }
+                child.suspend();
             }
         }
-        if (initChild(child) == null) {
-            child.stop();
-            throw new IllegalStateException("cannot create children while terminating or terminated");
-        }
+        initChild(child);
         child.start();
         return child;
     }

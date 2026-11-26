@@ -50,7 +50,10 @@ public final class GracefulStopSupport {
         return ref.result().handle((value, failure) -> {
             if (failure != null) {
                 internalTarget.sendSystemMessage(new Unwatch(target, ref));
-                throw failure instanceof RuntimeException runtime ? runtime : new RuntimeException(failure);
+                if (failure instanceof AskTimeoutException) return Boolean.FALSE;
+                if (failure instanceof RuntimeException runtime) throw runtime;
+                if (failure instanceof Error fatal) throw fatal;
+                throw new RuntimeException(failure);
             }
             if (value instanceof Terminated terminated && terminated.actor().path().equals(target.path())) {
                 return Boolean.TRUE;

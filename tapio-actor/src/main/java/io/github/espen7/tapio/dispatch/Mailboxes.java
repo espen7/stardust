@@ -282,7 +282,14 @@ public final class Mailboxes {
     @InternalApi
     public int stashCapacity(String dispatcher, String mailbox) {
         if (!DefaultMailboxId.equals(mailbox)) {
-            return settings.config().getConfig(mailbox).withFallback(defaultMailboxConfig).getInt("stash-capacity");
+            Config mailboxConfig = settings.config().getConfig(mailbox);
+            if (!Dispatchers.DefaultDispatcherId.equals(dispatcher) && settings.config().hasPath(dispatcher)) {
+                return mailboxConfig
+                        .withFallback(settings.config().getConfig(dispatcher))
+                        .withFallback(defaultMailboxConfig)
+                        .getInt("stash-capacity");
+            }
+            return mailboxConfig.withFallback(defaultMailboxConfig).getInt("stash-capacity");
         }
         if (!Dispatchers.DefaultDispatcherId.equals(dispatcher) && settings.config().hasPath(dispatcher)) {
             return settings.config().getConfig(dispatcher).withFallback(defaultMailboxConfig).getInt("stash-capacity");

@@ -81,7 +81,7 @@ class ExtensionAndDynamicAccessTest {
     }
 
     @Test
-    void extensionRegistrationIsSingletonAndValidatesUnregistered() {
+    void extensionRegistrationIsSingletonAndValidatesUnregistered() throws Exception {
         SampleExtId.CREATED.set(0);
         try (ActorSystem system = ActorSystem.create("ext-test")) {
             assertFalse(system.hasExtension(SampleExtId.INSTANCE));
@@ -125,7 +125,7 @@ class ExtensionAndDynamicAccessTest {
     }
 
     @Test
-    void extensionsAreLoadedFromConfigAndLibraryExtensionsFailFast() {
+    void extensionsAreLoadedFromConfigAndLibraryExtensionsFailFast() throws Exception {
         Config validCfg = ConfigFactory.parseMap(Map.of(
                 "tapio.extensions", List.of(ConfiguredExtProvider.class.getName(), "no.such.OptionalExtension")));
         try (ActorSystem system = ActorSystem.create("ext-config", validCfg)) {

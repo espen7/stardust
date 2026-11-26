@@ -86,7 +86,7 @@ class ActorRuntimeTest {
     }
 
     @Test
-    void dispatchersLookupResolvesAliasesAndInheritsDefaultConfig() {
+    void dispatchersLookupResolvesAliasesAndInheritsDefaultConfig() throws Exception {
         Config config = ConfigFactory.parseString("""
                 tapio.actor.default-dispatcher.throughput = 9
                 dispatchers.shared {}

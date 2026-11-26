@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MailboxTest {
     @Test
-    void interruptedBoundedEnqueuePropagatesInterruptedException() {
+    void interruptedBoundedEnqueuePropagatesInterruptedException() throws Exception {
         try (ActorSystem system = ActorSystem.create("mailbox-interrupted")) {
             for (Duration pushTimeout : List.of(Duration.ofSeconds(1), Duration.ofSeconds(-1))) {
                 BoundedMailbox.MessageQueue queue = new BoundedMailbox.MessageQueue(1, pushTimeout);
@@ -51,7 +51,7 @@ class MailboxTest {
     }
 
     @Test
-    void systemMessagesDrainBeforeAnInterruptionReachesTheExecutor() {
+    void systemMessagesDrainBeforeAnInterruptionReachesTheExecutor() throws Exception {
         try (ActorSystem system = ActorSystem.create("mailbox-system-interrupted")) {
             ExecutorServiceFactory factory = Executors::newSingleThreadExecutor;
             List<Object> processed = new ArrayList<>();
@@ -109,7 +109,7 @@ class MailboxTest {
     }
 
     @Test
-    void throughputDeadlineEndsTheCurrentMailboxBatch() {
+    void throughputDeadlineEndsTheCurrentMailboxBatch() throws Exception {
         var config = ConfigFactory.parseString("""
                 tapio.actor.default-dispatcher.throughput = 2
                 tapio.actor.default-dispatcher.throughput-deadline-time = 1 ms

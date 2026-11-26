@@ -427,9 +427,13 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         if (value instanceof CountDownLatch latch) {
             boolean interrupted = false;
             try {
+                long timeout = settings.config().getDuration(ActorPath.Scheme + ".actor.creation-timeout").toNanos();
                 while (true) {
                     try {
-                        latch.await();
+                        if (!latch.await(timeout, TimeUnit.NANOSECONDS)) {
+                            throw new IllegalStateException(
+                                    "Extension [" + ext + "] is still being created after the creation-timeout");
+                        }
                         break;
                     } catch (InterruptedException ignored) {
                         interrupted = true;
@@ -558,7 +562,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
 
     /** 按 Pekko close 超时等待 ActorSystem 完成终止。 */
     @Override
-    public void close() {
+    public void close() throws TimeoutException {
         terminate();
         try {
             whenTerminated.get(settings.config().getDuration(ActorPath.Scheme + ".coordinated-shutdown.close-actor-system-timeout")
@@ -566,7 +570,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while closing ActorSystem", error);
-        } catch (ExecutionException | TimeoutException error) {
+        } catch (ExecutionException error) {
             throw new IllegalStateException("ActorSystem did not terminate", error);
         }
     }

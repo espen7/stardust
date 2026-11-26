@@ -342,10 +342,12 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * 发起 ActorSystem 关闭。
      *
      * <p>此方法满足 {@link AutoCloseable}，并等待 Pekko 配置的
-     * {@code close-actor-system-timeout}。超时或关闭失败会抛出 unchecked 异常。</p>
+     * {@code close-actor-system-timeout}。超时时抛出 {@link java.util.concurrent.TimeoutException}。</p>
+     *
+     * @throws java.util.concurrent.TimeoutException 当关闭超时时
      */
     @Override
-    public void close() {
+    public void close() throws Exception {
         terminate();
     }
 

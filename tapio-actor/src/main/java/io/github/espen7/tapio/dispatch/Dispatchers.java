@@ -115,12 +115,16 @@ public class Dispatchers {
      * 返回指定 Dispatcher 的有效配置，包含合并后的 mailbox 相关键。
      *
      * @param id 配置路径或别名
-     * @return 与已创建 Dispatcher 对应的有效配置
-     * @throws ConfigurationException 当配置缺失、别名超过深度限制或类型不受支持时
-     * @throws com.typesafe.config.ConfigException 当 Dispatcher 参数无效时
+     * @return 合并后的有效配置
      */
     public Config config(String id) {
-        return lookupConfigurator(id, 0).config();
+        Config appConfig = settings.config();
+        if (!appConfig.hasPath(id)) throw new ConfigurationException("Dispatcher [" + id + "] not configured");
+        String simpleName = id.substring(id.lastIndexOf('.') + 1);
+        return idConfig(id)
+                .withFallback(appConfig.getConfig(id))
+                .withFallback(ConfigFactory.parseMap(Map.of("name", simpleName)))
+                .withFallback(defaultDispatcherConfig);
     }
 
     /**
