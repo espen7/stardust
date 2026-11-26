@@ -13,11 +13,54 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.actor.dungeon.ChildStats;
+import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
+import java.util.Optional;
+
 /** ActorRef 在完成或等待初始化时使用的消息投递接口。 */
+@InternalApi
 public interface Cell {
+    ActorRef self();
+
+    ActorSystem system();
+
+    ActorSystemImpl systemImpl();
+
+    Cell start();
+
+    void suspend();
+
+    void resume(Throwable causedByFailure);
+
+    void restart(Throwable cause);
+
+    void stop();
+
+    InternalActorRef parent();
+
+    ChildrenContainer childrenRefs();
+
+    Optional<? extends ChildStats> getChildByName(String name);
+
+    InternalActorRef getSingleChild(String name);
+
+    boolean isLocal();
+
+    boolean hasMessages();
+
+    int numberOfMessages();
+
+    Props props();
+
+    /** 将用户消息封装成 Envelope 后投递。 */
+    default void sendMessage(Object message, ActorRef sender) {
+        sendMessage(Envelope.apply(message, sender, system()));
+    }
+
     /**
      * 向当前 cell 投递普通消息。
      *

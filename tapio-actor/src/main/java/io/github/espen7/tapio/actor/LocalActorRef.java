@@ -13,8 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.MailboxType;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
 import java.util.Iterator;
@@ -26,7 +26,7 @@ import java.util.List;
  * <p>LocalActorRef 是公开引用和内部执行状态之间的桥梁。它不直接调用 Actor，
  * tell 和 stop 都转成 ActorCell 的消息或系统消息。</p>
  */
-public class LocalActorRef extends ActorRefWithCell {
+public class LocalActorRef extends ActorRefWithCell implements LocalRef {
     private final ActorSystemImpl system;
     private final ActorPath path;
     private final ActorCell actorCell;
@@ -44,12 +44,12 @@ public class LocalActorRef extends ActorRefWithCell {
      * @param name parent 下的 child name
      */
     public LocalActorRef(ActorSystemImpl system, Props props, MessageDispatcher dispatcher,
-                         MailboxType mailboxType, ActorRef supervisor, ActorPath path, String name) {
+                         MailboxType mailboxType, InternalActorRef supervisor, ActorPath path, String name) {
         this(system, props, dispatcher, mailboxType, supervisor, path, name, true);
     }
 
     LocalActorRef(ActorSystemImpl system, Props props, MessageDispatcher dispatcher, MailboxType mailboxType,
-                  ActorRef supervisor, ActorPath path, String name, boolean start) {
+                  InternalActorRef supervisor, ActorPath path, String name, boolean start) {
         this.system = system;
         this.path = path;
         this.name = name;
@@ -59,7 +59,7 @@ public class LocalActorRef extends ActorRefWithCell {
     }
 
     @Override
-    void start() {
+    public void start() {
         actorCell.start();
     }
 
@@ -70,7 +70,7 @@ public class LocalActorRef extends ActorRefWithCell {
 
     @Override
     InternalActorRef getParent() {
-        return (InternalActorRef) actorCell.parent();
+        return actorCell.parent();
     }
 
     @Override
@@ -112,7 +112,7 @@ public class LocalActorRef extends ActorRefWithCell {
      * @param supervisor supervisor ActorRef
      * @return 新 ActorCell
      */
-    protected ActorCell newActorCell(ActorSystemImpl system, LocalActorRef ref, Props props, MessageDispatcher dispatcher, ActorRef supervisor) {
+    protected ActorCell newActorCell(ActorSystemImpl system, LocalActorRef ref, Props props, MessageDispatcher dispatcher, InternalActorRef supervisor) {
         return new ActorCell(system, ref, props, dispatcher, supervisor);
     }
 
@@ -163,8 +163,23 @@ public class LocalActorRef extends ActorRefWithCell {
     }
 
     @Override
+    public void suspend() {
+        actorCell.suspend();
+    }
+
+    @Override
+    public void resume(Throwable causedByFailure) {
+        actorCell.resume(causedByFailure);
+    }
+
+    @Override
+    public void restart(Throwable cause) {
+        actorCell.restart(cause);
+    }
+
+    @Override
     public void stop() {
-        actorCell.sendSystemMessage(new SystemMessage.Terminate());
+        actorCell.stop();
     }
 
     @Override

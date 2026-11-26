@@ -13,21 +13,24 @@
  */
 package io.github.espen7.tapio.event;
 
-import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.Actor;
+import io.github.espen7.tapio.actor.ActorLogMarker;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.AllDeadLetters;
 import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.DeadLetterActorRef;
 import io.github.espen7.tapio.actor.DeadLetterSuppression;
-import io.github.espen7.tapio.actor.ActorLogMarker;
 import io.github.espen7.tapio.actor.Dropped;
 import io.github.espen7.tapio.actor.UnhandledMessage;
 import io.github.espen7.tapio.actor.WrappedMessage;
+import io.github.espen7.tapio.japi.pf.PartialFunction;
+import io.github.espen7.tapio.japi.pf.ReceiveBuilder;
 
 import java.time.Duration;
+import java.util.Optional;
 
 /** 订阅 dead-letter 事件，并按照系统设置限制日志数量。 */
-public final class DeadLetterListener extends AbstractActor {
+public final class DeadLetterListener extends Actor {
     private final int maxCount;
     private final Duration suspendDuration;
     private final String suspendDescription;
@@ -49,19 +52,19 @@ public final class DeadLetterListener extends AbstractActor {
 
     @Override
     public void preStart() {
-        EventStream stream = getContext().system().eventStream();
-        stream.subscribe(getSelf(), DeadLetter.class);
-        stream.subscribe(getSelf(), Dropped.class);
-        stream.subscribe(getSelf(), UnhandledMessage.class);
+        EventStream stream = context.system().eventStream();
+        stream.subscribe(self, DeadLetter.class);
+        stream.subscribe(self, Dropped.class);
+        stream.subscribe(self, UnhandledMessage.class);
     }
 
     @Override
     public void postStop() {
-        getContext().system().eventStream().unsubscribe(getSelf());
+        context.system().eventStream().unsubscribe(self);
     }
 
     @Override
-    public void preRestart(Throwable reason, Object message) {
+    public void preRestart(Throwable reason, Optional<Object> message) {
     }
 
     @Override
@@ -69,14 +72,15 @@ public final class DeadLetterListener extends AbstractActor {
     }
 
     @Override
-    public Receive createReceive() {
-        return receiveBuilder().match(AllDeadLetters.class, this::receiveDeadLetter).build();
+    public PartialFunction<Object, Void> receive() {
+        return ReceiveBuilder.create().match(AllDeadLetters.class, this::receiveDeadLetter).build().onMessage();
     }
 
     private void receiveDeadLetter(AllDeadLetters event) {
         if (event.message() instanceof WrappedMessage wrapped && wrapped.message() instanceof DeadLetterSuppression) return;
         if (count == Integer.MAX_VALUE) {
-            log().info("Resetting DeadLetterListener counter after reaching Int.MaxValue.");
+            Logging.getLogger(context.system().eventStream(), self.path().toString(), getClass())
+                    .info("Resetting DeadLetterListener counter after reaching Int.MaxValue.");
             count = 1;
         } else count++;
         if (maxCount == Integer.MAX_VALUE) {
@@ -84,7 +88,7 @@ public final class DeadLetterListener extends AbstractActor {
         } else if (suspendDuration == null) {
             if (count == maxCount) {
                 logDeadLetter(event, ", no more dead letters will be logged");
-                getContext().stop(getSelf());
+                context.stop(self);
             } else logDeadLetter(event, "");
         } else if (count <= maxCount) {
             if (count == maxCount) {
@@ -116,13 +120,13 @@ public final class DeadLetterListener extends AbstractActor {
                     + "[" + count + "] dead letters encountered" + doneMsg + ". "
                     + "If this is not an expected behavior then " + event.recipient() + " may have terminated unexpectedly. ";
         }
-        getContext().system().eventStream().publish(new Info(event.recipient().path().toString(), event.recipient().getClass(),
+        context.system().eventStream().publish(new Info(event.recipient().path().toString(), event.recipient().getClass(),
                 message + "This logging can be turned off or adjusted with configuration settings 'tapio.log-dead-letters' "
                         + "and 'tapio.log-dead-letters-during-shutdown'.",
                 ActorLogMarker.deadLetter(messageClass)));
     }
 
     private boolean isReal(ActorRef actor) {
-        return actor != ActorRef.noSender && actor != getContext().system().deadLetters() && !(actor instanceof DeadLetterActorRef);
+        return actor != ActorRef.noSender && actor != context.system().deadLetters() && !(actor instanceof DeadLetterActorRef);
     }
 }

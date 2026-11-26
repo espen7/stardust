@@ -385,7 +385,7 @@ public interface ChildrenContainer {
     }
 
     /** 表示至少有一个 child 已收到停止请求、尚未完成终止的状态。 */
-    final class TerminatingChildrenContainer implements ChildrenContainer, WaitingForChildren {
+    final class TerminatingChildrenContainer implements ChildrenContainer {
         private final TreeMap<String, ChildStats> children;
         private final Set<ActorRef> toDie;
         private final SuspendReason reason;

@@ -13,38 +13,15 @@
  */
 package io.github.espen7.tapio.actor.dungeon;
 
-import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorRef;
 
-/**
- * Pekko dungeon.DeathWatch 的 Java 对照入口。
- *
- * <p>watch 和 unwatch 都以 SystemMessage 发送给被观察对象，由对方的 ActorCell
- * 串行更新 watchedBy。观察已终止的对象时，运行时需要立即投递 Terminated。</p>
- */
-public final class DeathWatch {
-    private DeathWatch() {
-    }
+/** ActorCell 的本地 DeathWatch 协议。 */
+public interface DeathWatch {
+    boolean isWatching(ActorRef ref);
 
-    /**
-     * 开始观察 subject 的终止状态。
-     *
-     * @param cell 当前 ActorCell
-     * @param subject 要观察的 ActorRef
-     * @return 被观察的 ActorRef
-     */
-    public static ActorRef watch(ActorCell cell, ActorRef subject) {
-        return cell.watch(subject);
-    }
+    ActorRef watch(ActorRef subject);
 
-    /**
-     * 取消之前注册的观察关系。
-     *
-     * @param cell 当前 ActorCell
-     * @param subject 要解除观察的 ActorRef
-     * @return 被解除观察的 ActorRef
-     */
-    public static ActorRef unwatch(ActorCell cell, ActorRef subject) {
-        return cell.unwatch(subject);
-    }
+    ActorRef watchWith(ActorRef subject, Object message);
+
+    ActorRef unwatch(ActorRef subject);
 }

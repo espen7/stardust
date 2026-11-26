@@ -21,6 +21,7 @@ import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.DeadLetter;
+import io.github.espen7.tapio.actor.InternalActorRef;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Envelope;
@@ -39,8 +40,8 @@ import org.slf4j.MarkerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -48,7 +49,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -145,7 +145,7 @@ class LoggerLifecycleTest {
 
         assertTrue(stopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         assertLoggedSystemTerminated();
-        assertTrue(loggerRef.isTerminated());
+        assertTrue(((InternalActorRef) loggerRef).isTerminated());
         assertEquals("logger-post-stop", ((Info) await(published)).message());
         assertTrue(loggerEvents.isEmpty(), "停止中的 logger 不应再收到自己的 postStop 日志");
         for (Object message : deadLetters) {

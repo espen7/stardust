@@ -206,7 +206,7 @@ public final class CoordinatedShutdown {
         long deadline = System.nanoTime() + timeout.toNanos();
         Runnable[] poll = new Runnable[1];
         poll[0] = () -> {
-            if (actor.isTerminated()) {
+            if (actor instanceof InternalActorRef internal && internal.isTerminated()) {
                 result.complete(Done.done());
             } else if (System.nanoTime() - deadline >= 0) {
                 result.completeExceptionally(new TimeoutException("Actor [" + actor

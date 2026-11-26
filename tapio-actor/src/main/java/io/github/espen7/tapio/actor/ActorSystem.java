@@ -16,9 +16,10 @@ package io.github.espen7.tapio.actor;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
-import io.github.espen7.tapio.dispatch.MessageDispatcher;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
@@ -88,6 +89,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      *
      * <p>每个 ActorSystem 在启动时创建一份不可变的 Settings。</p>
      */
+    @InternalApi
     public static final class Settings {
         private final String name;
         private final Config config;

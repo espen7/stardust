@@ -197,7 +197,17 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
 
     @Override
     public int compareTo(ActorPath other) {
-        return value.compareTo(other.value);
+        List<String> left = isRoot() ? List.of() : elements();
+        List<String> right = other.isRoot() ? List.of() : other.elements();
+        int leftIndex = left.size() - 1;
+        int rightIndex = right.size() - 1;
+        while (leftIndex >= 0 && rightIndex >= 0) {
+            int order = left.get(leftIndex--).compareTo(right.get(rightIndex--));
+            if (order != 0) return order;
+        }
+        if (leftIndex != rightIndex) return Integer.compare(rightIndex, leftIndex);
+        return value.substring(0, value.length() - toStringWithoutAddress().length())
+                .compareTo(other.value.substring(0, other.value.length() - other.toStringWithoutAddress().length()));
     }
 
     @Override

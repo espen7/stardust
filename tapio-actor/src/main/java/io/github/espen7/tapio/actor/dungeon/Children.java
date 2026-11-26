@@ -13,39 +13,20 @@
  */
 package io.github.espen7.tapio.actor.dungeon;
 
-import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.Props;
 
-/**
- * Pekko dungeon.Children 的 Java 对照入口。
- *
- * <p>Scala trait 在 ActorCell 中通过混入共享状态和方法。Java 版本无法采用相同
- * 的 trait composition，因此把入口保留在同名类中，并委托给 ActorCell 管理状态。</p>
- */
-public final class Children {
-    private Children() {
-    }
+/** ActorCell 的 child 创建和生命周期协议。 */
+public interface Children {
+    ChildrenContainer childrenRefs();
 
-    /**
-     * 通过 ActorCell 的 ChildrenContainer 预留 name 并创建 child。
-     *
-     * @param cell 当前 ActorCell
-     * @param props child 的创建配置
-     * @param name child name
-     * @return 新 child 的 ActorRef
-     */
-    public static ActorRef actorOf(ActorCell cell, Props props, String name) {
-        return cell.actorOf(props, name);
-    }
+    ActorRef actorOf(Props props);
 
-    /**
-     * 通过 ActorRef 发起异步停止。
-     *
-     * @param cell 当前 ActorCell
-     * @param ref 要停止的 child
-     */
-    public static void stop(ActorCell cell, ActorRef ref) {
-        cell.stop(ref);
+    ActorRef actorOf(Props props, String name);
+
+    void stop(ActorRef child);
+
+    default Iterable<ActorRef> children() {
+        return childrenRefs().children();
     }
 }

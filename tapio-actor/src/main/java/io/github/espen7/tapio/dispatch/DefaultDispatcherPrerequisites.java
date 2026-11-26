@@ -15,12 +15,14 @@ package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.Scheduler;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
 
 import java.util.Optional;
 import java.util.concurrent.ThreadFactory;
 
 /** 使用 ActorSystem 当前组件创建的 DispatcherPrerequisites。 */
+@InternalApi
 final record DefaultDispatcherPrerequisites(
         ThreadFactory threadFactory,
         EventStream eventStream,

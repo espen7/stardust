@@ -205,9 +205,11 @@ Mailbox 的 `Open`、`Closed`、`Scheduled` 和 suspend 位
 Batchable 提交；`AbstractBatch` 继承 `ArrayDeque<Runnable>`，普通批次与 `BlockableBatch` 分别恢复
 此前的 batch 和 BlockContext。异常时先 `resubmitUnbatched` 重投未执行任务再抛出；`blockOn` 也会
 重投剩余批次。非 Batchable 直接 `unbatchedExecute`，virtualized Dispatcher 关闭合并。
-`TaskInvocation` 实现 `Batchable` 并委托 `ScalaBatchable`。Java mixin `DefaultSystemMessageQueue`
-由 marker interface 表达；为保留 `createMailbox` 的普通 `Mailbox` 返回类型，当前所有 `Mailbox`
-都实现该 marker，这是比上游匿名 mixin 更宽的 Java 适配。task 结束或提交失败都会释放
+`Mailbox` 的 `hasMessages` 和 `numberOfMessages` 只查询普通队列，`hasSystemMessages` 单独检查系统消息。
+`Dispatcher.createMailbox` 使用匿名 `DefaultSystemMessageQueue`，Java 用抽象子类承载上游 mixin 的实现。
+系统队列和 `ActorCell` 的系统消息暂存都使用 `SystemMessage.next`，以链头表示上游的擦除后的 value class。
+系统队列每批排空后继续摘取新到的系统消息，全部处理后传播中断。普通消息处理后若检测到中断，
+当前批次立即退出。`TaskInvocation` 实现 `Batchable` 并委托 `ScalaBatchable`，结束或提交失败都释放
 inhabitants。`executeTask` 与
 `registerForExecution` 连续两次拒绝时发布固定消息 `executeTask was rejected twice!` 或
 `registerForExecution was rejected twice!`，Error 的 cause 保留第一次拒绝异常，并抛出第二次异常。
@@ -392,9 +394,13 @@ ask 使用 `CompletableFuture` 保存结果，并返回只读的 `CompletionStag
 ## EventStream 与日志
 
 EventStream 使用 ActorRef 作为 subscriber、class 作为 channel；订阅父类 channel 会收到子类事件，
-发布通过 `ActorRef.tell` 进入 subscriber mailbox。订阅变更同步锁定 `subscriptions`；channel 查询结果保存在
-volatile cache 中，发布仅在 cache miss 时获取同一把锁，对应 `SubchannelClassification` 的索引与缓存路径。
-Java 使用 `HashMap` 和不可变集合快照表达上游索引及 immutable cache。`ActorSystem` 就绪后创建独立的
+发布通过 `ActorRef.tell` 进入 subscriber mailbox。按 channel 退订会更新该 channel 和已索引的子类型，
+保留父类型和无关 channel 的订阅。`SubchannelClassification` 锁定 `SubclassifiedIndex`，
+发布仅在 cache miss 时获取同一把锁。Java 将两个含状态的 Scala trait 映射为
+`EventStream extends SubchannelClassification extends LoggingBus`，索引和 volatile cache 归前者，
+logger 生命周期和日志级别归后者。cache 使用 Java 不可变 Map 和 Set 快照。构造参数为
+`ActorSystem` 和可选的 `debug`，默认关闭。对应上游 `event/EventStream.scala`、`event/EventBus.scala`、
+`event/Logging.scala` 和 `util/SubclassifiedIndex.scala`。`ActorSystem` 就绪后创建独立的
 `EventStreamUnsubscriber` 系统 Actor，使用 internal Dispatcher 和全系统唯一名称。订阅先通过
 `AtomicReference` 状态机登记；启动前保存初始订阅集合，启动后切换为 unsubscriber 引用并转发
 `Register` / `UnregisterIfNoMoreSubscribedChannels`。unsubscriber 使用 DeathWatch 观察 `InternalActorRef`，
@@ -416,9 +422,8 @@ Java 的自定义非 `InternalActorRef` 无法参与本地 DeathWatch，因此 u
 `error while starting up loggers` 和原始堆栈，包装为 `ConfigurationException`；中断会恢复线程中断标志。
 关闭时确保 stdout 兜底存在，逐个先 `unsubscribe(logger)` 再 `stop()`，避免停止消息变成 DeadLetter
 后再次进入关闭流程。`DefaultLogger` 声明 `LoggerMessageQueueSemantics`；终止前仅把满足当前级别的
-剩余日志同步刷到 stdout。对应上游 `event/EventStream.scala`、`event/LoggingBus.scala`、
-`event/DefaultLogger.scala`、`event/StandardOutLogger.scala`、`event/LoggerMailbox.scala`、
-`event/LoggerMailboxType.scala` 和 `event/UnhandledMessageForwarder.scala`。
+剩余日志同步刷到 stdout。对应上游 `event/EventStream.scala`、`event/Logging.scala` 中的 `LoggingBus`、`DefaultLogger`、`StandardOutLogger`，
+以及 `event/LoggerMailbox.scala` 和 `event/UnhandledMessageForwarder.scala`。
 
 动态级别使用 `OFF, DEBUG, INFO, WARNING, ERROR` 顺序。`setLogLevel` 按新旧启用级别差异切换订阅，
 `OFF` 表示完全关闭；`isEnabled` 同时要求事件级别与当前级别均不为 `OFF`。日志事件记录
@@ -447,6 +452,27 @@ Java 边界：`Timeout(...)` 日志按上游文本保留，数字由配置毫秒
 Scala trait，stdout 对其异常输出 ` (class: message)` 短文本。logger 清理覆盖非致命 `Error`，
 fatal Error 直接抛出。`Settings.Loggers` 从 Config list 复制为不可变 list。
 logging filter 和启动时配置日志仍未移植；serialization 不在当前范围内。
+
+## Classic Actor 类型边界
+
+- `ActorRef` 按路径和 incarnation UID 排序，路径按叶节点到根节点比较。Java 的文本构造器仍保留，
+  比较从路径文本取得层级；对应 `actor/ActorPath.scala` 和 `actor/ActorRef.scala`。`stop` 和 `isTerminated`
+  归 `InternalActorRef`，应用通过 `ActorSystem.stop` 或 `ActorContext.stop` 停止 Actor。
+- `RepointableActorRef` 的两个 Cell 引用以 VarHandle 的 volatile 读和 CAS 循环换入并返回先前引用。
+  对应 `actor/RepointableActorRef.scala`。Scala `Dispatch` 的带状态 trait 以 Java 抽象基类承载，
+  `Children`、`DeathWatch`、`FaultHandling` 和 `ReceiveTimeout` 以接口表达，相关状态和实现保留在
+  `ActorCell`。终止由 Mailbox 的 Closed 状态决定，终止清理按上游换入 `terminatedProps`。
+  对应 `actor/ActorCell.scala` 和 `actor/dungeon/{Dispatch,Children,DeathWatch,FaultHandling,ReceiveTimeout}.scala`。
+- `dispatch/sysmsg/SystemMessage.scala` 的具体消息分别有同名 Java 类。`Create.failure` 用
+  `Optional<ActorInitializationException>`，`Watch.watcher` 和 `Unwatch.watcher` 为 `InternalActorRef`。
+  `StopChild` 和 `SystemGuardian` 的 termination hook 属于 guardian 的普通消息协议。
+  system guardian 在 user guardian 终止后切换 behavior，等待 hooks 完成再停止 logger 和自身。
+  对应 `actor/ActorRefProvider.scala`。
+- `Actor` 的 Scala trait 有实例字段，因此 Java 将其映射为抽象类。`AbstractActor.Receive` 包装
+  `PartialFunction<Object, Void>`，用 Java `Void` 表示仅做副作用的 Scala `Unit`。Java 的
+  `applyOrElse` 结果泛型由调用方选择为两个分支的共同类型，对应 Scala 的结果类型下界。
+  `AbstractActor.ActorContext` 提供 `Receive` 重载和 Java 访问器，`preRestart` 的消息使用 `Optional<Object>`。
+  对应 `actor/Actor.scala`、`actor/AbstractActor.scala` 和 `japi/pf/ReceiveBuilder.java`。
 
 ## Java 语言适配
 

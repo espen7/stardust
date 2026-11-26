@@ -14,14 +14,23 @@
 package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.ConfigurationException;
-import io.github.espen7.tapio.dispatch.MessageDispatcher;
+import io.github.espen7.tapio.actor.SystemGuardian.RegisterTerminationHook;
+import io.github.espen7.tapio.actor.SystemGuardian.TerminationHook;
+import io.github.espen7.tapio.actor.SystemGuardian.TerminationHookDone;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.Mailboxes;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.RequiresMessageQueue;
 import io.github.espen7.tapio.dispatch.UnboundedMessageQueueSemantics;
+import io.github.espen7.tapio.dispatch.sysmsg.DeathWatchNotification;
+import io.github.espen7.tapio.dispatch.sysmsg.Failed;
+import io.github.espen7.tapio.dispatch.sysmsg.Supervise;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Watch;
 import io.github.espen7.tapio.event.Logging;
 import io.github.espen7.tapio.event.LoggingAdapter;
+import io.github.espen7.tapio.japi.pf.PartialFunction;
+import io.github.espen7.tapio.japi.pf.ReceiveBuilder;
 import io.github.espen7.tapio.serialization.Serialization;
 import io.github.espen7.tapio.util.Helpers;
 
@@ -36,7 +45,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -117,13 +125,13 @@ public class LocalActorRefProvider extends ActorRefProvider {
             @Override
             public void sendSystemMessage(SystemMessage message) {
                 if (isTerminated()) return;
-                if (message instanceof SystemMessage.Failed failed) {
+                if (message instanceof Failed failed) {
                     log.error(failed.cause, "guardian {} failed, shutting down!", failed.child);
                     causeOfTermination.completeExceptionally(failed.cause);
-                    failed.child.stop();
-                } else if (message instanceof SystemMessage.DeathWatchNotification) {
+                    ((InternalActorRef) failed.child).stop();
+                } else if (message instanceof DeathWatchNotification) {
                     stop();
-                } else if (!(message instanceof SystemMessage.Supervise)) {
+                } else if (!(message instanceof Supervise)) {
                     log.error("{} received unexpected system message [{}]", this, message);
                 }
             }
@@ -162,14 +170,14 @@ public class LocalActorRefProvider extends ActorRefProvider {
         guardian.start();
 
         cell.reserveChild("system");
-        systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, guardian),
+        systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, systemGuardianStrategy(), guardian),
                 system.dispatchers().internalDispatcher(), defaultMailbox, rootGuardian,
                 new ActorPath(rootPath, "system"), "system", false);
         cell.initChild(systemGuardian);
         systemGuardian.start();
 
-        systemGuardian.sendSystemMessage(new SystemMessage.Watch(guardian, systemGuardian));
-        rootGuardian.sendSystemMessage(new SystemMessage.Watch(systemGuardian, rootGuardian));
+        systemGuardian.sendSystemMessage(new Watch(guardian, systemGuardian));
+        rootGuardian.sendSystemMessage(new Watch(systemGuardian, rootGuardian));
         system.eventStream().startDefaultLoggers(system);
     }
 
@@ -412,7 +420,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
         tempContainer.removeChild(path.name());
     }
 
-    private static class Guardian extends AbstractActor implements RequiresMessageQueue<UnboundedMessageQueueSemantics> {
+    private static class Guardian extends Actor implements RequiresMessageQueue<UnboundedMessageQueueSemantics> {
         private final SupervisorStrategy supervisorStrategy;
 
         private Guardian(SupervisorStrategy supervisorStrategy) {
@@ -425,61 +433,79 @@ public class LocalActorRefProvider extends ActorRefProvider {
         }
 
         @Override
-        public void preRestart(Throwable reason, Object message) {
+        public void preRestart(Throwable reason, Optional<Object> message) {
         }
 
         @Override
-        public Receive createReceive() {
-            return receiveBuilder()
-                    .match(Terminated.class, ignored -> getContext().stop(getSelf()))
-                    .match(SystemMessage.StopChild.class, stop -> getContext().stop(stop.child))
-                    .build();
+        public PartialFunction<Object, Void> receive() {
+            return ReceiveBuilder.create()
+                    .match(Terminated.class, ignored -> context.stop(self))
+                    .match(StopChild.class, stop -> context.stop(stop.child()))
+                    .build().onMessage();
         }
     }
 
-    private static final class SystemGuardian extends Guardian {
-        private final ActorRef guardian;
-        private final Set<ActorRef> terminationHooks = new HashSet<>();
-        private boolean terminating;
+    protected SupervisorStrategy systemGuardianStrategy() {
+        return SupervisorStrategy.defaultStrategy;
+    }
 
-        private SystemGuardian(ActorRef guardian) {
-            super(SupervisorStrategy.defaultStrategy);
+    private static class SystemGuardian extends Actor implements RequiresMessageQueue<UnboundedMessageQueueSemantics> {
+        private final SupervisorStrategy supervisorStrategy;
+        private final ActorRef guardian;
+        private Set<ActorRef> terminationHooks = Set.of();
+
+        private SystemGuardian(SupervisorStrategy supervisorStrategy, ActorRef guardian) {
+            this.supervisorStrategy = supervisorStrategy;
             this.guardian = guardian;
         }
 
         @Override
-        public Receive createReceive() {
-            return receiveBuilder()
-                    .match(Terminated.class, terminated -> {
-                        if (terminated.actor().equals(guardian)) {
-                            terminating = true;
-                            for (ActorRef hook : Set.copyOf(terminationHooks)) {
-                                hook.tell(new SystemMessage.TerminationHook(), getSelf());
-                            }
-                            stopWhenAllTerminationHooksDone();
-                        } else {
-                            terminationHooks.remove(terminated.actor());
-                            stopWhenAllTerminationHooksDone();
-                        }
-                    })
-                    .match(SystemMessage.StopChild.class, stop -> getContext().stop(stop.child))
-                    .match(SystemMessage.RegisterTerminationHook.class, register -> {
-                        if (!terminating && register.hook != null) {
-                            terminationHooks.add(register.hook);
-                            getContext().watch(register.hook);
-                        }
-                    })
-                    .match(SystemMessage.TerminationHookDone.class, ignored -> {
-                        terminationHooks.remove(getSender());
+        public SupervisorStrategy supervisorStrategy() {
+            return supervisorStrategy;
+        }
+
+        @Override
+        public PartialFunction<Object, Void> receive() {
+            return ReceiveBuilder.create()
+                    .match(Terminated.class, terminated -> terminated.actor().equals(guardian), terminated -> {
+                        context.become(terminating());
+                        for (ActorRef hook : terminationHooks) hook.tell(TerminationHook.INSTANCE, self);
                         stopWhenAllTerminationHooksDone();
                     })
-                    .build();
+                    .match(Terminated.class, terminated -> {
+                        Set<ActorRef> updated = new HashSet<>(terminationHooks);
+                        updated.remove(terminated.actor());
+                        terminationHooks = Set.copyOf(updated);
+                    })
+                    .match(StopChild.class, stop -> context.stop(stop.child()))
+                    .match(RegisterTerminationHook.class, register -> !sender().equals(context.system().deadLetters()),
+                            register -> {
+                                Set<ActorRef> updated = new HashSet<>(terminationHooks);
+                                updated.add(sender());
+                                terminationHooks = Set.copyOf(updated);
+                                context.watch(sender());
+                            })
+                    .build().onMessage();
+        }
+
+        private PartialFunction<Object, Void> terminating() {
+            return ReceiveBuilder.create()
+                    .match(Terminated.class, terminated -> stopWhenAllTerminationHooksDone(terminated.actor()))
+                    .match(TerminationHookDone.class, ignored -> stopWhenAllTerminationHooksDone(sender()))
+                    .build().onMessage();
+        }
+
+        private void stopWhenAllTerminationHooksDone(ActorRef remove) {
+            Set<ActorRef> updated = new HashSet<>(terminationHooks);
+            updated.remove(remove);
+            terminationHooks = Set.copyOf(updated);
+            stopWhenAllTerminationHooksDone();
         }
 
         private void stopWhenAllTerminationHooksDone() {
-            if (terminating && terminationHooks.isEmpty()) {
-                getContext().system().eventStream().stopDefaultLoggers(getContext().system());
-                getContext().stop(getSelf());
+            if (terminationHooks.isEmpty()) {
+                context.system().eventStream().stopDefaultLoggers(context.system());
+                context.stop(self);
             }
         }
     }

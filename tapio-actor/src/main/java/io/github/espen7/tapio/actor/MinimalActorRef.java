@@ -20,7 +20,32 @@ import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
  *
  * <p>默认忽略普通消息和系统消息。子类可按所代表的引用类型覆写投递行为。
  */
-public abstract class MinimalActorRef extends InternalActorRef {
+public abstract class MinimalActorRef extends InternalActorRef implements LocalRef {
+    @Override
+    public void start() {
+    }
+
+    @Override
+    public void resume(Throwable causedByFailure) {
+    }
+
+    @Override
+    public void suspend() {
+    }
+
+    @Override
+    public void restart(Throwable cause) {
+    }
+
+    @Override
+    public void stop() {
+    }
+
+    @Override
+    public boolean isTerminated() {
+        return false;
+    }
+
     @Override
     public void tell(Object message, ActorRef sender) {
     }

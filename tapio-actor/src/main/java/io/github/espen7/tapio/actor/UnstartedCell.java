@@ -13,25 +13,106 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
+import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
 import io.github.espen7.tapio.dispatch.Envelope;
+import io.github.espen7.tapio.dispatch.sysmsg.Recreate;
+import io.github.espen7.tapio.dispatch.sysmsg.Resume;
+import io.github.espen7.tapio.dispatch.sysmsg.Suspend;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Terminate;
 import io.github.espen7.tapio.event.Warning;
 
 import java.util.LinkedList;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /** 在 supervisor 激活 ActorCell 前保存普通消息和系统消息。 */
 final class UnstartedCell implements Cell {
-    private final ActorSystemImpl system;
+    private final ActorSystemImpl systemImpl;
     private final RepointableActorRef self;
+    private final Props props;
+    private final InternalActorRef supervisor;
     private final ReentrantLock lock = new ReentrantLock();
     private final LinkedList<Envelope> queue = new LinkedList<>();
     private SystemMessage sysmsgQueue;
 
-    UnstartedCell(ActorSystemImpl system, RepointableActorRef self) {
-        this.system = system;
+    UnstartedCell(ActorSystemImpl systemImpl, RepointableActorRef self, Props props, InternalActorRef supervisor) {
+        this.systemImpl = systemImpl;
         this.self = self;
+        this.props = props;
+        this.supervisor = supervisor;
+    }
+
+    @Override
+    public RepointableActorRef self() {
+        return self;
+    }
+
+    @Override
+    public ActorSystem system() {
+        return systemImpl;
+    }
+
+    @Override
+    public ActorSystemImpl systemImpl() {
+        return systemImpl;
+    }
+
+    @Override
+    public UnstartedCell start() {
+        return this;
+    }
+
+    @Override
+    public void suspend() {
+        sendSystemMessage(new Suspend());
+    }
+
+    @Override
+    public void resume(Throwable causedByFailure) {
+        sendSystemMessage(new Resume(causedByFailure));
+    }
+
+    @Override
+    public void restart(Throwable cause) {
+        sendSystemMessage(new Recreate(cause));
+    }
+
+    @Override
+    public void stop() {
+        sendSystemMessage(new Terminate());
+    }
+
+    @Override
+    public InternalActorRef parent() {
+        return supervisor;
+    }
+
+    @Override
+    public ChildrenContainer childrenRefs() {
+        return ChildrenContainer.empty();
+    }
+
+    @Override
+    public Optional<ChildRestartStats> getChildByName(String name) {
+        return Optional.empty();
+    }
+
+    @Override
+    public InternalActorRef getSingleChild(String name) {
+        return null;
+    }
+
+    @Override
+    public boolean isLocal() {
+        return true;
+    }
+
+    @Override
+    public Props props() {
+        return props;
     }
 
     void replaceWith(Cell cell) {
@@ -75,7 +156,7 @@ final class UnstartedCell implements Cell {
     public void sendMessage(Envelope message) {
         boolean acquired;
         try {
-            acquired = lock.tryLock(system.settings().UnstartedPushTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            acquired = lock.tryLock(systemImpl.settings().UnstartedPushTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException interrupted) {
             ActorCell.<RuntimeException>throwUnchecked(interrupted);
             return;
@@ -83,20 +164,20 @@ final class UnstartedCell implements Cell {
         if (acquired) {
             try {
                 Cell current = self.underlying();
-                if (current != this) {
+                if (cellIsReady(current)) {
                     current.sendMessage(message);
                 } else if (!queue.offer(message)) {
-                    system.eventStream().publish(new Warning(self.path().toString(), getClass(),
+                    system().eventStream().publish(new Warning(self.path().toString(), getClass(),
                             "dropping message of type " + message.message().getClass() + " due to enqueue failure"));
-                    system.deadLetters().tell(new DeadLetter(message.message(), message.sender(), self), message.sender());
+                    system().deadLetters().tell(new DeadLetter(message.message(), message.sender(), self), message.sender());
                 }
             } finally {
                 lock.unlock();
             }
         } else {
-            system.eventStream().publish(new Warning(self.path().toString(), getClass(),
+            system().eventStream().publish(new Warning(self.path().toString(), getClass(),
                     "dropping message of type" + message.message().getClass() + " due to lock timeout"));
-            system.deadLetters().tell(new DeadLetter(message.message(), message.sender(), self), message.sender());
+            system().deadLetters().tell(new DeadLetter(message.message(), message.sender(), self), message.sender());
         }
     }
 
@@ -105,7 +186,7 @@ final class UnstartedCell implements Cell {
         lock.lock();
         try {
             Cell current = self.underlying();
-            if (current != this) {
+            if (cellIsReady(current)) {
                 current.sendSystemMessage(message);
             } else {
                 message.next(sysmsgQueue);
@@ -121,7 +202,33 @@ final class UnstartedCell implements Cell {
         lock.lock();
         try {
             Cell current = self.underlying();
-            return current != this && current.isTerminated();
+            return cellIsReady(current) && current.isTerminated();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private boolean cellIsReady(Cell cell) {
+        return cell != this && cell != null;
+    }
+
+    @Override
+    public boolean hasMessages() {
+        lock.lock();
+        try {
+            Cell cell = self.underlying();
+            return cellIsReady(cell) ? cell.hasMessages() : !queue.isEmpty();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public int numberOfMessages() {
+        lock.lock();
+        try {
+            Cell cell = self.underlying();
+            return cellIsReady(cell) ? cell.numberOfMessages() : queue.size();
         } finally {
             lock.unlock();
         }

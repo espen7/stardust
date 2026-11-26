@@ -65,22 +65,10 @@ public abstract class ActorRef implements Comparable<ActorRef>, Serializable {
         tell(message, context.sender());
     }
 
-    /**
-     * 返回此引用是否已经终止。
-     *
-     * @return 终止时为 {@code true}
-     */
-    public boolean isTerminated() {
-        return false;
-    }
-
-    /** 请求异步停止此 Actor。 */
-    public void stop() {
-    }
-
     @Override
-    public int compareTo(ActorRef other) {
-        return path().compareTo(other.path());
+    public final int compareTo(ActorRef other) {
+        int comparison = path().compareTo(other.path());
+        return comparison == 0 ? Integer.compare(path().uid(), other.path().uid()) : comparison;
     }
 
     /**

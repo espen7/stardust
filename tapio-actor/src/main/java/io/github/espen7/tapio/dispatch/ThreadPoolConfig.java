@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.dispatch;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -22,6 +24,7 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.function.Supplier;
 
 /** ThreadPoolExecutor 的不可变有效配置。 */
+@InternalApi
 record ThreadPoolConfig(boolean allowCorePoolTimeout, int corePoolSize, int maxPoolSize,
                         Duration threadTimeout, Supplier<BlockingQueue<Runnable>> queueFactory,
                         RejectedExecutionHandler rejectionPolicy) {

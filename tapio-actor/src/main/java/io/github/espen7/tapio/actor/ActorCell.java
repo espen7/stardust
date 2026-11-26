@@ -13,35 +13,47 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.MessageDispatcher;
-import io.github.espen7.tapio.dispatch.Envelope;
-import io.github.espen7.tapio.dispatch.Mailbox;
-import io.github.espen7.tapio.dispatch.MailboxType;
-import io.github.espen7.tapio.dispatch.ProducesMessageQueue;
-import io.github.espen7.tapio.dispatch.UnboundedMailbox;
-import io.github.espen7.tapio.dispatch.sysmsg.StashWhenFailed;
-import io.github.espen7.tapio.dispatch.sysmsg.StashWhenWaitingForChildren;
-import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
-import io.github.espen7.tapio.event.Debug;
-import io.github.espen7.tapio.event.Error;
-import io.github.espen7.tapio.event.LogEvent;
-import io.github.espen7.tapio.event.Warning;
 import io.github.espen7.tapio.actor.dungeon.ChildNameReserved;
 import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
+import io.github.espen7.tapio.actor.dungeon.ChildStats;
+import io.github.espen7.tapio.actor.dungeon.Children;
 import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
+import io.github.espen7.tapio.actor.dungeon.DeathWatch;
+import io.github.espen7.tapio.actor.dungeon.Dispatch;
+import io.github.espen7.tapio.actor.dungeon.FaultHandling;
+import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.annotation.InternalStableApi;
+import io.github.espen7.tapio.dispatch.Envelope;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
+import io.github.espen7.tapio.dispatch.sysmsg.Create;
+import io.github.espen7.tapio.dispatch.sysmsg.DeathWatchNotification;
+import io.github.espen7.tapio.dispatch.sysmsg.Failed;
+import io.github.espen7.tapio.dispatch.sysmsg.NoMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Recreate;
+import io.github.espen7.tapio.dispatch.sysmsg.Resume;
+import io.github.espen7.tapio.dispatch.sysmsg.StashWhenFailed;
+import io.github.espen7.tapio.dispatch.sysmsg.StashWhenWaitingForChildren;
+import io.github.espen7.tapio.dispatch.sysmsg.Supervise;
+import io.github.espen7.tapio.dispatch.sysmsg.Suspend;
+import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Terminate;
+import io.github.espen7.tapio.dispatch.sysmsg.Unwatch;
+import io.github.espen7.tapio.dispatch.sysmsg.Watch;
+import io.github.espen7.tapio.event.Debug;
+import io.github.espen7.tapio.event.Error;
+import io.github.espen7.tapio.event.Warning;
+import io.github.espen7.tapio.japi.pf.PartialFunction;
 import io.github.espen7.tapio.util.Helpers;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.time.Duration;
 import java.util.ArrayDeque;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
@@ -53,7 +65,12 @@ import java.util.concurrent.ThreadLocalRandom;
  * watcher 和当前消息。所有用户消息都在 Dispatcher 调度的 Mailbox 线程中进入
  * {@link #invoke(Envelope)}，因此 Actor 的 receive 回调在同一时间只会有一个执行者。</p>
  */
-public class ActorCell implements ActorContext, Cell {
+@InternalApi
+public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
+        io.github.espen7.tapio.actor.dungeon.ReceiveTimeout, Children, DeathWatch, FaultHandling {
+    private static final Props terminatedProps = Props.create(Actor.class, () -> {
+        throw new IllegalActorStateException("This Actor has been terminated");
+    });
     private static final int DefaultState = 0;
     private static final int SuspendedState = 1;
     private static final int SuspendedWaitForChildrenState = 2;
@@ -72,14 +89,12 @@ public class ActorCell implements ActorContext, Cell {
     private static final Object NullCustomWatchMessage = new Object();
 
     private static final VarHandle childrenRefsHandle;
-    private static final VarHandle mailboxHandle;
     private static final VarHandle nextNameHandle;
 
     static {
         try {
             childrenRefsHandle = MethodHandles.lookup().findVarHandle(
                     ActorCell.class, "childrenRefs", ChildrenContainer.class);
-            mailboxHandle = MethodHandles.lookup().findVarHandle(ActorCell.class, "mailbox", Mailbox.class);
             nextNameHandle = MethodHandles.lookup().findVarHandle(ActorCell.class, "nextName", long.class);
         } catch (ReflectiveOperationException error) {
             throw new ExceptionInInitializerError(error);
@@ -89,14 +104,13 @@ public class ActorCell implements ActorContext, Cell {
     /** 所属 ActorSystem。 */
     private final ActorSystemImpl system;
     /** 此 cell 的 ActorRef。 */
-    private final ActorRefWithCell self;
+    private final InternalActorRef self;
     /** 创建或重建 Actor 实例时使用的 Props。 */
-    private final Props initialProps;
+    private Props _props;
     /** 调度此 cell mailbox 的 Dispatcher。 */
     private final MessageDispatcher dispatcher;
     /** 此 Actor 的 parent 和 supervisor。 */
-    private final ActorRef parent;
-    private volatile Mailbox mailbox;
+    private final InternalActorRef parent;
     @SuppressWarnings("unused")
     private volatile long nextName;
     /** children 状态快照通过 CAS 更新，供运行时并发读取。 */
@@ -106,18 +120,16 @@ public class ActorCell implements ActorContext, Cell {
     private Set<ActorRef> watchedBy = Set.of();
     private final Map<ActorRef, Optional<Object>> watching = new HashMap<>();
     private final Map<ActorRef, Optional<Object>> terminatedQueued = new HashMap<>();
-    private final LinkedList<SystemMessage> sysmsgStash = new LinkedList<>();
+    private SystemMessage sysmsgStash;
     /** 保存当前 behavior 及其被压入的旧 behavior。 */
-    private final ArrayDeque<AbstractActor.Receive> behaviorStack = new ArrayDeque<>();
+    private final ArrayDeque<PartialFunction<Object, Void>> behaviorStack = new ArrayDeque<>();
     private ReceiveTimeoutState receiveTimeoutData;
     /** Actor 构造期间暂存 ActorContext。 */
     static final ThreadLocal<LinkedList<ActorContext>> contextStack = ThreadLocal.withInitial(LinkedList::new);
-    private volatile Actor actor;
+    private Actor _actor;
     /** 当前处理的 Envelope，供 ActorContext.sender() 读取。 */
     private volatile Envelope currentMessage;
-    private volatile boolean terminated;
-    private ActorRef failedPerpetrator;
-    private boolean failedFatally;
+    private FailedInfo _failed = NoFailedInfo.INSTANCE;
 
     /**
      * 创建 ActorCell 并绑定所属 runtime 组件。
@@ -131,36 +143,12 @@ public class ActorCell implements ActorContext, Cell {
      * @param dispatcher 调度此 cell mailbox 的 Dispatcher
      * @param parent     负责监督该 cell 的父级引用
      */
-    public ActorCell(ActorSystemImpl system, ActorRefWithCell self, Props props, MessageDispatcher dispatcher, ActorRef parent) {
+    public ActorCell(ActorSystemImpl system, InternalActorRef self, Props props, MessageDispatcher dispatcher, InternalActorRef parent) {
         this.system = system;
         this.self = self;
-        this.initialProps = props;
+        this._props = props;
         this.dispatcher = dispatcher;
         this.parent = parent;
-    }
-
-    /**
-     * 返回此 ActorCell 的 Mailbox。
-     *
-     * @return 此 ActorCell 的 Mailbox
-     */
-    public Mailbox mailbox() {
-        return (Mailbox) mailboxHandle.getVolatile(this);
-    }
-
-    /**
-     * 原子替换此 Actor 的 Mailbox。
-     *
-     * <p>Dispatcher 注销 Actor 时，用此方法切换到共享的 dead-letter Mailbox。
-     *
-     * @param newMailbox 替换后接收消息的 Mailbox
-     * @return 替换前的 Mailbox
-     */
-    public Mailbox swapMailbox(Mailbox newMailbox) {
-        for (;;) {
-            Mailbox oldMailbox = mailbox();
-            if (mailboxHandle.compareAndSet(this, oldMailbox, newMailbox)) return oldMailbox;
-        }
     }
 
     /**
@@ -168,7 +156,7 @@ public class ActorCell implements ActorContext, Cell {
      *
      * @return 此 ActorCell 的 ActorRef
      */
-    public ActorRefWithCell self() {
+    public InternalActorRef self() {
         return self;
     }
 
@@ -178,7 +166,7 @@ public class ActorCell implements ActorContext, Cell {
      * @return 当前 Actor 实例；Create 完成前可能为 {@code null}
      */
     public Actor actor() {
-        return actor;
+        return _actor;
     }
 
     /**
@@ -186,7 +174,7 @@ public class ActorCell implements ActorContext, Cell {
      *
      * @return 负责监督该 cell 的父级引用
      */
-    public ActorRef parent() {
+    public InternalActorRef parent() {
         return parent;
     }
 
@@ -245,7 +233,13 @@ public class ActorCell implements ActorContext, Cell {
         }
     }
 
-    InternalActorRef getSingleChild(String name) {
+    @Override
+    public Optional<ChildStats> getChildByName(String name) {
+        return Optional.ofNullable(childrenRefs().getByName(name));
+    }
+
+    @Override
+    public InternalActorRef getSingleChild(String name) {
         int separator = name.indexOf('#');
         String childName = separator < 0 ? name : name.substring(0, separator);
         int uid = separator < 0 ? ActorPath.UndefinedUid : Integer.parseInt(name.substring(separator + 1));
@@ -282,7 +276,7 @@ public class ActorCell implements ActorContext, Cell {
         }
     }
 
-    private void watchedActorTerminated(SystemMessage.DeathWatchNotification notification) {
+    private void watchedActorTerminated(DeathWatchNotification notification) {
         Optional<Object> customMessage = watching.remove(notification.actor);
         if (customMessage != null && !childrenRefs().isTerminating()) {
             sendMessage(new Terminated(notification.actor, notification.existenceConfirmed, notification.addressTerminated),
@@ -292,15 +286,15 @@ public class ActorCell implements ActorContext, Cell {
         if (childrenRefs().getByRef(notification.actor) != null) handleChildTerminated(notification.actor);
     }
 
-    private void receivedTerminated(Terminated terminated) {
+    protected void receivedTerminated(Terminated terminated) throws Exception {
         Optional<Object> customMessage = terminatedQueued.remove(terminated.actor());
         if (customMessage == null) return;
         if (customMessage.isPresent()) {
             Object message = customMessage.get();
             currentMessage = new Envelope(message == NullCustomWatchMessage ? null : message, currentMessage.sender());
-            behaviorStack.peek().apply(message == NullCustomWatchMessage ? null : message, this);
+            receiveMessage(message == NullCustomWatchMessage ? null : message);
         } else {
-            behaviorStack.peek().apply(terminated, this);
+            receiveMessage(terminated);
         }
     }
 
@@ -308,7 +302,7 @@ public class ActorCell implements ActorContext, Cell {
         boolean watcheeSelf = watchee.equals(self);
         boolean watcherSelf = watcher.equals(self);
         if (watcheeSelf && !watcherSelf) {
-            if (terminated) {
+            if (isTerminated()) {
                 sendTerminated(watcher);
             } else if (!watchedBy.contains(watcher)) {
                 Set<ActorRef> updated = new HashSet<>(watchedBy);
@@ -345,59 +339,8 @@ public class ActorCell implements ActorContext, Cell {
     private void sendTerminated(ActorRef watcher) {
         if (watcher instanceof InternalActorRef internalWatcher) {
             internalWatcher.sendSystemMessage(
-                    new SystemMessage.DeathWatchNotification(self, true, false));
+                    new DeathWatchNotification(self, true, false));
         }
-    }
-
-    /**
-     * 返回此 ActorCell 是否已进入终止状态。
-     *
-     * @return 已终止时返回 {@code true}
-     */
-    @Override
-    public boolean isTerminated() {
-        return terminated;
-    }
-
-
-    /**
-     * 初始化 ActorCell，创建 Mailbox 并向其放入 Create 系统消息。
-     *
-     * <p>对应上游 {@code ActorCell.init}。MailboxType 已按 actor requirement 计算过，
-     * 这里再次校验实际创建的队列，校验失败时把异常延迟到 Actor 创建阶段处理。</p>
-     *
-     * @param sendSupervise 是否向 parent 发送 Supervise 系统消息
-     * @param mailboxType 创建普通消息队列的 mailbox type
-     */
-    public void init(boolean sendSupervise, MailboxType mailboxType) {
-        Mailbox created = dispatcher.createMailbox(this, mailboxType);
-        Class<?> requirement = mailboxType instanceof ProducesMessageQueue<?>
-                && system.mailboxes().hasRequiredType(initialProps.actorClass())
-                ? system.mailboxes().getRequiredType(initialProps.actorClass()) : null;
-        SystemMessage.Create createMessage;
-        if (requirement != null && !requirement.isInstance(created.messageQueue())) {
-            String gotType = created.messageQueue() == null ? "null" : created.messageQueue().getClass().getName();
-            createMessage = new SystemMessage.Create(new ActorInitializationException(
-                    self, "Actor [" + self + "] requires mailbox type [" + requirement + "] got [" + gotType + "]", null));
-        } else {
-            createMessage = new SystemMessage.Create(null);
-        }
-        initMailbox(created, createMessage);
-        if (sendSupervise && parent instanceof InternalActorRef supervisor) {
-            supervisor.sendSystemMessage(new SystemMessage.Supervise(self, false));
-        }
-    }
-
-    void initWithFailure(Throwable failure) {
-        Mailbox created = dispatcher.createMailbox(this, new UnboundedMailbox());
-        initMailbox(created, new SystemMessage.Create(new ActorInitializationException(
-                self, "failure while creating ActorCell", failure)));
-    }
-
-    private void initMailbox(Mailbox created, SystemMessage.Create create) {
-        swapMailbox(created);
-        created.setActor(this, dispatcher);
-        created.systemEnqueue(self, create);
     }
 
     /**
@@ -406,7 +349,7 @@ public class ActorCell implements ActorContext, Cell {
      * @return 此 cell 的 Props
      */
     public Props props() {
-        return initialProps;
+        return _props;
     }
 
     /**
@@ -420,54 +363,20 @@ public class ActorCell implements ActorContext, Cell {
     }
 
     /**
-     * 在初始化后启动此 ActorCell，调度包含 Create 系统消息的 Mailbox。
-     */
-    public void start() {
-        dispatcher.attach(this);
-    }
-
-
-    /**
-     * 将用户消息封装为 Envelope 并交给 Dispatcher 异步投递。
-     *
-     * @param message 用户消息，不允许为 {@code null}
-     * @param sender  发送者引用；为 {@code null} 时转换成 dead letters 引用
-     */
-    public void sendMessage(Object message, ActorRef sender) {
-        sendMessage(Envelope.apply(message, sender, system));
-    }
-
-    @Override
-    public void sendMessage(Envelope message) {
-        dispatcher.dispatch(this, message);
-    }
-
-    /**
-     * 将 runtime 控制消息投递到独立的 system message queue。
-     *
-     * @param message 要投递的 system message
-     */
-    @Override
-    public void sendSystemMessage(SystemMessage message) {
-        dispatcher.systemDispatch(this, message);
-    }
-
-    /**
      * 处理系统消息。系统消息使用独立队列，优先于普通消息执行。
      * Create、Recreate、Terminate 形成生命周期主线，Watch 和 DeathWatchNotification
      * 形成 DeathWatch 主线。
      *
      * @param message 待处理的 system message
      */
-    public void systemInvoke(SystemMessage message) {
-        LinkedList<SystemMessage> messages = new LinkedList<>();
-        messages.add(message);
-        invokeAll(messages, calculateState());
+    public final void systemInvoke(SystemMessage message) {
+        invokeAll(message, calculateState());
     }
 
-    private void invokeAll(LinkedList<SystemMessage> messages, int currentState) {
-        while (!messages.isEmpty()) {
-            SystemMessage message = messages.removeFirst();
+    private void invokeAll(SystemMessage messages, int currentState) {
+        while (messages != null) {
+            SystemMessage message = messages;
+            SystemMessage rest = message.next();
             message.unlink();
             try {
                 if (shouldStash(message, currentState)) stash(message);
@@ -476,37 +385,38 @@ public class ActorCell implements ActorContext, Cell {
                 handleNonFatalOrInterruptedException(error);
             }
             int newState = calculateState();
-            LinkedList<SystemMessage> todo = messages;
+            SystemMessage todo = rest;
             if (newState < currentState) {
-                todo = unstashAll();
-                todo.addAll(messages);
+                SystemMessage unstashed = unstashAll();
+                while (unstashed != null) {
+                    SystemMessage next = unstashed.next();
+                    unstashed.next(todo);
+                    todo = unstashed;
+                    unstashed = next;
+                }
             }
-            if (terminated) {
+            if (isTerminated()) {
                 sendAllToDeadLetters(todo);
                 return;
             }
-            if (newState < currentState) messages = todo;
+            messages = todo;
             currentState = newState;
         }
     }
 
     private void invokeSystemMessage(SystemMessage message) {
-        if (message instanceof SystemMessage.Create create) create(create.failure);
-        else if (message instanceof SystemMessage.Recreate recreate) faultRecreate(recreate.cause);
-        else if (message instanceof SystemMessage.Terminate) terminate();
-        else if (message instanceof SystemMessage.Suspend) faultSuspend();
-        else if (message instanceof SystemMessage.Resume resume) faultResume(resume.causedByFailure);
-        else if (message instanceof SystemMessage.Watch watch) addWatcher(watch.watchee, watch.watcher);
-        else if (message instanceof SystemMessage.Unwatch unwatch) remWatcher(unwatch.watchee, unwatch.watcher);
-        else if (message instanceof SystemMessage.Failed failed) handleFailure(failed);
-        else if (message instanceof SystemMessage.DeathWatchNotification notification)
+        if (message instanceof Create create) create(create.failure);
+        else if (message instanceof Recreate recreate) faultRecreate(recreate.cause);
+        else if (message instanceof Terminate) terminate();
+        else if (message instanceof Suspend) faultSuspend();
+        else if (message instanceof Resume resume) faultResume(resume.causedByFailure);
+        else if (message instanceof Watch watch) addWatcher(watch.watchee, watch.watcher);
+        else if (message instanceof Unwatch unwatch) remWatcher(unwatch.watchee, unwatch.watcher);
+        else if (message instanceof Failed failed) handleFailure(failed);
+        else if (message instanceof DeathWatchNotification notification)
             watchedActorTerminated(notification);
-        else if (message instanceof SystemMessage.Supervise supervise) supervise(supervise.child, supervise.async);
-        else if (message instanceof SystemMessage.StopChild stopChild)
-            invoke(new Envelope(stopChild, system.deadLetters()));
-        else if (message instanceof SystemMessage.RegisterTerminationHook register)
-            invoke(new Envelope(register, register.hook == null ? system.deadLetters() : register.hook));
-        else if (message == SystemMessage.NoMessage) {
+        else if (message instanceof Supervise supervise) supervise(supervise.child, supervise.async);
+        else if (message == NoMessage.INSTANCE) {
             return;
         }
     }
@@ -525,19 +435,22 @@ public class ActorCell implements ActorContext, Cell {
         return false;
     }
 
-    private void stash(SystemMessage message) {
-        sysmsgStash.addFirst(message);
+    protected void stash(SystemMessage message) {
+        assert message.unlinked();
+        message.next(sysmsgStash);
+        sysmsgStash = message;
     }
 
-    private LinkedList<SystemMessage> unstashAll() {
-        LinkedList<SystemMessage> result = new LinkedList<>();
-        while (!sysmsgStash.isEmpty()) result.addLast(sysmsgStash.removeLast());
-        return result;
+    private SystemMessage unstashAll() {
+        SystemMessage unstashed = sysmsgStash;
+        sysmsgStash = null;
+        return unstashed;
     }
 
-    private void sendAllToDeadLetters(LinkedList<SystemMessage> messages) {
-        while (!messages.isEmpty()) {
-            SystemMessage message = messages.removeFirst();
+    private void sendAllToDeadLetters(SystemMessage messages) {
+        while (messages != null) {
+            SystemMessage message = messages;
+            messages = message.next();
             message.unlink();
             system.deadLetters().tell(message);
         }
@@ -546,14 +459,11 @@ public class ActorCell implements ActorContext, Cell {
     /**
      * 处理 Create 消息并运行 Actor 构造及 preStart 生命周期。
      */
-    private void create(Throwable failure) {
-        if (failure != null) {
-            ActorCell.<RuntimeException>throwUnchecked(failure);
-            return;
-        }
+    private void create(Optional<ActorInitializationException> failure) {
+        if (failure.isPresent()) throw failure.get();
         try {
             Actor created = newActor();
-            created.preStart();
+            created.aroundPreStart();
             checkReceiveTimeout(true);
             publishLifecycle("started (" + created + ")");
         } catch (InterruptedException error) {
@@ -563,7 +473,7 @@ public class ActorCell implements ActorContext, Cell {
             throw new ActorInitializationException(self, "interruption during creation", error);
         } catch (Throwable error) {
             rethrowIfFatal(error);
-            if (actor != null) setFailed(self);
+            if (actor() != null) setFailed(self);
             failActor();
             if (error instanceof InstantiationException instantiation) {
                 throw new ActorInitializationException(self,
@@ -581,9 +491,9 @@ public class ActorCell implements ActorContext, Cell {
     }
 
     private void failActor() {
-        if (actor != null) {
+        if (actor() != null) {
             clearActorFields();
-            actor = null;
+            _actor = null;
         }
     }
 
@@ -614,11 +524,11 @@ public class ActorCell implements ActorContext, Cell {
         stack.addFirst(this);
         try {
             behaviorStack.clear();
-            Actor instance = initialProps.newActor();
+            Actor instance = props().newActor();
             if (instance == null)
                 throw new ActorInitializationException("Actor instance passed to actorOf can't be null");
             if (behaviorStack.isEmpty()) behaviorStack.push(instance.receive());
-            actor = instance;
+            _actor = instance;
             return instance;
         } finally {
             if (!stack.isEmpty() && stack.peekFirst() == null) stack.removeFirst();
@@ -632,10 +542,6 @@ public class ActorCell implements ActorContext, Cell {
      * @param messageHandle 待处理的消息及其 sender
      */
     public void invoke(Envelope messageHandle) {
-        if (terminated) {
-            dispatcher.deadLetters().enqueue(self, messageHandle);
-            return;
-        }
         Object message = messageHandle.message();
         int timeoutBeforeReceive = cancelReceiveTimeoutIfNeeded(message);
         try {
@@ -643,7 +549,7 @@ public class ActorCell implements ActorContext, Cell {
             if (message instanceof AutoReceivedMessage) {
                 autoReceiveMessage(messageHandle);
             } else {
-                behaviorStack.peek().apply(message, this);
+                receiveMessage(message);
             }
             currentMessage = null;
         } catch (Throwable error) {
@@ -653,9 +559,10 @@ public class ActorCell implements ActorContext, Cell {
         }
     }
 
-    private void autoReceiveMessage(Envelope messageHandle) {
+    public void autoReceiveMessage(Envelope messageHandle) throws Exception {
         if (system.debugAutoReceive()) {
-            publishLifecycle("received AutoReceiveMessage " + messageHandle);
+            system.eventStream().publish(new Debug(self.path().toString(), actorClass(),
+                    "received AutoReceiveMessage " + messageHandle));
         }
         Object message = messageHandle.message();
         if (message instanceof Terminated terminated) receivedTerminated(terminated);
@@ -680,9 +587,9 @@ public class ActorCell implements ActorContext, Cell {
      * @return 当前 receive timeout
      */
     @Override
-    public Duration getReceiveTimeout() {
+    public final Duration receiveTimeout() {
         ReceiveTimeoutState data = receiveTimeoutData;
-        return data == null || data.timeout == null ? Duration.ZERO : data.timeout;
+        return data == null ? null : data.timeout;
     }
 
     /**
@@ -691,8 +598,8 @@ public class ActorCell implements ActorContext, Cell {
      * @param timeout 静默时长
      */
     @Override
-    public void setReceiveTimeout(Duration timeout) {
-        setReceiveTimeoutInternal(Objects.requireNonNull(timeout, "timeout"));
+    public final void setReceiveTimeout(Duration timeout) {
+        setReceiveTimeoutInternal(timeout);
     }
 
     /**
@@ -726,7 +633,7 @@ public class ActorCell implements ActorContext, Cell {
         }
     }
 
-    private void checkReceiveTimeout(boolean reschedule) {
+    public final void checkReceiveTimeout(boolean reschedule) {
         ReceiveTimeoutState data = receiveTimeoutData;
         if (data == null) return;
         if (data.timeout == null) {
@@ -744,7 +651,7 @@ public class ActorCell implements ActorContext, Cell {
         return data == null ? 0 : data.version;
     }
 
-    private void cancelReceiveTimeoutTask() {
+    public void cancelReceiveTimeoutTask() {
         ReceiveTimeoutState data = receiveTimeoutData;
         if (data != null && data.task != emptyCancellable) {
             data.task.cancel();
@@ -782,42 +689,75 @@ public class ActorCell implements ActorContext, Cell {
         handleInvokeFailure(Set.of(), error);
     }
 
-    private void handleInvokeFailure(Set<ActorRef> childrenNotToSuspend, Throwable error) {
-        mailbox.suspend();
-        Set<ActorRef> skip = new HashSet<>(childrenNotToSuspend);
-        if (currentMessage != null && currentMessage.message() instanceof SystemMessage.Failed failed
-                && failedPerpetrator == null) {
+    @InternalStableApi
+    @Override
+    public final void handleInvokeFailure(Iterable<ActorRef> childrenNotToSuspend, Throwable error) {
+        suspendNonRecursive();
+        Set<ActorRef> skip = new HashSet<>();
+        childrenNotToSuspend.forEach(skip::add);
+        if (currentMessage != null && currentMessage.message() instanceof Failed failed
+                && !isFailed()) {
             setFailed(failed.child);
             skip.add(failed.child);
-        } else if (failedPerpetrator == null) {
+        } else if (!isFailed()) {
             setFailed(self);
         }
         suspendChildren(skip);
-        if (parent instanceof InternalActorRef supervisor) {
-            Throwable failure = error instanceof InterruptedException
-                    ? new ActorInterruptedException(error) : error;
-            supervisor.sendSystemMessage(new SystemMessage.Failed(self, failure, self.path().uid()));
-        } else {
-            sendSystemMessage(new SystemMessage.Terminate());
-        }
+        Throwable failure = error instanceof InterruptedException
+                ? new ActorInterruptedException(error) : error;
+        parent.sendSystemMessage(new Failed(self, failure, self.path().uid()));
     }
 
-    private void setFailed(ActorRef perpetrator) {
-        if (!failedFatally) failedPerpetrator = perpetrator;
+    private sealed interface FailedInfo permits NoFailedInfo, FailedRef, FailedFatally {
     }
 
-    private void setFailedFatally() {
-        failedFatally = true;
+    private enum NoFailedInfo implements FailedInfo {
+        INSTANCE
+    }
+
+    private record FailedRef(ActorRef ref) implements FailedInfo {
+    }
+
+    private enum FailedFatally implements FailedInfo {
+        INSTANCE
+    }
+
+    private boolean isFailed() {
+        return _failed instanceof FailedRef;
+    }
+
+    private boolean isFailedFatally() {
+        return _failed == FailedFatally.INSTANCE;
+    }
+
+    private ActorRef perpetrator() {
+        return _failed instanceof FailedRef failed ? failed.ref() : null;
+    }
+
+    protected void setFailed(ActorRef perpetrator) {
+        if (!isFailedFatally()) _failed = new FailedRef(perpetrator);
+    }
+
+    protected void setFailedFatally() {
+        _failed = FailedFatally.INSTANCE;
     }
 
     private void clearFailed() {
-        failedPerpetrator = null;
+        if (isFailed()) _failed = NoFailedInfo.INSTANCE;
+    }
+
+    private void suspendNonRecursive() {
+        dispatcher().suspend(this);
+    }
+
+    private void resumeNonRecursive() {
+        dispatcher().resume(this);
     }
 
     private void suspendChildren(Set<ActorRef> exceptFor) {
         for (ActorRef child : childrenRefs().children()) {
             if (!exceptFor.contains(child) && child instanceof InternalActorRef internalChild) {
-                internalChild.sendSystemMessage(new SystemMessage.Suspend());
+                internalChild.sendSystemMessage(new Suspend());
             }
         }
     }
@@ -826,27 +766,27 @@ public class ActorCell implements ActorContext, Cell {
         for (ActorRef child : childrenRefs().children()) {
             if (child instanceof InternalActorRef internalChild) {
                 Throwable cause = child.equals(perpetrator) ? causedByFailure : null;
-                internalChild.sendSystemMessage(new SystemMessage.Resume(cause));
+                internalChild.sendSystemMessage(new Resume(cause));
             }
         }
     }
 
     private void faultSuspend() {
-        mailbox.suspend();
+        suspendNonRecursive();
         suspendChildren(Set.of());
     }
 
     private void faultResume(Throwable causedByFailure) {
-        if (actor == null) {
+        if (actor() == null) {
             publishError(causedByFailure, "changing Resume into Create after " + causedByFailure);
             faultCreate();
-        } else if (failedFatally && causedByFailure != null) {
+        } else if (isFailedFatally() && causedByFailure != null) {
             publishError(causedByFailure, "changing Resume into Restart after " + causedByFailure);
             faultRecreate(causedByFailure);
         } else {
-            ActorRef perpetrator = failedPerpetrator;
+            ActorRef perpetrator = perpetrator();
             try {
-                mailbox.resume();
+                resumeNonRecursive();
             } finally {
                 if (causedByFailure != null) clearFailed();
             }
@@ -863,23 +803,24 @@ public class ActorCell implements ActorContext, Cell {
 
     private void finishCreate() {
         try {
-            mailbox.resume();
+            resumeNonRecursive();
         } finally {
             clearFailed();
         }
-        create(null);
+        create(Optional.empty());
     }
 
     private void faultRecreate(Throwable cause) {
-        if (actor == null) {
+        if (actor() == null) {
             publishError(cause, "changing Recreate into Create after " + cause);
             faultCreate();
         } else if (childrenRefs().isNormal()) {
-            Actor failedActor = actor;
+            Actor failedActor = actor();
             publishLifecycle("restarting");
             try {
-                if (!failedFatally) {
-                    failedActor.preRestart(cause, currentMessage == null ? null : currentMessage.message());
+                if (!isFailedFatally()) {
+                    failedActor.aroundPreRestart(cause, currentMessage == null
+                            ? Optional.empty() : Optional.ofNullable(currentMessage.message()));
                 }
             } catch (Throwable error) {
                 rethrowIfFatal(error);
@@ -910,18 +851,18 @@ public class ActorCell implements ActorContext, Cell {
         List<ActorRef> survivors = childrenRefs().children();
         try {
             try {
-                mailbox.resume();
+                resumeNonRecursive();
             } finally {
                 clearFailed();
             }
             Actor freshActor = newActor();
-            freshActor.postRestart(cause);
+            freshActor.aroundPostRestart(cause);
             checkReceiveTimeout(true);
             publishLifecycle("restarted");
             for (ActorRef child : survivors) {
                 if (child instanceof InternalActorRef internalChild) {
                     try {
-                        internalChild.sendSystemMessage(new SystemMessage.Recreate(cause));
+                        internalChild.sendSystemMessage(new Recreate(cause));
                     } catch (Throwable error) {
                         rethrowIfFatal(error);
                         publishError(error, "restarting " + child);
@@ -939,7 +880,7 @@ public class ActorCell implements ActorContext, Cell {
     }
 
     private void terminate() {
-        if (terminated) return;
+        if (isTerminated()) return;
         cancelReceiveTimeout();
         cancelReceiveTimeoutTask();
         unwatchWatchedActors();
@@ -947,7 +888,7 @@ public class ActorCell implements ActorContext, Cell {
         boolean wasTerminating = childrenRefs().isTerminating();
         if (setChildrenTerminationReason(ChildrenContainer.Termination.INSTANCE)) {
             if (!wasTerminating) {
-                mailbox.suspend();
+                suspendNonRecursive();
                 setFailed(self);
                 publishLifecycle("stopping");
             }
@@ -957,7 +898,7 @@ public class ActorCell implements ActorContext, Cell {
         }
     }
 
-    private void handleFailure(SystemMessage.Failed failed) {
+    private void handleFailure(Failed failed) {
         currentMessage = Envelope.apply(failed, failed.child, system);
         ChildRestartStats child = childrenRefs().getByRef(failed.child);
         if (child == null) {
@@ -973,22 +914,23 @@ public class ActorCell implements ActorContext, Cell {
             currentMessage = null;
             return;
         }
-        if (!actor.supervisorStrategy().handleFailure(this, failed.child, failed.cause, child, childrenRefs().stats())) {
+        if (!actor().supervisorStrategy().handleFailure(this, failed.child, failed.cause, child, childrenRefs().stats())) {
             ActorCell.<RuntimeException>throwUnchecked(failed.cause);
         }
         currentMessage = null;
     }
 
     @SuppressWarnings("unchecked")
-    static <E extends Throwable> void throwUnchecked(Throwable error) throws E {
+    @InternalApi
+    public static <E extends Throwable> void throwUnchecked(Throwable error) throws E {
         throw (E) error;
     }
 
     private void handleChildTerminated(ActorRef child) {
         ChildrenContainer.SuspendReason stateChange = removeChildAndGetStateChange(child);
-        if (actor != null) {
+        if (actor() != null) {
             try {
-                actor.supervisorStrategy().handleChildTerminated(this, child, childrenRefs().children());
+                actor().supervisorStrategy().handleChildTerminated(this, child, childrenRefs().children());
             } catch (Throwable error) {
                 rethrowIfFatal(error);
                 publishError(error, "handleChildTerminated failed");
@@ -1004,14 +946,13 @@ public class ActorCell implements ActorContext, Cell {
     }
 
     private void setTerminated() {
-        terminated = true;
         childrenRefsHandle.setVolatile(this, ChildrenContainer.terminated());
     }
 
     private void finishTerminate() {
-        Actor terminatedActor = actor;
+        Actor terminatedActor = actor();
         try {
-            if (terminatedActor != null) terminatedActor.postStop();
+            if (terminatedActor != null) terminatedActor.aroundPostStop();
         } catch (Throwable error) {
             rethrowIfFatal(error);
             publishError(error, error.getMessage());
@@ -1021,9 +962,7 @@ public class ActorCell implements ActorContext, Cell {
             } finally {
                 try {
                     try {
-                        if (parent instanceof InternalActorRef supervisor) {
-                            supervisor.sendSystemMessage(new SystemMessage.DeathWatchNotification(self, true, false));
-                        }
+                        parent.sendSystemMessage(new DeathWatchNotification(self, true, false));
                         for (ActorRef watcher : watchedBy) {
                             if (!watcher.equals(parent)) sendTerminated(watcher);
                         }
@@ -1033,11 +972,17 @@ public class ActorCell implements ActorContext, Cell {
                     }
                 } finally {
                     watchedBy = Set.of();
-                    actor = null;
-                    behaviorStack.clear();
+                    clearActorFields();
+                    clearFieldsForTermination();
                 }
             }
         }
+    }
+
+    protected final void clearFieldsForTermination() {
+        unstashAll();
+        _props = terminatedProps;
+        _actor = null;
     }
 
     private void unwatchWatchedActors() {
@@ -1045,7 +990,7 @@ public class ActorCell implements ActorContext, Cell {
             try {
                 for (ActorRef watchee : watching.keySet()) {
                     if (watchee instanceof InternalActorRef internalWatchee) {
-                        internalWatchee.sendSystemMessage(new SystemMessage.Unwatch(watchee, self));
+                        internalWatchee.sendSystemMessage(new Unwatch(watchee, self));
                     }
                 }
             } finally {
@@ -1066,15 +1011,25 @@ public class ActorCell implements ActorContext, Cell {
     }
 
     private Class<?> actorClass() {
-        return actor == null ? ActorCell.class : actor.getClass();
+        return actor() == null ? ActorCell.class : actor().getClass();
     }
 
     /**
      * @return 此 ActorCell 所属的 ActorSystem
      */
     @Override
-    public ActorSystem system() {
+    public ActorSystemImpl system() {
         return system;
+    }
+
+    @Override
+    public final ActorSystemImpl systemImpl() {
+        return system;
+    }
+
+    @Override
+    public final boolean isLocal() {
+        return true;
     }
 
     /**
@@ -1168,13 +1123,13 @@ public class ActorCell implements ActorContext, Cell {
             unreserveChild(name);
             throw failure;
         }
-        if (mailbox != null) {
-            int suspendCount = mailbox.suspendCount();
+        if (mailbox() != null) {
+            int suspendCount = mailbox().suspendCount();
             for (int i = 0; i < suspendCount; i++) {
                 if (child instanceof LocalActorRef localChild) {
-                    localChild.underlying().mailbox().systemEnqueue(child, new SystemMessage.Suspend());
+                    localChild.underlying().mailbox().systemEnqueue(child, new Suspend());
                 } else {
-                    child.sendSystemMessage(new SystemMessage.Suspend());
+                    child.sendSystemMessage(new Suspend());
                 }
             }
         }
@@ -1197,7 +1152,12 @@ public class ActorCell implements ActorContext, Cell {
                 if (current.getByRef(actor) == null || swapChildrenRefs(current, current.shallDie(actor))) break;
             }
         }
-        actor.stop();
+        ((InternalActorRef) actor).stop();
+    }
+
+    @Override
+    public boolean isWatching(ActorRef ref) {
+        return watching.containsKey(ref);
     }
 
     /**
@@ -1223,7 +1183,7 @@ public class ActorCell implements ActorContext, Cell {
         if (!actor.equals(self)) {
             Optional<Object> previous = watching.get(actor);
             if (previous == null) {
-                internalActor.sendSystemMessage(new SystemMessage.Watch(actor, self));
+                internalActor.sendSystemMessage(new Watch(internalActor, self));
                 watching.put(actor, message);
             } else {
                 checkWatchingSame(actor, previous, message);
@@ -1256,7 +1216,7 @@ public class ActorCell implements ActorContext, Cell {
             throw new IllegalArgumentException("ActorRef is not internal: " + actor);
         }
         if (!actor.equals(self) && watching.remove(actor) != null) {
-            internalActor.sendSystemMessage(new SystemMessage.Unwatch(actor, self));
+            internalActor.sendSystemMessage(new Unwatch(actor, self));
         }
         terminatedQueued.remove(actor);
         return actor;
@@ -1266,7 +1226,7 @@ public class ActorCell implements ActorContext, Cell {
      * 将当前 behavior 替换为指定 behavior。
      */
     @Override
-    public void become(AbstractActor.Receive behavior) {
+    public void become(PartialFunction<Object, Void> behavior) {
         become(behavior, true);
     }
 
@@ -1277,24 +1237,35 @@ public class ActorCell implements ActorContext, Cell {
      * @param discardOld 为 {@code true} 时替换栈顶；为 {@code false} 时将新 behavior 压栈
      */
     @Override
-    public void become(AbstractActor.Receive behavior, boolean discardOld) {
+    public void become(PartialFunction<Object, Void> behavior, boolean discardOld) {
         if (discardOld && !behaviorStack.isEmpty()) behaviorStack.pop();
         behaviorStack.push(behavior);
     }
 
     /**
-     * 弹出当前 behavior；仅剩初始 behavior 时保持不变。
+     * 弹出当前 behavior；栈清空后恢复 Actor 的初始 behavior。
      */
     @Override
     public void unbecome() {
-        if (behaviorStack.size() > 1) behaviorStack.pop();
+        if (!behaviorStack.isEmpty()) behaviorStack.pop();
+        if (behaviorStack.isEmpty()) behaviorStack.push(actor().receive());
     }
 
     /**
      * @return 当前 child ActorRef 的不可变快照
      */
     @Override
-    public Collection<ActorRef> getChildren() {
+    public Iterable<ActorRef> children() {
         return childrenRefs().children();
+    }
+
+    @Override
+    public Optional<ActorRef> child(String name) {
+        return getChildByName(name).filter(ChildRestartStats.class::isInstance)
+                .map(ChildRestartStats.class::cast).map(ChildRestartStats::child);
+    }
+
+    public final void receiveMessage(Object message) throws Exception {
+        actor().aroundReceive(behaviorStack.peek(), message);
     }
 }

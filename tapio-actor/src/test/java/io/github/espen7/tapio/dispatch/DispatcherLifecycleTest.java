@@ -16,15 +16,17 @@ package io.github.espen7.tapio.dispatch;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorRefProvider;
 import io.github.espen7.tapio.actor.ActorRefWithCell;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.ActorSystemImpl;
-import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.Cancellable;
 import io.github.espen7.tapio.actor.LightArrayRevolverScheduler;
 import io.github.espen7.tapio.actor.LocalActorRef;
+import io.github.espen7.tapio.actor.MinimalActorRef;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.actor.Scheduler;
 import io.github.espen7.tapio.actor.Terminated;
@@ -45,19 +47,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -183,7 +185,7 @@ class DispatcherLifecycleTest {
         Dispatcher dispatcher = dispatcher(scheduler, () -> executor);
         BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         system.eventStream().subscribe(new CaptureActorRef(events), Error.class);
-        Mailbox mailbox = new Mailbox(new UnboundedMailbox.MessageQueue());
+        Mailbox mailbox = new DefaultSystemMessageQueue(new UnboundedMailbox.MessageQueue()) {};
 
         RejectedExecutionException thrown = assertThrows(RejectedExecutionException.class,
                 () -> dispatcher.registerForExecution(mailbox, true, true));
@@ -273,7 +275,8 @@ class DispatcherLifecycleTest {
 
     @Test
     void taskInvocationHandlesNullMessagesAndRethrowsFatalErrors() {
-        EventStream eventStream = new EventStream(LogEvent.Level.ERROR);
+        EventStream eventStream = new EventStream(null);
+        eventStream.setLogLevel(LogEvent.Level.ERROR);
         BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         eventStream.subscribe(new CaptureActorRef(events), Error.class);
         RuntimeException failure = new RuntimeException();
@@ -298,7 +301,8 @@ class DispatcherLifecycleTest {
 
     @Test
     void recursiveFailureReportingDoesNotReenterEventStream() {
-        EventStream eventStream = new EventStream(LogEvent.Level.ERROR);
+        EventStream eventStream = new EventStream(null);
+        eventStream.setLogLevel(LogEvent.Level.ERROR);
         AtomicInteger deliveries = new AtomicInteger();
         ActorRef subscriber = new CaptureActorRef(message -> {
             deliveries.incrementAndGet();
@@ -330,7 +334,7 @@ class DispatcherLifecycleTest {
         assertEquals("pong", ask(first, "ping"));
         Mailbox oldMailbox = ((ActorCell) ((ActorRefWithCell) first).underlying()).mailbox();
 
-        first.stop();
+        system.stop(first);
 
         assertSame(first, terminated.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         assertTrue(firstStopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
@@ -366,7 +370,7 @@ class DispatcherLifecycleTest {
         assertTrue(ready.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         assertEquals("pong", ask(actor, "ping"));
 
-        actor.stop();
+        system.stop(actor);
 
         assertSame(actor, terminated.poll(WAIT.toMillis(), TimeUnit.MILLISECONDS));
         assertTrue(stopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
@@ -671,7 +675,7 @@ class DispatcherLifecycleTest {
         }
     }
 
-    static final class CaptureActorRef extends ActorRef {
+    static final class CaptureActorRef extends MinimalActorRef {
         private final ActorPath path = new ActorPath("tapio://dispatcher-lifecycle/capture");
         private final BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         private final Consumer<Object> consumer;
@@ -686,6 +690,11 @@ class DispatcherLifecycleTest {
 
         private CaptureActorRef(Consumer<Object> consumer) {
             this.consumer = consumer;
+        }
+
+        @Override
+        public ActorRefProvider provider() {
+            throw new UnsupportedOperationException();
         }
 
         @Override

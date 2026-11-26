@@ -283,11 +283,11 @@ public class ActorSystemImpl extends ActorSystem {
         LocalActorRef guardian = provider.guardian();
         LocalActorRef systemGuardian = provider.systemGuardian();
         if (guardian.path().equals(parent)) {
-            guardian.tell(new SystemMessage.StopChild(actor));
+            guardian.tell(new StopChild(actor));
         } else if (systemGuardian.path().equals(parent)) {
-            systemGuardian.tell(new SystemMessage.StopChild(actor));
+            systemGuardian.tell(new StopChild(actor));
         } else {
-            actor.stop();
+            ((InternalActorRef) actor).stop();
         }
     }
 

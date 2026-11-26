@@ -16,8 +16,8 @@ package io.github.espen7.tapio.pattern;
 import io.github.espen7.tapio.actor.ActorKilledException;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
-import io.github.espen7.tapio.actor.ActorSelection;
 import io.github.espen7.tapio.actor.ActorRefProvider;
+import io.github.espen7.tapio.actor.ActorSelection;
 import io.github.espen7.tapio.actor.Cancellable;
 import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.InternalActorRef;
@@ -25,7 +25,12 @@ import io.github.espen7.tapio.actor.InvalidMessageException;
 import io.github.espen7.tapio.actor.MinimalActorRef;
 import io.github.espen7.tapio.actor.Status;
 import io.github.espen7.tapio.actor.Terminated;
+import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.dispatch.sysmsg.DeathWatchNotification;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Terminate;
+import io.github.espen7.tapio.dispatch.sysmsg.Unwatch;
+import io.github.espen7.tapio.dispatch.sysmsg.Watch;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -42,6 +47,7 @@ import java.util.concurrent.CompletionStage;
  * {@link #path()} 时，Provider 才会分配并注册路径。停止时会通知 DeathWatch
  * 观察者并注销已注册的路径。
  */
+@InternalApi
 public final class PromiseActorRef extends MinimalActorRef {
     private static final Object Registering = new Object();
     private static final Object Stopped = new Object();
@@ -190,20 +196,20 @@ public final class PromiseActorRef extends MinimalActorRef {
     @Override
     public void sendSystemMessage(SystemMessage message) {
         switch (message) {
-            case SystemMessage.Terminate ignored -> stop();
-            case SystemMessage.DeathWatchNotification notification ->
+            case Terminate ignored -> stop();
+            case DeathWatchNotification notification ->
                     tell(new Terminated(notification.actor, notification.existenceConfirmed, notification.addressTerminated));
-            case SystemMessage.Watch watch -> {
+            case Watch watch -> {
                 if (watch.watchee.equals(this) && !watch.watcher.equals(this)) {
                     if (!addWatcher(watch.watcher)) {
                         ((InternalActorRef) watch.watcher).sendSystemMessage(
-                                new SystemMessage.DeathWatchNotification(this, true, false));
+                                new DeathWatchNotification(this, true, false));
                     }
                 } else {
                     System.err.println("BUG: illegal Watch(" + watch.watchee + "," + watch.watcher + ") for " + this);
                 }
             }
-            case SystemMessage.Unwatch unwatch -> {
+            case Unwatch unwatch -> {
                 if (unwatch.watchee.equals(this) && !unwatch.watcher.equals(this)) remWatcher(unwatch.watcher);
                 else System.err.println("BUG: illegal Unwatch(" + unwatch.watchee + "," + unwatch.watcher + ") for " + this);
             }
@@ -287,7 +293,7 @@ public final class PromiseActorRef extends MinimalActorRef {
     private void ensureCompleted() {
         result.completeExceptionally(ActorStopResult);
         for (ActorRef watcher : clearWatchers()) {
-            ((InternalActorRef) watcher).sendSystemMessage(new SystemMessage.DeathWatchNotification(this, true, false));
+            ((InternalActorRef) watcher).sendSystemMessage(new DeathWatchNotification(this, true, false));
         }
     }
 

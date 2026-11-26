@@ -13,74 +13,69 @@
  */
 package io.github.espen7.tapio.japi.pf;
 
-import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.AbstractActor.Receive;
+import io.github.espen7.tapio.japi.function.Predicate;
+import io.github.espen7.tapio.japi.function.Procedure;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
+/** 按添加顺序构造 Actor 的消息匹配逻辑。 */
+public class ReceiveBuilder {
+    private PartialFunction<Object, Void> statements;
 
-/**
- * Java API 的 Receive 构建器。
- *
- * <p>class cases 按添加顺序检查，首个匹配的 case 执行后即结束匹配。没有匹配项时，
- * 使用 matchAny 注册的兜底处理器；没有兜底处理器时调用 Actor#unhandled。</p>
- */
-public final class ReceiveBuilder {
-
-    private final List<Case> cases = new ArrayList<>();
-    private Consumer<Object> any;
-
-    private record Case(Class<?> type, Consumer<Object> action) {
+    protected void addStatement(PartialFunction<Object, Void> statement) {
+        statements = statements == null ? statement : statements.orElse(statement);
     }
 
     /**
-     * 创建空的 ReceiveBuilder。
+     * 捕获当前的匹配分支。继续修改 builder 不会改变已构建的行为。
+     *
+     * @return 匹配首个符合条件的分支的 Receive
      */
+    public Receive build() {
+        PartialFunction<Object, Void> empty = PartialFunction.empty();
+        return new Receive(statements == null ? empty : statements.orElse(empty));
+    }
+
+    /** @return 新的消息匹配构建器 */
     public static ReceiveBuilder create() {
         return new ReceiveBuilder();
     }
 
     /**
-     * 注册一个按消息 class 匹配的处理器。
+     * 追加匹配指定类型及其子类型的分支。
      *
-     * @param type 消息类型；匹配使用 {@link Class#isInstance(Object)}，包括子类实例
-     * @param action 匹配成功后的消息处理器
-     * @param <T> 消息类型
-     * @return 当前 builder，便于继续链式注册
-     */
-    public <T> ReceiveBuilder match(Class<T> type, Consumer<T> action) {
-        cases.add(new Case(type, value -> action.accept(type.cast(value))));
-        return this;
-    }
-
-    /**
-     * 注册兜底处理器。
-     *
-     * @param action 没有 class case 匹配时调用的处理器
+     * @param type 消息类型
+     * @param apply 匹配成功后执行的操作
+     * @param <P> 消息类型
      * @return 当前 builder
      */
-    public ReceiveBuilder matchAny(Consumer<Object> action) {
-        any = action;
+    public <P> ReceiveBuilder match(Class<P> type, Procedure<P> apply) {
+        addStatement(new UnitCaseStatement<Object, P>(type::isInstance, apply));
         return this;
     }
 
     /**
-     * 构造不可变的 Receive 快照。
+     * 追加同时满足类型和条件的分支。
      *
-     * <p>之后对该 builder 的修改不会改变已构建的 Receive。</p>
-     *
-     * @return 可由 AbstractActor 返回给 ActorCell 的 Receive
+     * @param type 消息类型
+     * @param predicate 类型匹配后检查的条件
+     * @param apply 匹配成功后执行的操作
+     * @param <P> 消息类型
+     * @return 当前 builder
      */
-    public AbstractActor.Receive build() {
-        return new AbstractActor.Receive((message, cell) -> {
-            for (Case entry : cases) {
-                if (entry.type().isInstance(message)) {
-                    entry.action().accept(message);
-                    return;
-                }
-            }
-            if (any != null) any.accept(message);
-            else cell.actor().unhandled(message);
-        });
+    public <P> ReceiveBuilder match(Class<P> type, Predicate<P> predicate, Procedure<P> apply) {
+        addStatement(new UnitCaseStatement<Object, P>(
+                value -> type.isInstance(value) && predicate.test(type.cast(value)), apply));
+        return this;
+    }
+
+    /**
+     * 追加匹配任意消息的分支。该分支位于当前匹配序列的末尾。
+     *
+     * @param apply 匹配成功后执行的操作
+     * @return 当前 builder
+     */
+    public ReceiveBuilder matchAny(Procedure<Object> apply) {
+        addStatement(new UnitCaseStatement<>(value -> true, apply));
+        return this;
     }
 }

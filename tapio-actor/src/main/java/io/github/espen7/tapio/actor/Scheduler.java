@@ -84,7 +84,7 @@ public abstract class Scheduler implements AutoCloseable {
                                                     Executor executor, ActorRef sender) {
         return scheduleWithFixedDelay(initialDelay, delay, () -> {
             receiver.tell(message, sender);
-            if (receiver.isTerminated()) throw new SchedulerException("timer active for terminated actor");
+            if (receiver instanceof InternalActorRef internal && internal.isTerminated()) throw new SchedulerException("timer active for terminated actor");
         }, executor);
     }
 
@@ -126,7 +126,7 @@ public abstract class Scheduler implements AutoCloseable {
                                                  Executor executor, ActorRef sender) {
         return scheduleAtFixedRate(initialDelay, interval, () -> {
             receiver.tell(message, sender);
-            if (receiver.isTerminated()) throw new SchedulerException("timer active for terminated actor");
+            if (receiver instanceof InternalActorRef internal && internal.isTerminated()) throw new SchedulerException("timer active for terminated actor");
         }, executor);
     }
 

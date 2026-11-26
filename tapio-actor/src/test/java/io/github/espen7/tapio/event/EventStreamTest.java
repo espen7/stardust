@@ -15,17 +15,21 @@ package io.github.espen7.tapio.event;
 
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.Props;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -46,7 +50,7 @@ class EventStreamTest {
 
             assertTrue(subscribed.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
             assertTrue(system.eventStream().hasSubscriptions(subscriber));
-            subscriber.stop();
+            system.stop(subscriber);
             assertTrue(stopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
 
             await("terminated subscriber was not unsubscribed",
@@ -71,12 +75,42 @@ class EventStreamTest {
             assertTrue(subscribed.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
             assertTrue(system.eventStream().unsubscribe(subscriber, ProbeEvent.class));
             assertTrue(system.eventStream().hasSubscriptions(subscriber));
-            subscriber.stop();
+            system.stop(subscriber);
             assertTrue(stopped.await(WAIT.toMillis(), TimeUnit.MILLISECONDS));
 
             await("remaining subscription was not removed after termination",
                     () -> !system.eventStream().hasSubscriptions(subscriber));
         }
+    }
+
+    @Test
+    void unsubscribeFromAnInheritedChannelKeepsItsParentAndSibling() {
+        List<Object> received = new ArrayList<>();
+        ActorRef subscriber = new ActorRef() {
+            @Override
+            public ActorPath path() {
+                return new ActorPath("tapio://event-stream/subscriber");
+            }
+
+            @Override
+            public void tell(Object message, ActorRef sender) {
+                received.add(message);
+            }
+        };
+        EventStream stream = new EventStream(null);
+        assertTrue(stream.subscribe(subscriber, Number.class));
+        stream.publish(1);
+        stream.publish(2L);
+        assertTrue(stream.unsubscribe(subscriber, Integer.class));
+        stream.publish(3);
+        stream.publish(4L);
+        assertEquals(List.of(1, 2L, 4L), received);
+        assertTrue(stream.hasSubscriptions(subscriber));
+
+        assertTrue(stream.unsubscribe(subscriber, Number.class));
+        stream.publish(5L);
+        assertFalse(stream.hasSubscriptions(subscriber));
+        assertEquals(List.of(1, 2L, 4L), received);
     }
 
     private static void await(String message, BooleanSupplier condition) {

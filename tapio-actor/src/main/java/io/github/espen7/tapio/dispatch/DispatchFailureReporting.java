@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.dispatch;
 
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.event.StandardOutLogger;
@@ -21,13 +22,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** 避免失败事件经 EventStream 重新进入 Dispatcher 时无限递归。 */
-final class DispatchFailureReporting {
+@InternalApi
+public final class DispatchFailureReporting {
     private static final Set<Thread> REPORTING = ConcurrentHashMap.<Thread>newKeySet();
 
     private DispatchFailureReporting() {
     }
 
-    static void report(EventStream eventStream, LogEvent event) {
+    public static void report(EventStream eventStream, LogEvent event) {
         Thread thread = Thread.currentThread();
         if (!REPORTING.add(thread)) {
             StandardOutLogger.INSTANCE.tell(event);

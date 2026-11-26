@@ -17,12 +17,13 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.actor.AbstractActor;
+import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorRefWithCell;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.ActorSystemImpl;
-import io.github.espen7.tapio.actor.ActorCell;
+import io.github.espen7.tapio.actor.InternalActorRef;
 import io.github.espen7.tapio.actor.LocalActorRef;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.actor.Terminated;
@@ -34,8 +35,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -52,15 +53,15 @@ class PinnedDispatcherTest {
     private static final long WAIT_SECONDS = 3;
 
     private ActorSystem system;
-    private final List<ActorRef> detachedActors = new CopyOnWriteArrayList<>();
+    private final List<LocalActorRef> detachedActors = new CopyOnWriteArrayList<>();
 
     @AfterEach
     void stopSystem() throws Exception {
-        for (ActorRef actor : detachedActors) {
+        for (LocalActorRef actor : detachedActors) {
             if (!actor.isTerminated()) actor.stop();
         }
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        for (ActorRef actor : detachedActors) {
+        for (LocalActorRef actor : detachedActors) {
             while (!actor.isTerminated() && System.nanoTime() < deadline) Thread.yield();
             assertTrue(actor.isTerminated(), "detached actor did not stop: " + actor);
         }
@@ -161,7 +162,7 @@ class PinnedDispatcherTest {
                                         CountDownLatch stopped) {
         LocalActorRef actor = new LocalActorRef((ActorSystemImpl) system,
                 Props.create(LifecycleActor.class, ready, stopped), dispatcher, new UnboundedMailbox(),
-                system.deadLetters(), new ActorPath("tapio://" + ((ActorSystemImpl) system).name() + "/user/" + name), name);
+                (InternalActorRef) system.deadLetters(), new ActorPath("tapio://" + ((ActorSystemImpl) system).name() + "/user/" + name), name);
         detachedActors.add(actor);
         return actor;
     }

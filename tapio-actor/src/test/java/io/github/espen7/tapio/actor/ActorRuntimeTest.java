@@ -19,25 +19,29 @@ import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.DispatcherTestSupport;
-import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailbox;
 import io.github.espen7.tapio.dispatch.MailboxType;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.MessageQueue;
 import io.github.espen7.tapio.dispatch.UnboundedMailbox;
 import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.event.Info;
 import io.github.espen7.tapio.event.LogEvent;
+import io.github.espen7.tapio.japi.pf.ReceiveBuilder;
 import io.github.espen7.tapio.pattern.AskTimeoutException;
 import io.github.espen7.tapio.pattern.Patterns;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.StreamSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -329,7 +333,7 @@ class ActorRuntimeTest {
         ActorRef ignore = provider.ignoreRef();
         assertEquals("tapio://local/ignore", ignore.path().toString());
         ignore.tell("ignored");
-        assertFalse(ignore.isTerminated());
+        assertFalse(((InternalActorRef) ignore).isTerminated());
     }
 
     @Test
@@ -430,6 +434,43 @@ class ActorRuntimeTest {
     }
 
     @Test
+    void actorRefOrderingUsesThePathAndIncarnation() {
+        ActorPath parent = new ActorPath("tapio://ordering/user");
+        ActorRef first = new EmptyLocalActorRef(null, new ActorPath(parent, "worker", -1), null);
+        ActorRef second = new EmptyLocalActorRef(null, new ActorPath(parent, "worker", 1), null);
+        ActorRef same = new EmptyLocalActorRef(null, new ActorPath(parent, "worker", -1), null);
+        assertEquals(first.path(), second.path());
+        assertTrue(first.compareTo(second) < 0);
+        assertTrue(second.compareTo(first) > 0);
+        assertEquals(0, first.compareTo(same));
+
+        assertTrue(new ActorPath("tapio://ordering/user/z/first")
+                .compareTo(new ActorPath("tapio://ordering/user/a/last")) < 0);
+        assertTrue(new ActorPath("tapio://ordering/").compareTo(parent) > 0);
+    }
+
+    @Test
+    void receiveOrElsePreservesFirstMatchAndLeavesUnmatchedInputUndefined() throws Exception {
+        List<String> received = new ArrayList<>();
+        AtomicInteger predicateCalls = new AtomicInteger();
+        var primary = ReceiveBuilder.create()
+                .match(String.class, value -> {
+                    predicateCalls.incrementAndGet();
+                    return value.startsWith("a");
+                }, value -> received.add("first:" + value))
+                .build();
+        var fallback = ReceiveBuilder.create()
+                .match(String.class, value -> received.add("second:" + value))
+                .build();
+        var combined = primary.orElse(fallback).onMessage();
+        assertFalse(combined.isDefinedAt(42));
+        combined.applyOrElse("apple", value -> fail("expected the first match"));
+        combined.applyOrElse("berry", value -> fail("expected the fallback receive"));
+        assertEquals(List.of("first:apple", "second:berry"), received);
+        assertEquals(2, predicateCalls.get());
+    }
+
+    @Test
     void localProviderReusesSerializationInformation() {
         system = ActorSystem.create("serialization-info");
         ActorRefProvider provider = ((ActorSystemImpl) system).provider();
@@ -457,7 +498,7 @@ class ActorRuntimeTest {
         assertEquals("mailbox creation failure", exception.getCause().getMessage());
         assertEquals("watching", ask(watcher, new Watch(actor)));
         assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
-        assertTrue(actor.isTerminated());
+        assertTrue(((InternalActorRef) actor).isTerminated());
         assertEquals("ready", ask(system.actorOf(Props.create(EchoActor.class), "healthy"), "ready"));
     }
 
@@ -651,11 +692,11 @@ class ActorRuntimeTest {
         ActorRef watcher = system.actorOf(Props.create(DeathPactActor.class, instances), "watcher");
 
         assertEquals("watching", ask(watcher, new Watch(watched)));
-        watched.stop();
+        system.stop(watched);
 
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        while (!watcher.isTerminated() && System.nanoTime() < deadline) Thread.yield();
-        assertTrue(watcher.isTerminated());
+        while (!((InternalActorRef) watcher).isTerminated() && System.nanoTime() < deadline) Thread.yield();
+        assertTrue(((InternalActorRef) watcher).isTerminated());
     }
 
     @Test
@@ -781,10 +822,10 @@ class ActorRuntimeTest {
 
         parent.tell("fail-first");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        while (children.stream().anyMatch(child -> !child.isTerminated()) && System.nanoTime() < deadline) {
+        while (children.stream().anyMatch(child -> !((InternalActorRef) child).isTerminated()) && System.nanoTime() < deadline) {
             Thread.yield();
         }
-        assertTrue(children.stream().allMatch(ActorRef::isTerminated));
+        assertTrue(children.stream().allMatch(child -> ((InternalActorRef) child).isTerminated()));
     }
 
     @Test
@@ -803,9 +844,9 @@ class ActorRuntimeTest {
 
         parent.tell("fail-first");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        while (!children.get(0).isTerminated() && System.nanoTime() < deadline) Thread.yield();
-        assertTrue(children.get(0).isTerminated());
-        assertFalse(children.get(1).isTerminated());
+        while (!((InternalActorRef) children.get(0)).isTerminated() && System.nanoTime() < deadline) Thread.yield();
+        assertTrue(((InternalActorRef) children.get(0)).isTerminated());
+        assertFalse(((InternalActorRef) children.get(1)).isTerminated());
         assertEquals(1, (int) ask(children.get(1), "instance"));
     }
 
@@ -835,14 +876,14 @@ class ActorRuntimeTest {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
         java.util.List<ActorRef> restartedChildren = children;
         while (System.nanoTime() < deadline) {
-            if (children.stream().allMatch(ActorRef::isTerminated)) {
+            if (children.stream().allMatch(child -> ((InternalActorRef) child).isTerminated())) {
                 restartedChildren = awaitChildren(parent);
                 break;
             }
             Thread.yield();
         }
-        assertFalse(parent.isTerminated());
-        assertTrue(children.stream().allMatch(ActorRef::isTerminated));
+        assertFalse(((InternalActorRef) parent).isTerminated());
+        assertTrue(children.stream().allMatch(child -> ((InternalActorRef) child).isTerminated()));
         assertEquals(2, restartedChildren.size());
         assertNotEquals(children.get(0), restartedChildren.get(0));
     }
@@ -927,10 +968,10 @@ class ActorRuntimeTest {
 
         assertEquals("watching", ask(watcher, new Watch(parent)));
         assertEquals("spawned", ask(parent, "spawn"));
-        parent.stop();
+        system.stop(parent);
 
         assertTrue(childPostStop.await(WAIT_SECONDS, TimeUnit.SECONDS));
-        assertFalse(parent.isTerminated());
+        assertFalse(((InternalActorRef) parent).isTerminated());
         allowChildStop.countDown();
         assertEquals(parent.path().toString(), ask(watcher, "await-termination"));
     }
@@ -1003,7 +1044,7 @@ class ActorRuntimeTest {
         Mailbox mailbox = ((ActorCell) ((ActorRefWithCell) actor).underlying()).mailbox();
         ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
         assertEquals("watching", ask(watcher, new Watch(actor)));
-        actor.stop();
+        system.stop(actor);
         assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
         assertTrue(mailbox.isClosed());
         CompletionStage<Object> result = Patterns.ask(actor, "request", Duration.ZERO);
@@ -1050,7 +1091,7 @@ class ActorRuntimeTest {
         system.actorSelection(path).tell("response", actor);
         assertEquals("response", result.toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals(path.toString(), ask(watcher, "await-termination"));
-        assertTrue(replyTo.isTerminated());
+        assertTrue(((InternalActorRef) replyTo).isTerminated());
         assertSame(path, replyTo.path());
         assertNull(temp.getChild(path.name()));
         assertInstanceOf(EmptyLocalActorRef.class, provider.resolveActorRef(path));
@@ -1079,7 +1120,7 @@ class ActorRuntimeTest {
         system.scheduleOnce(Duration.ofNanos(1), () -> barrier.complete(null));
         barrier.get(WAIT_SECONDS, TimeUnit.SECONDS);
 
-        assertTrue(replyTo.isTerminated());
+        assertTrue(((InternalActorRef) replyTo).isTerminated());
         ActorPath path = replyTo.path();
         VirtualPathContainer temp = (VirtualPathContainer) ((ActorSystemImpl) system).provider().tempContainer();
         assertNull(temp.getChild(path.name()));
@@ -1128,7 +1169,7 @@ class ActorRuntimeTest {
         ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
 
         assertEquals("watching", ask(watcher, new Watch(watched)));
-        watched.stop();
+        system.stop(watched);
 
         assertEquals(watched.path().toString(), ask(watcher, "await-termination"));
     }
@@ -1162,9 +1203,57 @@ class ActorRuntimeTest {
         assertEquals(1, ask(actor, "instance"));
         actor.tell("fail");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        while (!actor.isTerminated() && System.nanoTime() < deadline) Thread.yield();
-        assertTrue(actor.isTerminated());
+        while (!((InternalActorRef) actor).isTerminated() && System.nanoTime() < deadline) Thread.yield();
+        assertTrue(((InternalActorRef) actor).isTerminated());
         assertEquals(1, instances.get());
+    }
+
+    @Test
+    void systemGuardianWaitsForTheRegisteredTerminationHook() throws Exception {
+        system = ActorSystem.create("guardian-termination-hook");
+        ActorSystemImpl impl = (ActorSystemImpl) system;
+        ActorRef guardian = impl.provider().systemGuardian();
+        CountDownLatch registered = new CountDownLatch(1);
+        BlockingQueue<ActorRef> notifications = new LinkedBlockingQueue<>();
+        ActorRef hook = impl.systemActorOf(Props.create(TerminationHookActor.class, guardian, registered,
+                notifications), "hook");
+
+        assertTrue(registered.await(WAIT_SECONDS, TimeUnit.SECONDS));
+        var terminated = system.terminate().toCompletableFuture();
+        try {
+            assertSame(guardian, notifications.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+            assertFalse(terminated.isDone());
+        } finally {
+            guardian.tell(SystemGuardian.TerminationHookDone.INSTANCE, hook);
+        }
+        assertSame(impl.provider().rootGuardian(), terminated.get(WAIT_SECONDS, TimeUnit.SECONDS).actor());
+    }
+
+    public static final class TerminationHookActor extends AbstractActor {
+        private final ActorRef guardian;
+        private final CountDownLatch registered;
+        private final BlockingQueue<ActorRef> notifications;
+
+        public TerminationHookActor(ActorRef guardian, CountDownLatch registered,
+                                    BlockingQueue<ActorRef> notifications) {
+            this.guardian = guardian;
+            this.registered = registered;
+            this.notifications = notifications;
+        }
+
+        @Override
+        public void preStart() {
+            guardian.tell(SystemGuardian.RegisterTerminationHook.INSTANCE, getSelf());
+            guardian.tell(new Identify("termination-hook"), getSelf());
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder()
+                    .match(ActorIdentity.class, identity -> registered.countDown())
+                    .match(SystemGuardian.TerminationHook.class, hook -> notifications.add(getSender()))
+                    .build();
+        }
     }
 
     @Test
@@ -1182,12 +1271,12 @@ class ActorRuntimeTest {
 
         assertEquals("/user/actor", stopped.poll());
         assertEquals("/system/service", stopped.poll());
-        assertTrue(actor.isTerminated());
-        assertTrue(service.isTerminated());
+        assertTrue(((InternalActorRef) actor).isTerminated());
+        assertTrue(((InternalActorRef) service).isTerminated());
         assertTrue(provider.guardian().isTerminated());
         assertTrue(provider.systemGuardian().isTerminated());
         assertSame(provider.rootGuardian(), terminated.actor());
-        assertTrue(terminated.actor().isTerminated());
+        assertTrue(((InternalActorRef) terminated.actor()).isTerminated());
         assertTrue(terminated.existenceConfirmed());
         assertTrue(terminated.addressTerminated());
         assertTrue(system.getWhenTerminated().toCompletableFuture().isDone());
@@ -1240,7 +1329,7 @@ class ActorRuntimeTest {
         }
     }
 
-    public static class LoggingActor extends AbstractActor {
+    public static class LoggingActor extends AbstractLoggingActor {
         @Override
         public Receive createReceive() {
             return receiveBuilder().match(String.class, message -> {
@@ -1320,7 +1409,7 @@ class ActorRuntimeTest {
         }
 
         @Override
-        public void preRestart(Throwable reason, Object message) throws Exception {
+        public void preRestart(Throwable reason, Optional<Object> message) throws Exception {
             postStop();
         }
 
@@ -1521,9 +1610,9 @@ class ActorRuntimeTest {
             return receiveBuilder()
                     .match(String.class, message -> {
                         if (message.equals("children")) {
-                            getSender().tell(java.util.List.copyOf(getContext().getChildren()), getSelf());
+                            getSender().tell(StreamSupport.stream(getContext().getChildren().spliterator(), false).toList(), getSelf());
                         } else if (message.equals("fail-first")) {
-                            getContext().getChildren().stream()
+                            StreamSupport.stream(getContext().getChildren().spliterator(), false)
                                     .filter(child -> child.path().name().equals("first"))
                                     .findFirst().orElseThrow().tell("fail");
                         }

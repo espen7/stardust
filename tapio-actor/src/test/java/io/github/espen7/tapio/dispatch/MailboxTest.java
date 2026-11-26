@@ -17,15 +17,19 @@ import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.ActorSystemImpl;
+import io.github.espen7.tapio.dispatch.sysmsg.Suspend;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MailboxTest {
     @Test
@@ -42,6 +46,64 @@ class MailboxTest {
                     Thread.interrupted();
                 }
                 assertEquals(1, queue.size());
+            }
+        }
+    }
+
+    @Test
+    void systemMessagesDrainBeforeAnInterruptionReachesTheExecutor() {
+        try (ActorSystem system = ActorSystem.create("mailbox-system-interrupted")) {
+            ExecutorServiceFactory factory = Executors::newSingleThreadExecutor;
+            List<Object> processed = new ArrayList<>();
+            try (Dispatcher dispatcher = new Dispatcher(DispatcherTestSupport.configurator(system, system.scheduler()),
+                    Dispatchers.DefaultDispatcherId, 2, Duration.ZERO,
+                    (id, threadFactory) -> factory, Duration.ofHours(1)) {
+                @Override
+                public boolean registerForExecution(Mailbox mailbox, boolean hasMessageHint, boolean hasSystemMessageHint) {
+                    return false;
+                }
+
+                @Override
+                public void suspend(ActorCell actor) {
+                    processed.add("system");
+                    if (processed.size() == 1) {
+                        actor.mailbox().systemEnqueue(system.deadLetters(), new Suspend());
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }) {
+                ActorCell cell = new ActorCell((ActorSystemImpl) system, null, null, dispatcher, null) {
+                    @Override
+                    public void invoke(Envelope message) {
+                        processed.add(message.message());
+                        if (message.message().equals("first")) Thread.currentThread().interrupt();
+                    }
+                };
+                Mailbox mailbox = new DefaultSystemMessageQueue(new UnboundedMailbox.MessageQueue()) {};
+                mailbox.setActor(cell);
+                cell.swapMailbox(mailbox);
+                mailbox.systemEnqueue(system.deadLetters(), new Suspend());
+                assertTrue(mailbox.hasSystemMessages());
+                assertFalse(mailbox.hasMessages());
+                assertEquals(0, mailbox.numberOfMessages());
+                mailbox.enqueue(system.deadLetters(), Envelope.apply("first", null, system));
+                mailbox.enqueue(system.deadLetters(), Envelope.apply("second", null, system));
+
+                assertEquals("Interrupted while processing system messages",
+                        assertThrows(InterruptedException.class, mailbox::run).getMessage());
+                assertEquals(List.of("system", "system"), processed);
+                assertFalse(mailbox.hasSystemMessages());
+                assertEquals(2, mailbox.numberOfMessages());
+
+                assertEquals("Interrupted while processing actor messages",
+                        assertThrows(InterruptedException.class, mailbox::run).getMessage());
+                assertEquals(List.of("system", "system", "first"), processed);
+                assertEquals(1, mailbox.numberOfMessages());
+                mailbox.run();
+                assertEquals(List.of("system", "system", "first", "second"), processed);
+                assertFalse(mailbox.hasMessages());
+            } finally {
+                Thread.interrupted();
             }
         }
     }
@@ -74,8 +136,8 @@ class MailboxTest {
                         }
                     }
                 };
-                Mailbox mailbox = new Mailbox(new UnboundedMailbox.MessageQueue());
-                mailbox.setActor(cell, dispatcher);
+                Mailbox mailbox = new DefaultSystemMessageQueue(new UnboundedMailbox.MessageQueue()) {};
+                mailbox.setActor(cell);
                 mailbox.enqueue(system.deadLetters(), Envelope.apply("first", null, system));
                 mailbox.enqueue(system.deadLetters(), Envelope.apply("second", null, system));
 

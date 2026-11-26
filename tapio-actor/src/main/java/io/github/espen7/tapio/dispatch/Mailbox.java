@@ -15,10 +15,10 @@ package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.dispatch.sysmsg.NoMessage;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
-
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import io.github.espen7.tapio.event.Error;
+import io.github.espen7.tapio.util.NonFatal;
 
 /**
  * Actor 的双队列 Mailbox。
@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * status 的位布局沿用 Pekko，Scheduled 位用于保证同一个 Mailbox 同时只有一个
  * Dispatcher task。</p>
  */
-public class Mailbox implements Runnable, DefaultSystemMessageQueue {
+public abstract class Mailbox implements SystemMessageQueue, Runnable {
     public static final int Open = 0;
     public static final int Closed = 1;
     public static final int Scheduled = 2;
@@ -38,12 +38,11 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
     public static final int suspendUnit = 4;
 
     private final MessageQueue messageQueue;
-    /* status 低位表示 Open/Closed，Scheduled 表示已经提交给 Executor。 */
-    private final AtomicInteger status = new AtomicInteger(Open);
-    /* 只保存系统消息链表的 head，消息本身就是链表节点，避免额外 node 分配。 */
-    private final AtomicReference<SystemMessage> systemMessage = new AtomicReference<>();
+    @SuppressWarnings("unused")
+    private volatile int _statusDoNotCallMeDirectly;
+    @SuppressWarnings("unused")
+    private volatile SystemMessage _systemQueueDoNotCallMeDirectly;
     private volatile ActorCell actor;
-    private MessageDispatcher dispatcher;
 
     /**
      * 创建一个 Mailbox，并绑定普通消息队列。
@@ -57,9 +56,8 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
     /**
      * 将 Mailbox 绑定到所属 ActorCell 和调度它的 Dispatcher。
      */
-    public void setActor(ActorCell actor, MessageDispatcher dispatcher) {
-        this.actor = actor;
-        this.dispatcher = dispatcher;
+    public void setActor(ActorCell cell) {
+        actor = cell;
     }
 
     /**
@@ -75,7 +73,7 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      * @return 调度此 Mailbox 的 MessageDispatcher
      */
     public MessageDispatcher dispatcher() {
-        return dispatcher;
+        return actor.dispatcher();
     }
 
     /**
@@ -99,39 +97,59 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
         return messageQueue.dequeue();
     }
 
+    public boolean hasMessages() {
+        return messageQueue.hasMessages();
+    }
+
+    public int numberOfMessages() {
+        return messageQueue.numberOfMessages();
+    }
+
+    final int currentStatus() {
+        return (int) AbstractMailbox.mailboxStatusHandle.getVolatile(this);
+    }
+
+    protected final boolean updateStatus(int oldStatus, int newStatus) {
+        return AbstractMailbox.mailboxStatusHandle.compareAndSet(this, oldStatus, newStatus);
+    }
+
+    protected final void setStatus(int newStatus) {
+        AbstractMailbox.mailboxStatusHandle.setVolatile(this, newStatus);
+    }
+
     /**
      * @return Mailbox 未关闭且 suspend count 为零时返回 {@code true}
      */
-    public boolean shouldProcessMessage() {
-        return (status.get() & shouldNotProcessMask) == 0;
+    public final boolean shouldProcessMessage() {
+        return (currentStatus() & shouldNotProcessMask) == 0;
     }
 
     /**
      * @return 当前嵌套 suspend 次数
      */
-    public int suspendCount() {
-        return status.get() / suspendUnit;
+    public final int suspendCount() {
+        return currentStatus() / suspendUnit;
     }
 
     /**
      * @return suspend count 大于零时返回 {@code true}
      */
-    public boolean isSuspended() {
-        return (status.get() & suspendMask) != 0;
+    public final boolean isSuspended() {
+        return (currentStatus() & suspendMask) != 0;
     }
 
     /**
      * @return Mailbox 已关闭时返回 {@code true}
      */
-    public boolean isClosed() {
-        return status.get() == Closed;
+    public final boolean isClosed() {
+        return currentStatus() == Closed;
     }
 
     /**
      * @return Mailbox task 已提交或正在执行时返回 {@code true}
      */
-    public boolean isScheduled() {
-        return (status.get() & Scheduled) != 0;
+    public final boolean isScheduled() {
+        return (currentStatus() & Scheduled) != 0;
     }
 
     /**
@@ -139,12 +157,15 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      *
      * @return 操作后 suspend count 为零时返回 {@code true}
      */
-    public boolean resume() {
+    public final boolean resume() {
         for (; ; ) {
-            int old = status.get();
-            if (old == Closed) return false;
+            int old = currentStatus();
+            if (old == Closed) {
+                setStatus(Closed);
+                return false;
+            }
             int next = old < suspendUnit ? old : old - suspendUnit;
-            if (status.compareAndSet(old, next)) return next < suspendUnit;
+            if (updateStatus(old, next)) return next < suspendUnit;
             Thread.onSpinWait();
         }
     }
@@ -154,11 +175,14 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      *
      * @return 操作前 suspend count 为零时返回 {@code true}
      */
-    public boolean suspend() {
+    public final boolean suspend() {
         for (; ; ) {
-            int old = status.get();
-            if (old == Closed) return false;
-            if (status.compareAndSet(old, old + suspendUnit)) return old < suspendUnit;
+            int old = currentStatus();
+            if (old == Closed) {
+                setStatus(Closed);
+                return false;
+            }
+            if (updateStatus(old, old + suspendUnit)) return old < suspendUnit;
             Thread.onSpinWait();
         }
     }
@@ -168,11 +192,14 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      *
      * @return 本次调用首次关闭 Mailbox 时返回 {@code true}
      */
-    public boolean becomeClosed() {
+    public final boolean becomeClosed() {
         for (; ; ) {
-            int old = status.get();
-            if (old == Closed) return false;
-            if (status.compareAndSet(old, Closed)) return true;
+            int old = currentStatus();
+            if (old == Closed) {
+                setStatus(Closed);
+                return false;
+            }
+            if (updateStatus(old, Closed)) return true;
             Thread.onSpinWait();
         }
     }
@@ -182,11 +209,11 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      *
      * @return 本次调用成功设置 Scheduled 时返回 {@code true}
      */
-    public boolean setAsScheduled() {
+    public final boolean setAsScheduled() {
         for (; ; ) {
-            int old = status.get();
+            int old = currentStatus();
             if ((old & shouldScheduleMask) != Open) return false;
-            if (status.compareAndSet(old, old | Scheduled)) return true;
+            if (updateStatus(old, old | Scheduled)) return true;
             Thread.onSpinWait();
         }
     }
@@ -196,55 +223,21 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      *
      * @return 状态更新成功时返回 {@code true}
      */
-    public boolean setAsIdle() {
+    public final boolean setAsIdle() {
         for (; ; ) {
-            int old = status.get();
-            if (status.compareAndSet(old, old & ~Scheduled)) return true;
+            int old = currentStatus();
+            if (updateStatus(old, old & ~Scheduled)) return true;
             Thread.onSpinWait();
         }
     }
 
-    /**
-     * 将系统消息压入链表头，CAS 负责并发发送方之间的协调。
-     *
-     * @param receiver 系统消息的目标 ActorRef，用于匹配 Pekko 的 enqueue API
-     * @param message  要入队的系统消息；消息对象不能同时链接到多个 Mailbox
-     */
-    public void systemEnqueue(ActorRef receiver, SystemMessage message) {
-        for (; ; ) {
-            SystemMessage old = systemMessage.get();
-            if (old == SystemMessage.NoMessage) {
-                dispatcher.mailboxes.deadLetterMailbox().systemEnqueue(receiver, message);
-                break;
-            }
-            message.next(old);
-            if (systemMessage.compareAndSet(old, message)) break;
-            message.unlink();
-        }
+    protected final SystemMessage systemQueueGet() {
+        return (SystemMessage) AbstractMailbox.systemMessageHandle.getVolatile(this);
     }
 
-    private SystemMessage systemDrain(SystemMessage newContents) {
-        for (;;) {
-            SystemMessage current = systemMessage.get();
-            if (current == SystemMessage.NoMessage) return null;
-            if (!systemMessage.compareAndSet(current, newContents)) continue;
-            SystemMessage reversed = null;
-            while (current != null) {
-                SystemMessage next = current.next();
-                current.next(reversed);
-                reversed = current;
-                current = next;
-            }
-            return reversed;
-        }
-    }
-
-    /**
-     * @return 系统消息队列非空时返回 {@code true}
-     */
-    public boolean hasMessages() {
-        SystemMessage head = systemMessage.get();
-        return head != null && head != SystemMessage.NoMessage;
+    protected final boolean systemQueuePut(SystemMessage oldContents, SystemMessage newContents) {
+        return oldContents == newContents
+                || AbstractMailbox.systemMessageHandle.compareAndSet(this, oldContents, newContents);
     }
 
     /**
@@ -254,13 +247,13 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      * @param hasSystemMessageHint 系统消息队列非空提示
      * @return 当前可调度时返回 {@code true}
      */
-    public boolean canBeScheduledForExecution(boolean hasMessageHint, boolean hasSystemMessageHint) {
-        int current = status.get();
+    public final boolean canBeScheduledForExecution(boolean hasMessageHint, boolean hasSystemMessageHint) {
+        int current = currentStatus();
         if (current == Open || current == Scheduled) {
-            return hasMessageHint || hasSystemMessageHint || hasMessages() || messageQueue.hasMessages();
+            return hasMessageHint || hasSystemMessageHint || hasSystemMessages() || hasMessages();
         }
         if (current == Closed) return false;
-        return hasSystemMessageHint || hasMessages();
+        return hasSystemMessageHint || hasSystemMessages();
     }
 
     /**
@@ -276,7 +269,7 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
             }
         } finally {
             setAsIdle();
-            if (dispatcher != null) dispatcher.registerForExecution(this, false, false);
+            dispatcher().registerForExecution(this, false, false);
         }
     }
 
@@ -284,13 +277,17 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
      * 按 Dispatcher throughput 批量处理普通消息。
      */
     private void processMailbox() {
-        int left = Math.max(dispatcher.throughput(), 1);
-        boolean deadlineDefined = dispatcher.isThroughputDeadlineTimeDefined();
-        long deadlineNs = deadlineDefined ? System.nanoTime() + dispatcher.throughputDeadlineTime().toNanos() : 0L;
+        int left = Math.max(dispatcher().throughput(), 1);
+        boolean deadlineDefined = dispatcher().isThroughputDeadlineTimeDefined();
+        long deadlineNs = deadlineDefined ? System.nanoTime() + dispatcher().throughputDeadlineTime().toNanos() : 0L;
         while (left-- > 0 && shouldProcessMessage()) {
             Envelope next = dequeue();
             if (next == null) break;
             actor.invoke(next);
+            if (Thread.interrupted()) {
+                ActorCell.<RuntimeException>throwUnchecked(
+                        new InterruptedException("Interrupted while processing actor messages"));
+            }
             processAllSystemMessages();
             if (deadlineDefined && System.nanoTime() - deadlineNs >= 0) break;
         }
@@ -300,38 +297,55 @@ public class Mailbox implements Runnable, DefaultSystemMessageQueue {
     /**
      * 摘取系统消息队列并按入队顺序调用 ActorCell.systemInvoke。
      */
-    public void processAllSystemMessages() {
-        SystemMessage current = systemDrain(null);
-        while (current != null && !isClosed()) {
-            SystemMessage next = current.next();
-            current.unlink();
-            actor.systemInvoke(current);
-            current = next;
+    public final void processAllSystemMessages() {
+        InterruptedException interruption = null;
+        SystemMessage messageList = systemDrain(null);
+        while (messageList != null && !isClosed()) {
+            SystemMessage message = messageList;
+            messageList = message.next();
+            message.unlink();
+            actor.systemInvoke(message);
+            if (Thread.interrupted()) {
+                interruption = new InterruptedException("Interrupted while processing system messages");
+            }
+            if (messageList == null && !isClosed()) messageList = systemDrain(null);
         }
-        forwardSystemMessages(current);
+
+        Mailbox dlm = messageList != null ? dispatcher().mailboxes.deadLetterMailbox() : null;
+        while (messageList != null) {
+            SystemMessage message = messageList;
+            messageList = message.next();
+            message.unlink();
+            try {
+                dlm.systemEnqueue(actor.self(), message);
+            } catch (Throwable error) {
+                if (error instanceof InterruptedException interrupted) {
+                    interruption = interrupted;
+                } else if (NonFatal.apply(error)) {
+                    actor.system().eventStream().publish(new Error(actor.self().path().toString(), getClass(),
+                            "error while enqueuing " + message + " to deadLetters: " + error.getMessage(), error));
+                } else {
+                    ActorCell.<RuntimeException>throwUnchecked(error);
+                }
+            }
+        }
+        if (interruption != null) {
+            Thread.interrupted();
+            ActorCell.<RuntimeException>throwUnchecked(interruption);
+        }
     }
 
-    private void forwardSystemMessages(SystemMessage current) {
-        while (current != null) {
-            SystemMessage next = current.next();
-            current.unlink();
-            dispatcher.mailboxes.deadLetterMailbox().systemEnqueue(actor.self(), current);
-            current = next;
-        }
-    }
-
-    /**
-     * 关闭后将尚未处理的系统消息和普通消息转交给 dead letters。
-     */
+    /** 关闭后将尚未处理的系统消息和普通消息转交给 dead letters。 */
     public void cleanUp() {
-        forwardSystemMessages(systemDrain(SystemMessage.NoMessage));
-        messageQueue.cleanUp(actor.self(), dispatcher.deadLetters());
-    }
-
-    /**
-     * 将 Mailbox 状态改为 Closed。
-     */
-    public void close() {
-        becomeClosed();
+        if (actor == null) return;
+        Mailbox dlm = dispatcher().mailboxes.deadLetterMailbox();
+        SystemMessage messageList = systemDrain(NoMessage.INSTANCE);
+        while (messageList != null) {
+            SystemMessage message = messageList;
+            messageList = message.next();
+            message.unlink();
+            dlm.systemEnqueue(actor.self(), message);
+        }
+        if (messageQueue != null) messageQueue.cleanUp(actor.self(), dlm.messageQueue());
     }
 }

@@ -13,7 +13,10 @@
  */
 package io.github.espen7.tapio.util;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 /** 用于 ActorSelection 的通配符匹配。 */
+@InternalApi
 public final class Glob {
     private Glob() {
     }

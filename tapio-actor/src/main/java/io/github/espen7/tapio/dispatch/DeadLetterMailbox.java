@@ -38,6 +38,11 @@ final class DeadLetterMailbox extends Mailbox {
             }
 
             @Override
+            public int numberOfMessages() {
+                return 0;
+            }
+
+            @Override
             public boolean hasMessages() {
                 return false;
             }
@@ -47,7 +52,17 @@ final class DeadLetterMailbox extends Mailbox {
             }
         });
         this.deadLetters = deadLetters;
-        close();
+        becomeClosed();
+    }
+
+    @Override
+    public boolean hasSystemMessages() {
+        return false;
+    }
+
+    @Override
+    public SystemMessage systemDrain(SystemMessage newContents) {
+        return null;
     }
 
     @Override

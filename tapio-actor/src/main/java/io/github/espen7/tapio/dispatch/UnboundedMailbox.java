@@ -65,6 +65,11 @@ public final class UnboundedMailbox implements MailboxType, ProducesMessageQueue
         }
 
         @Override
+        public int numberOfMessages() {
+            return queue.size();
+        }
+
+        @Override
         public boolean hasMessages() {
             return !queue.isEmpty();
         }

@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
 import java.util.Iterator;
@@ -20,7 +21,8 @@ import java.util.Iterator;
 /**
  * 支持 Provider 查询和系统消息投递的 runtime 内部引用。
  */
-public abstract class InternalActorRef extends ActorRef {
+@InternalApi
+public abstract class InternalActorRef extends ActorRef implements ActorRefScope {
     /** 创建内部 ActorRef 抽象实例。 */
     protected InternalActorRef() {
     }
@@ -46,6 +48,16 @@ public abstract class InternalActorRef extends ActorRef {
         return this;
     }
 
-    void start() {
-    }
+    public abstract void start();
+
+    public abstract void resume(Throwable causedByFailure);
+
+    public abstract void suspend();
+
+    public abstract void restart(Throwable cause);
+
+    public abstract void stop();
+
+    @InternalApi
+    public abstract boolean isTerminated();
 }

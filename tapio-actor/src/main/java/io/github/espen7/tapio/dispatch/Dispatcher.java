@@ -123,7 +123,8 @@ public class Dispatcher extends MessageDispatcher {
 
     @Override
     public Mailbox createMailbox(ActorCell actor, MailboxType mailboxType) {
-        return new Mailbox(mailboxType.create(actor.self(), actor.system()));
+        return new DefaultSystemMessageQueue(mailboxType.create(actor.self(), actor.system())) {
+        };
     }
 
     @Override

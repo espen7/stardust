@@ -13,7 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.dispatch.sysmsg.DeathWatchNotification;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Unwatch;
+import io.github.espen7.tapio.dispatch.sysmsg.Watch;
 import io.github.espen7.tapio.event.EventStream;
 
 /**
@@ -71,14 +74,14 @@ class EmptyLocalActorRef extends MinimalActorRef {
      * @return 已处理消息时为 {@code true}
      */
     protected boolean specialHandle(Object message, ActorRef sender) {
-        if (message instanceof SystemMessage.Watch watch) {
+        if (message instanceof Watch watch) {
             if (watch.watchee.equals(this) && !watch.watcher.equals(this)) {
                 ((InternalActorRef) watch.watcher).sendSystemMessage(
-                        new SystemMessage.DeathWatchNotification(watch.watchee, false, false));
+                        new DeathWatchNotification(watch.watchee, false, false));
             }
             return true;
         }
-        if (message instanceof SystemMessage.Unwatch) return true;
+        if (message instanceof Unwatch) return true;
         if (message instanceof Identify identify) {
             (sender == noSender ? provider.deadLetters() : sender)
                     .tell(new ActorIdentity(identify.messageId(), java.util.Optional.empty()), this);

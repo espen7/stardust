@@ -13,6 +13,53 @@
  */
 package io.github.espen7.tapio.dispatch;
 
-/** 标记 Mailbox 使用 DefaultSystemMessageQueue；Java 实现直接内置于 Mailbox。 */
-interface DefaultSystemMessageQueue {
+import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.annotation.InternalStableApi;
+import io.github.espen7.tapio.dispatch.sysmsg.NoMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+
+/** Dispatcher 创建普通 Mailbox 时使用的侵入式系统消息队列。 */
+abstract class DefaultSystemMessageQueue extends Mailbox {
+    DefaultSystemMessageQueue(MessageQueue messageQueue) {
+        super(messageQueue);
+    }
+
+    @InternalStableApi
+    @Override
+    public final void systemEnqueue(ActorRef receiver, SystemMessage message) {
+        for (;;) {
+            assert message.unlinked();
+            SystemMessage current = systemQueueGet();
+            if (current == NoMessage.INSTANCE) {
+                if (actor() != null) dispatcher().mailboxes.deadLetterMailbox().systemEnqueue(receiver, message);
+                return;
+            }
+            message.next(current);
+            if (systemQueuePut(current, message)) return;
+            message.unlink();
+        }
+    }
+
+    @Override
+    public final SystemMessage systemDrain(SystemMessage newContents) {
+        for (;;) {
+            SystemMessage current = systemQueueGet();
+            if (current == NoMessage.INSTANCE) return null;
+            if (!systemQueuePut(current, newContents)) continue;
+            SystemMessage reversed = null;
+            while (current != null) {
+                SystemMessage next = current.next();
+                current.next(reversed);
+                reversed = current;
+                current = next;
+            }
+            return reversed;
+        }
+    }
+
+    @Override
+    public boolean hasSystemMessages() {
+        SystemMessage head = systemQueueGet();
+        return head != null && head != NoMessage.INSTANCE;
+    }
 }

@@ -115,6 +115,9 @@ for temporary references and `/deadLetters` for undeliverable messages.
 `ActorSystem` and `ActorContext` implement `ActorRefFactory` for named and
 automatically named actor creation, local ActorSelection, and asynchronous stop.
 Actors attached through the system buffer messages until their guardian activates the mailbox.
+Use `ActorSystem.stop(ref)` or `getContext().stop(ref)` to stop an actor.
+Java actors use `AbstractActor.ActorContext` and can compose handlers with `Receive.orElse`.
+The `preRestart` hook receives the failed message as an `Optional<Object>`.
 
 ```text
 tapio-actor/

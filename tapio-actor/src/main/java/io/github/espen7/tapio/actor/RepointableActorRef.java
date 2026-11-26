@@ -13,10 +13,11 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.MessageDispatcher;
-import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.MailboxType;
+import io.github.espen7.tapio.dispatch.MessageDispatcher;
+import io.github.espen7.tapio.dispatch.sysmsg.Supervise;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.util.NonFatal;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -24,15 +25,15 @@ import java.util.Iterator;
 import java.util.List;
 
 /** 外部挂载时先缓冲消息，由 supervisor 将引用切换到真正的 ActorCell。 */
-final class RepointableActorRef extends ActorRefWithCell {
+class RepointableActorRef extends ActorRefWithCell implements RepointableRef {
     private static final VarHandle cellHandle;
     private static final VarHandle lookupHandle;
 
     static {
         try {
             var lookup = MethodHandles.lookup();
-            cellHandle = lookup.findVarHandle(RepointableActorRef.class, "cell", Cell.class);
-            lookupHandle = lookup.findVarHandle(RepointableActorRef.class, "lookup", Cell.class);
+            cellHandle = lookup.findVarHandle(RepointableActorRef.class, "_cellDoNotCallMeDirectly", Cell.class);
+            lookupHandle = lookup.findVarHandle(RepointableActorRef.class, "_lookupDoNotCallMeDirectly", Cell.class);
         } catch (ReflectiveOperationException error) {
             throw new ExceptionInInitializerError(error);
         }
@@ -45,9 +46,9 @@ final class RepointableActorRef extends ActorRefWithCell {
     private final InternalActorRef supervisor;
     private final ActorPath path;
     @SuppressWarnings("unused")
-    private volatile Cell cell;
+    private volatile Cell _cellDoNotCallMeDirectly;
     @SuppressWarnings("unused")
-    private volatile Cell lookup;
+    private volatile Cell _lookupDoNotCallMeDirectly;
 
     RepointableActorRef(ActorSystemImpl system, Props props, MessageDispatcher dispatcher, MailboxType mailboxType,
                         InternalActorRef supervisor, ActorPath path) {
@@ -61,35 +62,33 @@ final class RepointableActorRef extends ActorRefWithCell {
 
     RepointableActorRef initialize(boolean async) {
         if (underlying() != null) throw new IllegalStateException("initialize called more than once!");
-        Cell unstarted = new UnstartedCell(system, this);
-        swapCell(unstarted);
-        swapLookup(unstarted);
-        supervisor.sendSystemMessage(new SystemMessage.Supervise(this, async));
+        swapCell(new UnstartedCell(system, this, props, supervisor));
+        swapLookup(underlying());
+        supervisor.sendSystemMessage(new Supervise(this, async));
         if (!async) point(false);
         return this;
     }
 
-    void point(boolean catchFailures) {
+    RepointableActorRef point(boolean catchFailures) {
         Cell current = underlying();
         if (current == null) throw new IllegalStateException("underlying cell is null");
-        if (!(current instanceof UnstartedCell unstarted)) return;
-        ActorCell started;
+        if (!(current instanceof UnstartedCell unstarted)) return this;
+        Cell started;
         try {
-            started = newCell();
-        } catch (RuntimeException failure) {
-            if (!catchFailures) throw failure;
-            started = new ActorCell(system, this, props, system.dispatchers().defaultGlobalDispatcher(), supervisor);
-            started.initWithFailure(failure);
+            started = newCell(unstarted);
+        } catch (Throwable failure) {
+            if (!catchFailures || !NonFatal.apply(failure)) throw failure;
+            MessageDispatcher safeDispatcher = system.dispatchers().defaultGlobalDispatcher();
+            started = new ActorCell(system, this, props, safeDispatcher, supervisor).initWithFailure(failure);
         }
         swapLookup(started);
         started.start();
         unstarted.replaceWith(started);
+        return this;
     }
 
-    private ActorCell newCell() {
-        ActorCell started = new ActorCell(system, this, props, dispatcher, supervisor);
-        started.init(false, mailboxType);
-        return started;
+    Cell newCell(UnstartedCell old) {
+        return new ActorCell(system, this, props, dispatcher, supervisor).init(false, mailboxType);
     }
 
     @Override
@@ -97,19 +96,26 @@ final class RepointableActorRef extends ActorRefWithCell {
         return (Cell) cellHandle.getVolatile(this);
     }
 
-    private Cell lookup() {
+    Cell lookup() {
         return (Cell) lookupHandle.getVolatile(this);
     }
 
-    void swapCell(Cell next) {
-        cellHandle.getAndSet(this, next);
+    final Cell swapCell(Cell next) {
+        for (;;) {
+            Cell old = underlying();
+            if (cellHandle.compareAndSet(this, old, next)) return old;
+        }
     }
 
-    private void swapLookup(Cell next) {
-        lookupHandle.getAndSet(this, next);
+    final Cell swapLookup(Cell next) {
+        for (;;) {
+            Cell old = lookup();
+            if (lookupHandle.compareAndSet(this, old, next)) return old;
+        }
     }
 
-    boolean isStarted() {
+    @Override
+    public boolean isStarted() {
         Cell current = underlying();
         if (current == null) throw new IllegalStateException("isStarted called before initialized");
         return !(current instanceof UnstartedCell);
@@ -137,17 +143,17 @@ final class RepointableActorRef extends ActorRefWithCell {
 
     @Override
     InternalActorRef getParent() {
-        return supervisor;
+        return underlying().parent();
     }
 
     @Override
     InternalActorRef getSingleChild(String name) {
-        return lookup() instanceof ActorCell actorCell ? actorCell.getSingleChild(name) : null;
+        return lookup().getSingleChild(name);
     }
 
     @Override
     List<ActorRef> children() {
-        return lookup() instanceof ActorCell actorCell ? actorCell.childrenRefs().children() : List.of();
+        return lookup().childrenRefs().children();
     }
 
     @Override
@@ -163,7 +169,7 @@ final class RepointableActorRef extends ActorRefWithCell {
 
     @Override
     public void tell(Object message, ActorRef sender) {
-        underlying().sendMessage(Envelope.apply(message, sender, system));
+        underlying().sendMessage(message, sender);
     }
 
     @Override
@@ -172,8 +178,32 @@ final class RepointableActorRef extends ActorRefWithCell {
     }
 
     @Override
+    public void start() {
+    }
+
+    @Override
+    public void suspend() {
+        underlying().suspend();
+    }
+
+    @Override
+    public void resume(Throwable causedByFailure) {
+        underlying().resume(causedByFailure);
+    }
+
+    @Override
+    public void restart(Throwable cause) {
+        underlying().restart(cause);
+    }
+
+    @Override
     public void stop() {
-        sendSystemMessage(new SystemMessage.Terminate());
+        underlying().stop();
+    }
+
+    @Override
+    public boolean isLocal() {
+        return underlying().isLocal();
     }
 
     @Override

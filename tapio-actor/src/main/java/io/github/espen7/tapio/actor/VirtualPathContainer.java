@@ -53,7 +53,7 @@ final class VirtualPathContainer extends MinimalActorRef {
         InternalActorRef old = children.put(name, ref);
         if (old != null) {
             log.debug("{} replacing child {} ({} -> {})", path, name, old, ref);
-            old.stop();
+            ((InternalActorRef) old).stop();
         }
     }
 

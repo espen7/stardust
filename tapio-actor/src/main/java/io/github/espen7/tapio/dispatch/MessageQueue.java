@@ -35,6 +35,9 @@ public interface MessageQueue {
      */
     boolean hasMessages();
 
+    /** @return 当前队列中的普通消息数量 */
+    int numberOfMessages();
+
     /**
      * 将队列中剩余消息交给 dead letters 队列。
      */

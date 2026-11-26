@@ -108,6 +108,11 @@ public final class BoundedMailbox implements MailboxType,
         }
 
         @Override
+        public int numberOfMessages() {
+            return size();
+        }
+
+        @Override
         public boolean hasMessages() {
             return !isEmpty();
         }

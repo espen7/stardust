@@ -13,65 +13,97 @@
  */
 package io.github.espen7.tapio.actor;
 
-/**
- * Actor 的生命周期和消息接收协议。
- *
- * <p>ActorCell 在 actor creation、message processing、restart 和 termination 的对应阶段
- * 调用这些方法。应用代码通常继承 {@link AbstractActor}，并实现
- * {@link AbstractActor#createReceive()}。</p>
- */
-public interface Actor {
-    /**
-     * 返回此 Actor 用于处理 child failure 的监督策略。
-     *
-     * @return supervisor strategy
-     */
-    default SupervisorStrategy supervisorStrategy() {
+import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.japi.pf.PartialFunction;
+
+import java.util.LinkedList;
+import java.util.Optional;
+import java.util.function.Function;
+
+/** Classic Actor 的上下文、消息处理和生命周期。 */
+public abstract class Actor {
+    private static final Object NotHandled = new Object();
+    private static final Function<Object, Object> notHandledFun = message -> NotHandled;
+
+    protected final ActorContext context;
+    protected final ActorRef self;
+
+    /** 构造期间从 ActorCell 绑定当前 Actor 的上下文和引用。 */
+    protected Actor() {
+        LinkedList<ActorContext> contextStack = ActorCell.contextStack.get();
+        if (contextStack.isEmpty() || contextStack.peekFirst() == null) {
+            throw new ActorInitializationException(
+                    "You cannot create an instance of [" + getClass().getName() + "] explicitly using the constructor (new). "
+                            + "You have to use one of the 'actorOf' factory methods to create a new actor. See the documentation.");
+        }
+        context = contextStack.peekFirst();
+        contextStack.addFirst(null);
+        self = context.self();
+    }
+
+    /** @return 当前消息的 sender */
+    public final ActorRef sender() {
+        return context.sender();
+    }
+
+    /** @return Actor 的初始消息处理逻辑 */
+    public abstract PartialFunction<Object, Void> receive();
+
+    @InternalApi
+    protected void aroundReceive(PartialFunction<Object, Void> receive, Object message) throws Exception {
+        if (receive.applyOrElse(message, notHandledFun) == NotHandled) unhandled(message);
+    }
+
+    @InternalApi
+    protected void aroundPreStart() throws Exception {
+        preStart();
+    }
+
+    @InternalApi
+    protected void aroundPostStop() throws Exception {
+        postStop();
+    }
+
+    @InternalApi
+    protected void aroundPreRestart(Throwable reason, Optional<Object> message) throws Exception {
+        preRestart(reason, message);
+    }
+
+    @InternalApi
+    protected void aroundPostRestart(Throwable reason) throws Exception {
+        postRestart(reason);
+    }
+
+    /** @return 用于处理 child failure 的监督策略 */
+    public SupervisorStrategy supervisorStrategy() {
         return SupervisorStrategy.defaultStrategy;
     }
 
-    /**
-     * Actor 实例创建后、开始处理用户消息前调用。
-     *
-     * @throws Exception 初始化失败时抛出的异常
-     */
-    void preStart() throws Exception;
+    /** 在 Actor 开始处理消息前执行。 */
+    public void preStart() throws Exception {
+    }
 
-    /**
-     * Actor 终止时调用，用于释放实例持有的资源。
-     *
-     * @throws Exception 释放资源失败时抛出的异常
-     */
-    void postStop() throws Exception;
+    /** 在 Actor 终止时执行。 */
+    public void postStop() throws Exception {
+    }
 
-    /**
-     * 旧实例 restart 前调用。
-     *
-     * @param reason 触发 restart 的异常
-     * @param message 触发失败的消息；初始化失败时为 {@code null}
-     * @throws Exception restart 前置处理失败时抛出的异常
-     */
-    void preRestart(Throwable reason, Object message) throws Exception;
+    /** 默认解除对 children 的观察、停止 children，然后调用 postStop。 */
+    public void preRestart(Throwable reason, Optional<Object> message) throws Exception {
+        for (ActorRef child : context.children()) {
+            context.unwatch(child);
+            context.stop(child);
+        }
+        postStop();
+    }
 
-    /**
-     * 新实例创建后调用，默认由 {@link AbstractActor} 转调 {@link #preStart()}。
-     *
-     * @param reason 触发 restart 的异常
-     * @throws Exception restart 后置处理失败时抛出的异常
-     */
-    void postRestart(Throwable reason) throws Exception;
+    /** 重建后默认调用 preStart。 */
+    public void postRestart(Throwable reason) throws Exception {
+        preStart();
+    }
 
-    /**
-     * Receive 没有处理指定消息时调用。
-     *
-     * @param message 未匹配的用户消息
-     */
-    void unhandled(Object message);
-
-    /**
-     * 返回此 Actor 的初始 receive behavior。
-     *
-     * @return Actor 创建时使用的 receive behavior
-     */
-    AbstractActor.Receive receive();
+    /** 发布未处理消息。未处理的 Terminated 消息触发 DeathPactException。 */
+    public void unhandled(Object message) {
+        if (message instanceof Terminated terminated) throw new DeathPactException(terminated.actor());
+        context.system().eventStream().publish(new UnhandledMessage(message, sender(), self));
+    }
 }

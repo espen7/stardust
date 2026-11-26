@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 /**
  * Actor constructor 或初始 receive 创建失败时使用的异常。
  */
@@ -41,9 +43,15 @@ public class ActorInitializationException extends RuntimeException {
         this(null, message, cause);
     }
 
-    ActorInitializationException(ActorRef actor, String message, Throwable cause) {
+    protected ActorInitializationException(ActorRef actor, String message, Throwable cause) {
         super(actor == null ? message : actor.path() + ": " + message, cause);
         this.actor = actor;
+    }
+
+    /** 内部创建入口，保留失败的 ActorRef。 */
+    @InternalApi
+    public static ActorInitializationException apply(ActorRef actor, String message, Throwable cause) {
+        return new ActorInitializationException(actor, message, cause);
     }
 
     /**

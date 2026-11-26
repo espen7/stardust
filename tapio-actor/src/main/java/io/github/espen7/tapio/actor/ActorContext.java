@@ -13,9 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.japi.pf.PartialFunction;
+
 import java.time.Duration;
-import java.util.Collection;
-import java.util.concurrent.CompletionStage;
+import java.util.Optional;
 
 /**
  * Actor 执行期间可访问的上下文。
@@ -63,23 +64,18 @@ public interface ActorContext extends ActorRefFactory {
     ActorRef watchWith(ActorRef actor, Object message);
 
     /**
-     * 返回当前 receive timeout；未设置时返回 {@link Duration#ZERO}。
+     * 返回当前 receive timeout；未设置时返回 {@code null}。
      *
      * @return 当前 receive timeout
      */
-    Duration getReceiveTimeout();
+    Duration receiveTimeout();
 
     /**
      * 设置静默后投递 {@link ReceiveTimeout} 的时长。
      *
-     * @param timeout 静默时长
+     * @param timeout 静默时长，null 对应未设置
      */
     void setReceiveTimeout(Duration timeout);
-
-    /**
-     * 取消 receive timeout。
-     */
-    void cancelReceiveTimeout();
 
     /**
      * 解除 DeathWatch 关系。
@@ -94,7 +90,7 @@ public interface ActorContext extends ActorRefFactory {
      *
      * @param behavior 新的 receive behavior
      */
-    void become(AbstractActor.Receive behavior);
+    void become(PartialFunction<Object, Void> behavior);
 
     /**
      * 根据 discardOld 决定替换或压入当前 behavior。
@@ -102,26 +98,22 @@ public interface ActorContext extends ActorRefFactory {
      * @param behavior 新的 receive behavior
      * @param discardOld 是否丢弃当前 behavior
      */
-    void become(AbstractActor.Receive behavior, boolean discardOld);
+    void become(PartialFunction<Object, Void> behavior, boolean discardOld);
 
     /**
      * 弹出当前 behavior，恢复前一个 behavior。
      */
     void unbecome();
 
-    /**
-     * 返回当前 Actor 的 child 引用快照。
-     *
-     * @return child 引用的不可变快照
-     */
-    Collection<ActorRef> getChildren();
+    /** @return 当前 Actor 的 children */
+    Iterable<ActorRef> children();
 
-    /**
-     * 返回 ActorSystem 终止完成时的 stage。
-     *
-     * @return ActorSystem 终止完成通知
-     */
-    default CompletionStage<Terminated> getWhenTerminated() {
-        return system().getWhenTerminated();
-    }
+    /** @return 指定名称的 child */
+    Optional<ActorRef> child(String name);
+
+    /** @return 当前 Actor 的监督者 */
+    ActorRef parent();
+
+    /** @return 创建当前 Actor 使用的 Props */
+    Props props();
 }

@@ -13,13 +13,16 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Recreate;
+import io.github.espen7.tapio.dispatch.sysmsg.Resume;
+import io.github.espen7.tapio.dispatch.sysmsg.Suspend;
 import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.pattern.Patterns;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -53,7 +56,7 @@ class ClassicControlMessageTest {
         assertInstanceOf(Terminated.class, observed.message());
         assertEquals(target, ((Terminated) observed.message()).actor());
         assertEquals(target, observed.sender());
-        assertTrue(target.isTerminated());
+        assertTrue(((InternalActorRef) target).isTerminated());
     }
 
     @Test
@@ -69,7 +72,7 @@ class ClassicControlMessageTest {
         ObservedMessage observed = events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(observed);
         assertInstanceOf(Terminated.class, observed.message());
-        assertTrue(target.isTerminated());
+        assertTrue(((InternalActorRef) target).isTerminated());
     }
 
     @Test
@@ -89,7 +92,7 @@ class ClassicControlMessageTest {
         assertEquals("pre-start:2", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals("post-restart:2", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals(2, ask(child, "instance"));
-        assertFalse(child.isTerminated());
+        assertFalse(((InternalActorRef) child).isTerminated());
     }
 
     @Test
@@ -274,7 +277,7 @@ class ClassicControlMessageTest {
         assertEquals(actor, exception.getActor());
         assertInstanceOf(IllegalStateException.class, exception.getCause());
         assertNotNull(terminated.poll(WAIT_SECONDS, TimeUnit.SECONDS));
-        assertTrue(actor.isTerminated());
+        assertTrue(((InternalActorRef) actor).isTerminated());
         assertEquals(2, postStops.get());
     }
 
@@ -291,9 +294,9 @@ class ClassicControlMessageTest {
         parent.tell(new Fail());
         assertTrue(childStopping.await(WAIT_SECONDS, TimeUnit.SECONDS));
         InternalActorRef internalParent = (InternalActorRef) parent;
-        internalParent.sendSystemMessage(new SystemMessage.Suspend());
-        internalParent.sendSystemMessage(new SystemMessage.Resume(null));
-        internalParent.sendSystemMessage(new SystemMessage.Recreate(new IllegalStateException("stashed")));
+        internalParent.sendSystemMessage(new Suspend());
+        internalParent.sendSystemMessage(new Resume(null));
+        internalParent.sendSystemMessage(new Recreate(new IllegalStateException("stashed")));
         allowChildStop.countDown();
 
         assertEquals("pre-restart:1", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
@@ -558,7 +561,7 @@ class ClassicControlMessageTest {
         }
 
         @Override
-        public void preRestart(Throwable reason, Object message) throws Exception {
+        public void preRestart(Throwable reason, Optional<Object> message) throws Exception {
             if (failureStage.equals("pre")) throw new IllegalStateException("pre-restart-failure");
             super.preRestart(reason, message);
         }
@@ -607,7 +610,7 @@ class ClassicControlMessageTest {
         }
 
         @Override
-        public void preRestart(Throwable reason, Object message) throws Exception {
+        public void preRestart(Throwable reason, Optional<Object> message) throws Exception {
             lifecycle.add("pre-restart:" + instance);
             super.preRestart(reason, message);
         }

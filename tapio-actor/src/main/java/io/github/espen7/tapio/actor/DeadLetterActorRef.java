@@ -13,7 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.DeathWatchNotification;
+import io.github.espen7.tapio.dispatch.sysmsg.Watch;
 import io.github.espen7.tapio.event.EventStream;
 
 /**
@@ -47,10 +48,10 @@ public final class DeadLetterActorRef extends EmptyLocalActorRef {
 
     @Override
     protected boolean specialHandle(Object message, ActorRef sender) {
-        if (message instanceof SystemMessage.Watch watch) {
+        if (message instanceof Watch watch) {
             if (!watch.watchee.equals(this) && !watch.watcher.equals(this)) {
                 ((InternalActorRef) watch.watcher).sendSystemMessage(
-                        new SystemMessage.DeathWatchNotification(watch.watchee, false, false));
+                        new DeathWatchNotification(watch.watchee, false, false));
             }
             return true;
         }

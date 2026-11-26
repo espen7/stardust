@@ -13,15 +13,17 @@
  */
 package io.github.espen7.tapio.actor;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.function.Function;
 import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
-import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
+import io.github.espen7.tapio.dispatch.sysmsg.Recreate;
+import io.github.espen7.tapio.dispatch.sysmsg.Resume;
+import io.github.espen7.tapio.dispatch.sysmsg.Suspend;
 import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.event.Warning;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.Collection;
+import java.util.List;
+import java.util.function.Function;
 
 /**
  * 将 child failure 映射为监督指令并执行相应的生命周期操作。
@@ -197,7 +199,7 @@ public abstract class SupervisorStrategy {
      */
     protected final void resumeChild(ActorRef child, Throwable cause) {
         if (child instanceof InternalActorRef internalChild) {
-            internalChild.sendSystemMessage(new SystemMessage.Resume(cause));
+            internalChild.sendSystemMessage(new Resume(cause));
         }
     }
 
@@ -210,8 +212,8 @@ public abstract class SupervisorStrategy {
      */
     protected final void restartChild(ActorRef child, Throwable cause, boolean suspendFirst) {
         if (child instanceof InternalActorRef internalChild) {
-            if (suspendFirst) internalChild.sendSystemMessage(new SystemMessage.Suspend());
-            internalChild.sendSystemMessage(new SystemMessage.Recreate(cause));
+            if (suspendFirst) internalChild.sendSystemMessage(new Suspend());
+            internalChild.sendSystemMessage(new Recreate(cause));
         }
     }
 

@@ -398,11 +398,16 @@ class SchedulerTest {
         }
     }
 
-    private static final class CaptureActorRef extends ActorRef {
+    private static final class CaptureActorRef extends MinimalActorRef {
         private final ActorPath path = new ActorPath("tapio://periodic-scheduler/capture");
         private final List<Object> messages = new ArrayList<>();
         private final List<ActorRef> senders = new ArrayList<>();
         private volatile boolean terminateAfterTell;
+
+        @Override
+        public ActorRefProvider provider() {
+            throw new UnsupportedOperationException();
+        }
 
         @Override
         public ActorPath path() {
@@ -452,7 +457,7 @@ class SchedulerTest {
         private final BlockingQueue<Long> waits = new LinkedBlockingQueue<>();
         private final Scheduler scheduler;
         private volatile long time;
-        private boolean closed;
+        private volatile boolean closed;
 
         private ManualSchedulerHarness(LoggingAdapter log) {
             Config config = ConfigFactory.parseString("tapio.scheduler.tick-duration = 10ms")
@@ -469,6 +474,7 @@ class SchedulerTest {
 
                 @Override
                 protected void waitNanos(long nanos) {
+                    if (closed) return;
                     waits.add(nanos);
                     try {
                         time += advances.take();

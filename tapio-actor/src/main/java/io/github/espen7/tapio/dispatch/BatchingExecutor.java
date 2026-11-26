@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.dispatch;
 
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.internal.ScalaBatchable;
 
 import java.util.ArrayDeque;
@@ -22,6 +23,7 @@ import java.util.function.Supplier;
 /**
  * INTERNAL API：把当前任务中嵌套提交的 Batchable 合并到同一个执行批次。
  */
+@InternalApi
 abstract class BatchingExecutor implements Executor {
     private final ThreadLocal<AbstractBatch> _tasksLocal = new ThreadLocal<>();
     private final ThreadLocal<BlockContext> _blockContext = new ThreadLocal<>();
