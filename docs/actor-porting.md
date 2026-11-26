@@ -90,9 +90,10 @@ shutdown action 释放。对应上游 `actor/src/main/scala/org/apache/pekko/dis
 `dispatch/Dispatcher.scala`、`dispatch/AbstractDispatcher.scala` 和
 `actor/src/main/resources/reference.conf`。
 
-普通 `Dispatcher` 使用 lazy `ExecutorService` delegate。首次提交 mailbox 或普通 Runnable 才创建
-ForkJoinPool；`shutdown` 先原子换入新的 delegate，再关闭旧 executor，因此后续任务可以创建并
-使用新 executor。inhabitants 统计已注册 Actor 和正在执行的普通 Runnable，mailbox 提交不重复计数。
+普通 `Dispatcher` 使用 lazy `ExecutorService` delegate。首次提交 mailbox 或普通 Runnable 才按
+`executor` 配置创建 ForkJoinPool 或 ThreadPoolExecutor；`shutdown` 先原子换入新的 delegate，再关闭旧
+executor，因此后续任务可以创建并使用新 executor。inhabitants 统计已注册 Actor 和正在执行的普通
+Runnable，mailbox 提交不重复计数。
 `attach` 先注册 Actor 再调度 mailbox，`detach` 先注销并关闭、清理旧 mailbox，最后在 inhabitants
 归零时安排延迟 shutdown。
 
@@ -102,8 +103,34 @@ shutdown action 时再次归零只会标记 `RESCHEDULED`；action 看到该状�
 Scheduler 已关闭导致无法安排，则立即 shutdown 并恢复 `UNSCHEDULED`。对应上游
 `dispatch/AbstractDispatcher.scala` 的 inhabitants、attach/detach 和 shutdown action。
 
-当前支持普通 `Dispatcher` 的 `throughput`、`throughput-deadline-time` 与
-`shutdown-timeout`（默认 `1s`），以及 `Props.withDispatcher` / `Props.withMailbox` 绑定。`Deployer` 从 `tapio.actor.deployment` 读取
+`tapio.actor.default-dispatcher.executor` 支持 `default-executor`、`fork-join-executor` 和
+`thread-pool-executor`。默认 executor 通过同一配置段内的 `default-executor.fallback` 回退；
+三种 executor 的参数段均嵌在 `default-dispatcher` 下，与上游 `reference.conf` 层级一致。
+fork-join 按 `min(max(ceil(availableProcessors × factor), minimum), maximum)` 计算 parallelism，
+`FIFO` 对应 async mode、`LIFO` 对应 sync mode，并传递 `maximum-pool-size`。`minimum-runnable`
+在 JDK 25+ 且配置为负数时解析为 `min(8, max(1, parallelism / 2))`，旧 JDK 为 `1`；非负配置原样使用。
+thread-pool 支持 fixed pool 或 core/max 两组 factor 缩放、毫秒 keep-alive、`allow-core-timeout`、
+无界 linked queue、有界 linked/array queue；只有 queue size 大于 0 时才校验 `task-queue-type`。
+饱和时 `SaneRejectedExecutionHandler` 在提交线程执行任务，executor 已关闭时抛出
+`RejectedExecutionException("Shutdown")`。对应上游 `dispatch/AbstractDispatcher.scala`、
+`dispatch/ForkJoinExecutorConfigurator.scala`、`dispatch/ThreadPoolBuilder.scala` 和
+`actor/src/main/resources/reference.conf`。`DispatcherExecutorConfigTest` 覆盖默认回退、显式 executor、
+池大小、队列、拒绝策略、线程工厂、JDK 25 minimum-runnable 和非法配置；现有
+`DispatcherLifecycleTest` 继续验证 lazy 创建、shutdown 与重建。
+
+`ActorSystem.threadFactory()` 返回共享的 `MonitorableThreadFactory`。Scheduler 使用
+`<system>-scheduler-<n>`，Dispatcher 使用 `<system>-<dispatcher-id>-<n>`；daemon、上下文类加载器和
+uncaught exception handler 保持一致。fatal error 按 `tapio.jvm-exit-on-fatal-error` 决定退出 JVM
+或终止 ActorSystem，非 fatal 异常记录到 EventStream。Java 没有 Scala `BlockContext`，因此
+ForkJoin worker 只保留线程工厂语义，没有 `PekkoManagedBlocker`；Scala `ControlThrowable` 和
+fatal 日志的 Security marker 也未移植，属于已记录的 Java/SLF4J 边界差异。
+`virtualize=on`、virtual/affinity executor、自定义 executor configurator 和外部默认
+`ExecutionContext` 当前会明确拒绝或尚未提供入口，不会静默忽略。对应上游
+`actor/ActorSystem.scala` 的 `threadFactory` 与 `uncaughtExceptionHandler`。
+
+当前支持普通 `Dispatcher` 的 `throughput`、`throughput-deadline-time`、`shutdown-timeout`
+（默认 `1s`）和上述内置 executor 配置，以及 `Props.withDispatcher` / `Props.withMailbox` 绑定。
+`Deployer` 从 `tapio.actor.deployment` 读取
 `dispatcher` 与 `mailbox`，按去掉 guardian 段后的路径匹配；部署配置覆盖 Props，dispatcher 与
 mailbox 分别按“部署值 > Props 值 > 默认值”解析，`DispatcherSameAsParent`（`..`）复用 parent 的
 dispatcher。对应上游 `actor/Deployer.scala`、`actor/Props.scala` 和
@@ -129,9 +156,10 @@ Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此
 `WildcardTree` 的 exact、`*`、`**` 匹配顺序。对应上游
 `util/WildcardIndex.scala`。
 
-独立的 internal dispatcher、PinnedDispatcher、自定义 configurator、executor 配置、
-`CachingConfig` 优化、router 分支、其他 mailbox 类型（priority、deque、control-aware、
-single-consumer）和 logger mailbox 仍待移植。Java 公开 Dispatcher 构造器要求 `ActorSystem`，
+独立的 internal dispatcher、PinnedDispatcher、自定义 dispatcher/executor configurator、
+virtual/affinity executor、外部默认 `ExecutionContext`、`CachingConfig` 优化、router 分支、
+其他 mailbox 类型（priority、deque、control-aware、single-consumer）和 logger mailbox 仍待移植。
+Java 公开 Dispatcher 构造器要求 `ActorSystem`，
 不再提供没有 Scheduler 的无参或仅含 throughput 的假生命周期入口。
 
 ## 消息分发

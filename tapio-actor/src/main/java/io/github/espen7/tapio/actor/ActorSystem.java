@@ -24,6 +24,7 @@ import io.github.espen7.tapio.event.LoggingAdapter;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * ActorSystem 是一个独立 Actor runtime 的顶层入口和资源所有者。
@@ -112,6 +113,8 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         public final String SchedulerClass;
         /** runtime 创建的线程是否为 daemon，默认关闭。 */
         public final boolean Daemonicity;
+        /** 未捕获 fatal error 是否通过 {@code System.exit(-1)} 关闭 JVM，默认开启。 */
+        public final boolean JvmExitOnFatalError;
         /** CoordinatedShutdown 是否终止 ActorSystem，默认开启。 */
         public final boolean CoordinatedShutdownTerminateActorSystem;
         /** 调用 {@link ActorSystem#terminate()} 时是否运行 CoordinatedShutdown，默认开启。 */
@@ -146,6 +149,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
                     ActorPath.Scheme + ".actor.unstarted-push-timeout").toMillis());
             SchedulerClass = config.getString(ActorPath.Scheme + ".scheduler.implementation");
             Daemonicity = config.getBoolean(ActorPath.Scheme + ".daemonic");
+            JvmExitOnFatalError = config.getBoolean(ActorPath.Scheme + ".jvm-exit-on-fatal-error");
             CoordinatedShutdownTerminateActorSystem =
                     config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.terminate-actor-system");
             CoordinatedShutdownRunByActorSystemTerminate =
@@ -232,6 +236,16 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @return 此系统的 Scheduler
      */
     public abstract Scheduler scheduler();
+
+    /**
+     * 返回此系统共享的线程工厂。
+     *
+     * <p>Scheduler 和 Dispatcher 使用同一基础工厂派生线程名称，并保持相同的
+     * daemon、上下文类加载器和未捕获异常处理语义。</p>
+     *
+     * @return 此 ActorSystem 的线程工厂
+     */
+    public abstract ThreadFactory threadFactory();
 
     /**
      * 返回此系统的事件总线。

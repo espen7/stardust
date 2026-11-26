@@ -39,6 +39,7 @@ Tapio is in early development. Public APIs and configuration may change before t
 | Actor lifecycle, Mailbox, supervision (including guardian strategy configuration), and DeathWatch | Available in `tapio-actor` |
 | PoisonPill, Kill, ReceiveTimeout, `watchWith`, and restart lifecycle handling | Available in `tapio-actor` |
 | Ordinary Dispatcher lifecycle, lazy executor recreation, inhabitants, and idle shutdown | Available in `tapio-actor` |
+| Built-in `default-executor`, `fork-join-executor`, and `thread-pool-executor` configuration | Available in `tapio-actor` |
 | Props and deployment binding of Dispatcher/Mailbox, unbounded and bounded mailboxes | Available in `tapio-actor` |
 | EventStream, structured logging, local ActorSelection, `ask`, and one-shot and periodic scheduling | Available in `tapio-actor` |
 | Routing | Planned |
@@ -46,7 +47,7 @@ Tapio is in early development. Public APIs and configuration may change before t
 | Kubernetes-based cluster discovery | Planned |
 | The transport and membership pieces required by the cluster features | Planned as focused Tapio components |
 
-`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Internal and PinnedDispatchers, executor configuration, advanced mailboxes, and the complete logging lifecycle remain incomplete.
+`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Internal and PinnedDispatchers, virtual/affinity/custom executors, externally supplied default execution contexts, advanced mailboxes, and the complete logging lifecycle remain incomplete.
 
 The initial scope does not include the complete Akka/Pekko ecosystem: Typed APIs, Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
 
@@ -130,7 +131,7 @@ tapio-actor/
 
 ## Configuration and Logging
 
-`ActorSystem.create(name)` loads `application.conf` and the module defaults from `reference.conf`. The runtime exposes named Dispatcher lookup, Scheduler settings, coordinated shutdown, dead-letter logging, and SLF4J-backed structured events through `ActorSystem`.
+`ActorSystem.create(name)` loads `application.conf` and the module defaults from `reference.conf`. The runtime exposes named Dispatcher lookup, built-in fork-join/thread-pool executor configuration, a shared thread factory, Scheduler settings, coordinated shutdown, dead-letter logging, and SLF4J-backed structured events through `ActorSystem`.
 
 Tapio depends on `slf4j-api` only. Applications choose and configure a provider such as Logback, Log4j2, SLF4J Simple, or a JUL provider.
 

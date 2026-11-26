@@ -14,7 +14,10 @@
 package io.github.espen7.tapio.dispatch;
 
 import com.typesafe.config.Config;
+import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.actor.ActorSystem;
+
+import java.util.concurrent.ThreadFactory;
 
 /** 读取有效配置，并为普通 Dispatcher 保留唯一实例。 */
 final class DispatcherConfigurator {
@@ -24,7 +27,24 @@ final class DispatcherConfigurator {
     DispatcherConfigurator(Config config, ActorSystem system) {
         this.config = config;
         instance = new Dispatcher(config.getInt("throughput"), config.getDuration("throughput-deadline-time"),
-                system, system.scheduler(), config.getDuration("shutdown-timeout"), Dispatcher.defaultExecutorServiceFactory());
+                system, system.scheduler(), config.getDuration("shutdown-timeout"),
+                createExecutorServiceFactory(config, system.threadFactory()));
+    }
+
+    static ExecutorServiceFactory createExecutorServiceFactory(Config config, ThreadFactory threadFactory) {
+        return configurator(config.getString("executor"), config).createExecutorServiceFactory(config.getString("id"), threadFactory);
+    }
+
+    private static ExecutorServiceConfigurator configurator(String executor, Config config) {
+        return switch (executor) {
+            case "", "fork-join-executor" -> new ForkJoinExecutorConfigurator(config.getConfig("fork-join-executor"));
+            case "thread-pool-executor" -> new ThreadPoolExecutorConfigurator(config.getConfig("thread-pool-executor"));
+            case "default-executor" -> new DefaultExecutorServiceConfigurator(
+                    configurator(config.getConfig("default-executor").getString("fallback"), config));
+            default -> throw new ConfigurationException("Cannot instantiate ExecutorServiceConfigurator type [" + executor
+                    + "], defined in [" + config.getString("id")
+                    + "]. Supported built-ins are default-executor, fork-join-executor and thread-pool-executor.");
+        };
     }
 
     Config config() {

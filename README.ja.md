@@ -39,6 +39,7 @@ Tapio は現在、初期開発段階です。最初の安定版までは公開 A
 | Actor lifecycle、Mailbox、supervision（guardian strategy 設定を含む）、DeathWatch | `tapio-actor` で提供中 |
 | PoisonPill、Kill、ReceiveTimeout、`watchWith`、restart lifecycle の処理 | `tapio-actor` で提供中 |
 | 通常 Dispatcher のライフサイクル、lazy executor の再生成、inhabitants、アイドル時 shutdown | `tapio-actor` で提供中 |
+| 組み込みの `default-executor`、`fork-join-executor`、`thread-pool-executor` 設定 | `tapio-actor` で提供中 |
 | Dispatcher/Mailbox の Props・デプロイ設定による結合、無制限/上限付き mailbox | `tapio-actor` で提供中 |
 | EventStream、構造化ログ、`ask`、一回限りと周期のスケジューリング | `tapio-actor` で提供中 |
 | Routing | 計画中 |
@@ -46,7 +47,7 @@ Tapio は現在、初期開発段階です。最初の安定版までは公開 A
 | Kubernetes によるクラスタディスカバリ | 計画中 |
 | クラスタ機能に必要な transport と membership | Tapio の限定的なコンポーネントとして計画中 |
 
-「提供中」は、ローカル runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。internal と PinnedDispatcher、executor 設定、高度な mailbox、完全なロギングライフサイクルは未実装のままです。
+「提供中」は、ローカル runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。internal と PinnedDispatcher、virtual/affinity/カスタム executor、外部指定の default ExecutionContext、高度な mailbox、完全なロギングライフサイクルは未実装のままです。
 
 初期範囲には、Akka/Pekko の完全なエコシステムは含めません。Typed API、Streams、Persistence、大規模な serialization 統合、完全な remote 互換性、無関係なエンタープライズ統合は対象外です。Actor プラットフォームと対象ワークロードに直接役立つ機能を優先します。
 
@@ -126,7 +127,7 @@ tapio-actor/
 
 ## 設定とログ
 
-`ActorSystem.create(name)` は `application.conf` とモジュールの `reference.conf` を読み込みます。runtime は `ActorSystem` を通じて名前付き Dispatcher、Scheduler、協調シャットダウン、dead-letter ログ、SLF4J ベースの構造化イベントを提供します。
+`ActorSystem.create(name)` は `application.conf` とモジュールの `reference.conf` を読み込みます。runtime は `ActorSystem` を通じて名前付き Dispatcher、組み込み fork-join/thread-pool executor 設定、共有 thread factory、Scheduler、協調シャットダウン、dead-letter ログ、SLF4J ベースの構造化イベントを提供します。
 
 Tapio は `slf4j-api` のみに依存します。アプリケーション側で Logback、Log4j2、SLF4J Simple、JUL provider などを選択して設定してください。
 

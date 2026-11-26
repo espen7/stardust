@@ -1,0 +1,112 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.github.espen7.tapio.dispatch;
+
+import com.typesafe.config.Config;
+import io.github.espen7.tapio.ConfigurationException;
+
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
+/** 按 Pekko fork-join-executor 配置创建 ForkJoinPool。 */
+final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigurator {
+    static int resolveMinimumRunnable(int configured, int parallelism, int jdkMajorVersion) {
+        if (configured >= 0) return configured;
+        return jdkMajorVersion >= 25 ? Math.min(8, Math.max(1, parallelism / 2)) : 1;
+    }
+
+    private final int parallelism;
+    private final boolean asyncMode;
+    private final int maximumPoolSize;
+    private final int minimumRunnable;
+
+    ForkJoinExecutorConfigurator(Config config) {
+        if (config.getBoolean("virtualize")) {
+            throw new ConfigurationException("Virtualized fork-join-executor is not supported");
+        }
+        this.parallelism = ThreadPoolConfig.scaledPoolSize(config.getInt("parallelism-min"),
+                config.getDouble("parallelism-factor"), config.getInt("parallelism-max"));
+        this.asyncMode = switch (config.getString("task-peeking-mode")) {
+            case "FIFO" -> true;
+            case "LIFO" -> false;
+            default -> throw new IllegalArgumentException(
+                    "Cannot instantiate ForkJoinExecutorServiceFactory. "
+                            + "\"task-peeking-mode\" in \"fork-join-executor\" section could only set to \"FIFO\" or \"LIFO\".");
+        };
+        this.maximumPoolSize = config.getInt("maximum-pool-size");
+        this.minimumRunnable = resolveMinimumRunnable(config.getInt("minimum-runnable"), parallelism,
+                Runtime.version().feature());
+    }
+
+    @Override
+    ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
+        ThreadFactory namedFactory = threadFactory instanceof MonitorableThreadFactory monitorable
+                ? monitorable.withName(monitorable.name() + "-" + id)
+                : threadFactory;
+        if (!(namedFactory instanceof ForkJoinPool.ForkJoinWorkerThreadFactory workerFactory)) {
+            throw new IllegalStateException(
+                    "The prerequisites for the ForkJoinExecutorConfigurator is a ForkJoinPool.ForkJoinWorkerThreadFactory!");
+        }
+        return () -> new PekkoForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable);
+    }
+
+    private static final class PekkoForkJoinPool extends ForkJoinPool {
+        private PekkoForkJoinPool(int parallelism, ForkJoinPool.ForkJoinWorkerThreadFactory threadFactory,
+                                  int maximumPoolSize, boolean asyncMode, int minimumRunnable) {
+            super(parallelism, threadFactory, MonitorableThreadFactory.doNothing, asyncMode, 0, maximumPoolSize,
+                    minimumRunnable, null, ForkJoinPoolConstants.DefaultKeepAliveMillis, TimeUnit.MILLISECONDS);
+        }
+
+        @Override
+        public void execute(Runnable runnable) {
+            if (runnable == null) throw new NullPointerException("Runnable was null");
+            super.execute(runnable instanceof ForkJoinTask<?> task ? task : new PekkoForkJoinTask(runnable));
+        }
+    }
+
+    private static final class PekkoForkJoinTask extends ForkJoinTask<Void> {
+        private final Runnable runnable;
+
+        private PekkoForkJoinTask(Runnable runnable) {
+            this.runnable = runnable;
+        }
+
+        @Override
+        public Void getRawResult() {
+            return null;
+        }
+
+        @Override
+        protected void setRawResult(Void value) {
+        }
+
+        @Override
+        protected boolean exec() {
+            try {
+                runnable.run();
+                return true;
+            } catch (Throwable error) {
+                if (error instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+                Thread.UncaughtExceptionHandler handler = Thread.currentThread().getUncaughtExceptionHandler();
+                if (handler != null) handler.uncaughtException(Thread.currentThread(), error);
+                throw error;
+            }
+        }
+    }
+}

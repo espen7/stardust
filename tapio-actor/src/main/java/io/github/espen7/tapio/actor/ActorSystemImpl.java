@@ -19,6 +19,7 @@ import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
+import io.github.espen7.tapio.dispatch.MonitorableThreadFactory;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
@@ -30,11 +31,9 @@ import io.github.espen7.tapio.event.DeadLetterListener;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * ActorSystem 的本地实现。
@@ -60,6 +59,8 @@ public class ActorSystemImpl extends ActorSystem {
     private final Dispatcher dispatcher;
     /** 负责一次性调度和关闭阶段定时任务的共享 Scheduler。 */
     private final Scheduler scheduler;
+    /** Scheduler 和 Dispatcher 共用的基础线程工厂。 */
+    private final MonitorableThreadFactory threadFactory;
     /** 当前系统的 EventStream，承载日志和 dead-letter 事件。 */
     private final EventStream eventStream;
     /** 绑定系统 source 的 LoggingAdapter。 */
@@ -97,6 +98,8 @@ public class ActorSystemImpl extends ActorSystem {
         this.settings = new Settings(classLoader, config, name);
         this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
+        this.threadFactory = new MonitorableThreadFactory(name, settings.Daemonicity, classLoader,
+                uncaughtExceptionHandler());
         Dispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
         CoordinatedShutdown startedShutdown = null;
@@ -136,6 +139,41 @@ public class ActorSystemImpl extends ActorSystem {
         }
     }
 
+    protected Thread.UncaughtExceptionHandler uncaughtExceptionHandler() {
+        return (thread, cause) -> {
+            if (cause instanceof InterruptedException || isNonFatal(cause)) {
+                log.error(cause, "Uncaught error from thread [{}]", thread.getName());
+            } else if (settings.JvmExitOnFatalError) {
+                try {
+                    logFatalError("shutting down JVM since 'tapio.jvm-exit-on-fatal-error' is enabled for", cause, thread);
+                } finally {
+                    System.exit(-1);
+                }
+            } else {
+                try {
+                    logFatalError("shutting down", cause, thread);
+                } finally {
+                    terminate();
+                }
+            }
+        };
+    }
+
+    private static boolean isNonFatal(Throwable cause) {
+        return !(cause instanceof VirtualMachineError || cause instanceof ThreadDeath || cause instanceof LinkageError);
+    }
+
+    private void logFatalError(String message, Throwable cause, Thread thread) {
+        System.err.print("Uncaught error from thread [" + thread.getName() + "]: ");
+        System.err.print(cause.getMessage() + ", " + message + " ActorSystem[" + name + "]");
+        System.err.println();
+        System.err.flush();
+        cause.printStackTrace(System.err);
+        System.err.flush();
+        log.error(cause, "Uncaught error from thread [{}]: " + cause.getMessage() + ", " + message + " ActorSystem[{}]",
+                thread.getName(), name);
+    }
+
     /**
      * 按 {@code tapio.scheduler.implementation} 创建并启动系统调度器。
      *
@@ -144,19 +182,11 @@ public class ActorSystemImpl extends ActorSystem {
      */
     protected Scheduler createScheduler() {
         String className = settings.SchedulerClass;
-        ThreadFactory defaultFactory = Executors.defaultThreadFactory();
-        boolean daemonic = settings.Daemonicity;
-        AtomicLong threadNumber = new AtomicLong();
-        ThreadFactory threadFactory = runnable -> {
-            Thread thread = defaultFactory.newThread(runnable);
-            thread.setName(name + "-scheduler-" + threadNumber.incrementAndGet());
-            thread.setDaemon(daemonic);
-            return thread;
-        };
+        ThreadFactory schedulerThreadFactory = threadFactory.withName(threadFactory.name() + "-scheduler");
         try {
             return Class.forName(className).asSubclass(Scheduler.class)
                     .getConstructor(Config.class, LoggingAdapter.class, ThreadFactory.class)
-                    .newInstance(settings.config(), log, threadFactory);
+                    .newInstance(settings.config(), log, schedulerThreadFactory);
         } catch (java.lang.reflect.InvocationTargetException error) {
             if (error.getCause() instanceof RuntimeException runtimeError) throw runtimeError;
             if (error.getCause() instanceof Error fatal) throw fatal;
@@ -256,6 +286,11 @@ public class ActorSystemImpl extends ActorSystem {
     @Override
     public Scheduler scheduler() {
         return scheduler;
+    }
+
+    @Override
+    public ThreadFactory threadFactory() {
+        return threadFactory;
     }
 
     @Override

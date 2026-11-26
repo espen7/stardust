@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.dispatch;
 
+import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.ActorSystem;
@@ -25,9 +26,10 @@ import io.github.espen7.tapio.event.EventStream;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Dispatcher 将 Envelope 或 SystemMessage 放入目标 Actor 的 Mailbox，并把 Mailbox
@@ -126,7 +128,7 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
         this(throughput, throughputDeadlineTime, system, system.scheduler(),
                 ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId)
                         .getDuration("shutdown-timeout"),
-                defaultExecutorServiceFactory());
+                defaultExecutorServiceFactory(system));
     }
 
     Dispatcher(int throughput, Duration throughputDeadlineTime, ActorSystem system, Scheduler scheduler,
@@ -140,8 +142,10 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
         this.deadLetterMailbox = new DeadLetterMailbox(system);
     }
 
-    static ExecutorServiceFactory defaultExecutorServiceFactory() {
-        return () -> new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
+    static ExecutorServiceFactory defaultExecutorServiceFactory(ActorSystem system) {
+        Config config = ConfigFactory.parseMap(Map.of("id", Dispatchers.DefaultDispatcherId))
+                .withFallback(ConfigFactory.defaultReference().getConfig(Dispatchers.DefaultDispatcherId));
+        return DispatcherConfigurator.createExecutorServiceFactory(config, system.threadFactory());
     }
 
     /**
