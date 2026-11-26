@@ -80,9 +80,11 @@ public abstract class MessageDispatcherConfigurator {
                     config.getConfig("fork-join-executor"), prerequisites);
             case "thread-pool-executor" -> new ThreadPoolExecutorConfigurator(
                     config.getConfig("thread-pool-executor"), prerequisites);
+            case "virtual-thread-executor" -> new VirtualThreadExecutorConfigurator(
+                    config.getConfig("virtual-thread-executor"), prerequisites);
             default -> throw new ConfigurationException("Cannot instantiate ExecutorServiceConfigurator type [" + executor
                     + "], defined in [" + config.getString("id")
-                    + "]. Supported built-ins are default-executor, fork-join-executor and thread-pool-executor.");
+                    + "]. Supported built-ins are default-executor, fork-join-executor, thread-pool-executor and virtual-thread-executor.");
         };
     }
 }

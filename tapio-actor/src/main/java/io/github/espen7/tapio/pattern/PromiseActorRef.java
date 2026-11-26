@@ -99,6 +99,10 @@ public final class PromiseActorRef extends MinimalActorRef {
         return ref;
     }
 
+    CompletionStage<Object> result() {
+        return result.minimalCompletionStage();
+    }
+
     CompletionStage<Object> ask(ActorRef actorRef, Object message) {
         actorRef.tell(message, this);
         return result.minimalCompletionStage();

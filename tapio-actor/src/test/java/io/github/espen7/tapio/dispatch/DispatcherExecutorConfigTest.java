@@ -20,9 +20,11 @@ import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LogEvent;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -355,14 +357,34 @@ class DispatcherExecutorConfigTest {
     }
 
     @Test
-    void unsupportedExecutorAndVirtualizationFailExplicitly() {
+    void unsupportedExecutorFailsExplicitly() {
         ConfigurationException executorError = assertThrows(ConfigurationException.class,
                 () -> factory(config(Map.of("tapio.actor.default-dispatcher.executor", "affinity-pool-executor"))));
         assertTrue(executorError.getMessage().contains("Supported built-ins"));
+    }
 
-        ConfigurationException virtualError = assertThrows(ConfigurationException.class,
-                () -> factory(config(Map.of("tapio.actor.default-dispatcher.fork-join-executor.virtualize", true))));
-        assertEquals("Virtualized fork-join-executor is not supported", virtualError.getMessage());
+    @Test
+    void virtualizedAndVirtualThreadExecutorsRunOnVirtualThreads() throws Exception {
+        for (Map<String, ?> overrides : List.of(
+                Map.of("tapio.actor.default-dispatcher.fork-join-executor.virtualize", true),
+                Map.of("tapio.actor.default-dispatcher.executor", "thread-pool-executor",
+                        "tapio.actor.default-dispatcher.thread-pool-executor.virtualize", true),
+                Map.of("tapio.actor.default-dispatcher.executor", "virtual-thread-executor"))) {
+            ExecutorService executor = factory(config(overrides)).createExecutorService();
+            try {
+                CompletableFuture<Boolean> isVirtual = new CompletableFuture<>();
+                CompletableFuture<String> threadName = new CompletableFuture<>();
+                executor.execute(() -> {
+                    isVirtual.complete(Thread.currentThread().isVirtual());
+                    threadName.complete(Thread.currentThread().getName());
+                });
+                assertTrue(isVirtual.get(2, TimeUnit.SECONDS));
+                assertTrue(threadName.get(2, TimeUnit.SECONDS).contains("virtual-thread"));
+            } finally {
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(2, TimeUnit.SECONDS));
+            }
+        }
     }
 
     private static Config config(Map<String, ?> overrides) {

@@ -28,8 +28,12 @@ import io.github.espen7.tapio.event.LoggingAdapter;
 import io.github.espen7.tapio.event.DeadLetterListener;
 import io.github.espen7.tapio.util.NonFatal;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -51,6 +55,10 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     private final String name;
     /** 保存合并后的系统配置和值已解析的 runtime 设置。 */
     private final Settings settings;
+    /** 用于加载与实例化可配置组件的反射访问入口。 */
+    private final DynamicAccess dynamicAccess;
+    /** 已注册的扩展实例（初始化期间暂存 CountDownLatch，失败时暂存 Throwable）。 */
+    private final ConcurrentHashMap<ExtensionId<?>, Object> extensions = new ConcurrentHashMap<>();
     /** 根据配置创建并管理此系统的 Dispatcher。 */
     private final Dispatchers dispatchers;
     /** 按配置、Props 和 requirement 选择 mailbox type 的注册表。 */
@@ -96,6 +104,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         Config config = applicationConfig == null ? ConfigFactory.load(classLoader)
                 : applicationConfig.withFallback(ConfigFactory.defaultReferenceUnresolved(classLoader)).resolve();
         this.settings = new Settings(classLoader, config, name);
+        this.dynamicAccess = createDynamicAccess();
         this.eventStream = new EventStream(this, settings.DebugEventStream);
         eventStream.startStdoutLogger(settings);
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
@@ -122,6 +131,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
                 this.logDeadLetterListener = null;
             }
             eventStream.startUnsubscriber();
+            loadExtensions();
             if (settings.CoordinatedShutdownTerminateActorSystem) {
                 coordinatedShutdown.addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-system", () -> {
                     finalTerminate();
@@ -194,6 +204,15 @@ public class ActorSystemImpl extends ExtendedActorSystem {
                 thread.getName(), name);
     }
 
+    protected DynamicAccess createDynamicAccess() {
+        return new ReflectiveDynamicAccess(settings.classLoader());
+    }
+
+    @Override
+    public DynamicAccess dynamicAccess() {
+        return dynamicAccess;
+    }
+
     /**
      * 按 {@code tapio.scheduler.implementation} 创建并启动系统调度器。
      *
@@ -204,14 +223,13 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         String className = settings.SchedulerClass;
         ThreadFactory schedulerThreadFactory = threadFactory.withName(threadFactory.name() + "-scheduler");
         try {
-            return Class.forName(className).asSubclass(Scheduler.class)
-                    .getConstructor(Config.class, LoggingAdapter.class, ThreadFactory.class)
-                    .newInstance(settings.config(), log, schedulerThreadFactory);
-        } catch (java.lang.reflect.InvocationTargetException error) {
-            if (error.getCause() instanceof RuntimeException runtimeError) throw runtimeError;
-            if (error.getCause() instanceof Error fatal) throw fatal;
-            throw new IllegalArgumentException("Could not instantiate Scheduler class [" + className + "]", error.getCause());
-        } catch (ReflectiveOperationException | ClassCastException error) {
+            return dynamicAccess.createInstanceFor(className, Scheduler.class, List.of(
+                    Map.entry(Config.class, settings.config()),
+                    Map.entry(LoggingAdapter.class, log),
+                    Map.entry(ThreadFactory.class, schedulerThreadFactory)));
+        } catch (Throwable error) {
+            if (error instanceof RuntimeException runtimeError) throw runtimeError;
+            if (error instanceof Error fatal) throw fatal;
             throw new IllegalArgumentException("Could not instantiate Scheduler class [" + className + "]", error);
         }
     }
@@ -369,9 +387,121 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         return whenTerminated;
     }
 
+    @SuppressWarnings("unchecked")
+    private <T extends Extension> T findExtension(ExtensionId<T> ext) {
+        Object value = extensions.get(ext);
+        if (value instanceof CountDownLatch latch) {
+            boolean interrupted = false;
+            try {
+                while (true) {
+                    try {
+                        latch.await();
+                        break;
+                    } catch (InterruptedException ignored) {
+                        interrupted = true;
+                    }
+                }
+            } finally {
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+            return findExtension(ext);
+        }
+        if (value instanceof Throwable error) {
+            ActorCell.<RuntimeException>throwUnchecked(error);
+            return null;
+        }
+        return (T) value;
+    }
+
+    @Override
+    public final <T extends Extension> T registerExtension(ExtensionId<T> ext) {
+        while (true) {
+            T existing = findExtension(ext);
+            if (existing != null) {
+                return existing;
+            }
+            CountDownLatch inProcessOfRegistration = new CountDownLatch(1);
+            if (extensions.putIfAbsent(ext, inProcessOfRegistration) == null) {
+                try {
+                    T instance = ext.createExtension(this);
+                    if (instance == null) {
+                        throw new IllegalStateException("Extension instance created as 'null' for extension [" + ext + "]");
+                    }
+                    extensions.replace(ext, inProcessOfRegistration, instance);
+                    return instance;
+                } catch (Throwable error) {
+                    extensions.replace(ext, inProcessOfRegistration, error);
+                    ActorCell.<RuntimeException>throwUnchecked(error);
+                    return null;
+                } finally {
+                    inProcessOfRegistration.countDown();
+                }
+            }
+        }
+    }
+
+    @Override
+    public <T extends Extension> T extension(ExtensionId<T> ext) {
+        T found = findExtension(ext);
+        if (found == null) {
+            throw new IllegalArgumentException("Trying to get non-registered extension [" + ext + "]");
+        }
+        return found;
+    }
+
+    @Override
+    public boolean hasExtension(ExtensionId<? extends Extension> ext) {
+        return findExtension(ext) != null;
+    }
+
+    private void loadExtensions() {
+        loadExtensions(ActorPath.Scheme + ".library-extensions", true);
+        loadExtensions(ActorPath.Scheme + ".extensions", false);
+    }
+
+    private void loadExtensions(String key, boolean throwOnLoadFail) {
+        for (String fqcn : settings.config().getStringList(key)) {
+            Object loaded;
+            try {
+                try {
+                    loaded = dynamicAccess.getObjectFor(fqcn, Object.class);
+                } catch (Throwable firstProblem) {
+                    try {
+                        loaded = dynamicAccess.createInstanceFor(fqcn, Object.class, List.of());
+                    } catch (Throwable ignored) {
+                        throw firstProblem;
+                    }
+                }
+            } catch (Throwable problem) {
+                if (!throwOnLoadFail) {
+                    log.error(problem, "While trying to load extension [{}], skipping...", fqcn);
+                    continue;
+                }
+                throw new RuntimeException("While trying to load extension [" + fqcn + "]", problem);
+            }
+            if (loaded instanceof ExtensionIdProvider providerExt) {
+                registerExtension(providerExt.lookup());
+            } else if (loaded instanceof ExtensionId<?> id) {
+                registerExtension(id);
+            } else {
+                if (!throwOnLoadFail) {
+                    log.error("[{}] is not an 'ExtensionIdProvider' or 'ExtensionId', skipping...", fqcn);
+                } else {
+                    throw new RuntimeException("[" + fqcn + "] is not an 'ExtensionIdProvider' or 'ExtensionId'");
+                }
+            }
+        }
+    }
+
     @Override
     public CompletionStage<Terminated> getWhenTerminated() {
         return whenTerminated;
+    }
+
+    @Override
+    public void registerOnTermination(Runnable code) {
+        java.util.Objects.requireNonNull(code, "code must not be null");
+        whenTerminated.thenRun(code);
     }
 
     private void finishTermination(Terminated terminated, Throwable failure) {

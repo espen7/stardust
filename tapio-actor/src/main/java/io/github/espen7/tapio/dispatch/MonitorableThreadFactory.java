@@ -55,6 +55,14 @@ public final class MonitorableThreadFactory implements ThreadFactory, ForkJoinPo
         return name;
     }
 
+    ClassLoader contextClassLoader() {
+        return contextClassLoader;
+    }
+
+    Thread.UncaughtExceptionHandler exceptionHandler() {
+        return exceptionHandler;
+    }
+
     /**
      * 返回使用新前缀但共享线程计数器和线程属性的工厂。
      *

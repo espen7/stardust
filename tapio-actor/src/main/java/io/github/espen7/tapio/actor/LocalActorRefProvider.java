@@ -184,16 +184,10 @@ public class LocalActorRefProvider extends ActorRefProvider {
     private SupervisorStrategy guardianSupervisorStrategy(ActorSystemImpl system) {
         String className = system.settings().SupervisorStrategyClass;
         try {
-            Class<? extends SupervisorStrategyConfigurator> configuratorClass = Class.forName(className, false,
-                            system.settings().classLoader())
-                    .asSubclass(SupervisorStrategyConfigurator.class);
-            var constructor = configuratorClass.getDeclaredConstructor();
-            if (!constructor.canAccess(null)) constructor.setAccessible(true);
-            return ((SupervisorStrategyConfigurator) constructor.newInstance()).create();
-        } catch (InvocationTargetException error) {
-            ActorCell.<RuntimeException>throwUnchecked(error.getCause());
-            return null;
-        } catch (ReflectiveOperationException error) {
+            return system.dynamicAccess()
+                    .createInstanceFor(className, SupervisorStrategyConfigurator.class, java.util.List.of())
+                    .create();
+        } catch (Throwable error) {
             ActorCell.<RuntimeException>throwUnchecked(error);
             return null;
         }

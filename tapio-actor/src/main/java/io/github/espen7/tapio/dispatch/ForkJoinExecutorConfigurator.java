@@ -14,7 +14,6 @@
 package io.github.espen7.tapio.dispatch;
 
 import com.typesafe.config.Config;
-import io.github.espen7.tapio.ConfigurationException;
 
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
@@ -32,6 +31,8 @@ public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigura
     private final boolean asyncMode;
     private final int maximumPoolSize;
     private final int minimumRunnable;
+    private final boolean isVirtualized;
+    private final int virtualThreadStartNumber;
 
     /**
      * 创建 fork-join-executor configurator。
@@ -41,9 +42,10 @@ public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigura
      */
     public ForkJoinExecutorConfigurator(Config config, DispatcherPrerequisites prerequisites) {
         super(config, prerequisites);
-        if (config.getBoolean("virtualize")) {
-            throw new ConfigurationException("Virtualized fork-join-executor is not supported");
-        }
+        this.isVirtualized = config.getBoolean("virtualize") && VirtualThreadSupport.isSupported;
+        this.virtualThreadStartNumber = config.hasPath("virtual-thread-start-number")
+                ? config.getInt("virtual-thread-start-number")
+                : -1;
         this.parallelism = ThreadPoolConfig.scaledPoolSize(config.getInt("parallelism-min"),
                 config.getDouble("parallelism-factor"), config.getInt("parallelism-max"));
         this.asyncMode = switch (config.getString("task-peeking-mode")) {
@@ -59,6 +61,11 @@ public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigura
     }
 
     @Override
+    public boolean isVirtualized() {
+        return isVirtualized;
+    }
+
+    @Override
     public ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
         ThreadFactory namedFactory = threadFactory instanceof MonitorableThreadFactory monitorable
                 ? monitorable.withName(monitorable.name() + "-" + id)
@@ -66,6 +73,14 @@ public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigura
         if (!(namedFactory instanceof ForkJoinPool.ForkJoinWorkerThreadFactory workerFactory)) {
             throw new IllegalStateException(
                     "The prerequisites for the ForkJoinExecutorConfigurator is a ForkJoinPool.ForkJoinWorkerThreadFactory!");
+        }
+        if (isVirtualized) {
+            String prefix = namedFactory instanceof MonitorableThreadFactory monitorable
+                    ? monitorable.name()
+                    : id;
+            return () -> VirtualThreadSupport.createVirtualized(namedFactory,
+                    new PekkoForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable),
+                    prefix, virtualThreadStartNumber);
         }
         return () -> new PekkoForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable);
     }

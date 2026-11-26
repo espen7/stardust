@@ -15,9 +15,11 @@ package io.github.espen7.tapio.pattern;
 
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSelection;
+import io.github.espen7.tapio.actor.PoisonPill;
 
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 
 /**
  * 提供 Classic Actor 交互模式的 Java 静态入口。
@@ -82,5 +84,41 @@ public final class Patterns {
      */
     public static CompletionStage<Object> ask(ActorSelection selection, Object message, Duration timeout) {
         return new AskableActorSelection(selection).internalAsk(message, timeout, ActorRef.noSender);
+    }
+
+    /**
+     * 将 {@link CompletionStage} 的成功结果或异常（包装为 {@link io.github.espen7.tapio.actor.Status.Failure}）
+     * 发送给指定目标。
+     *
+     * @param future 待转发的异步阶段
+     * @param executor 回调执行器（可为 {@code null}，表示在完成线程直接发送）
+     * @param <T> 异步结果类型
+     * @return 流式转发构建器
+     */
+    public static <T> PipeToSupport.PipeableCompletionStage<T> pipe(CompletionStage<T> future, Executor executor) {
+        return new PipeToSupport.PipeableCompletionStage<>(future, executor);
+    }
+
+    /**
+     * 向目标 Actor 发送 {@link PoisonPill} 并等待其终止完成。
+     *
+     * @param target 目标 Actor
+     * @param timeout 等待超时时间
+     * @return 目标在超时内终止完成时返回 {@code true}，否则以 {@link AskTimeoutException} 失败
+     */
+    public static CompletionStage<Boolean> gracefulStop(ActorRef target, Duration timeout) {
+        return GracefulStopSupport.gracefulStop(target, timeout, PoisonPill.getInstance());
+    }
+
+    /**
+     * 向目标 Actor 发送自定义停止消息并等待其终止完成。
+     *
+     * @param target 目标 Actor
+     * @param timeout 等待超时时间
+     * @param stopMessage 自定义停止消息
+     * @return 目标在超时内终止完成时返回 {@code true}，否则以 {@link AskTimeoutException} 失败
+     */
+    public static CompletionStage<Boolean> gracefulStop(ActorRef target, Duration timeout, Object stopMessage) {
+        return GracefulStopSupport.gracefulStop(target, timeout, stopMessage);
     }
 }

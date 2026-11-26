@@ -41,4 +41,11 @@ public abstract class ExtendedActorSystem extends ActorSystem {
      * @return ActorRefProvider
      */
     public abstract ActorRefProvider provider();
+
+    /**
+     * 返回此系统内部用于反射加载与实例化的 {@link DynamicAccess}。
+     *
+     * @return DynamicAccess 实例
+     */
+    public abstract DynamicAccess dynamicAccess();
 }

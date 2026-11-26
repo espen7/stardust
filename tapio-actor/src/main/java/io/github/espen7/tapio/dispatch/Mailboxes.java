@@ -22,6 +22,7 @@ import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.Deploy;
 import io.github.espen7.tapio.actor.Props;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.Warning;
 
@@ -269,6 +270,24 @@ public final class Mailboxes {
             throw new ConfigurationException(
                     "Type [" + requirement + "] specified as mailbox-requirement can't be loaded", exception);
         }
+    }
+
+    /**
+     * INTERNAL API：查询指定 dispatcher 与 mailbox 组合的 {@code stash-capacity} 配置。
+     *
+     * @param dispatcher dispatcher id
+     * @param mailbox mailbox id
+     * @return stash 容量；{@code <= 0} 表示不限制
+     */
+    @InternalApi
+    public int stashCapacity(String dispatcher, String mailbox) {
+        if (!DefaultMailboxId.equals(mailbox)) {
+            return settings.config().getConfig(mailbox).withFallback(defaultMailboxConfig).getInt("stash-capacity");
+        }
+        if (!Dispatchers.DefaultDispatcherId.equals(dispatcher) && settings.config().hasPath(dispatcher)) {
+            return settings.config().getConfig(dispatcher).withFallback(defaultMailboxConfig).getInt("stash-capacity");
+        }
+        return defaultMailboxConfig.getInt("stash-capacity");
     }
 
     private Config config(String id) {

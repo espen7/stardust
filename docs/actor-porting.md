@@ -486,3 +486,17 @@ logging filter 和启动时配置日志仍未移植；serialization 不在当前
 
 Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.0 许可证。固定源码位于
 [Pekko actor/src/main](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main)。
+
+## Extension、DynamicAccess 与虚拟线程执行器
+
+- `Extension`、`ExtensionId`、`AbstractExtensionId` 和 `ExtensionIdProvider` 对应上游 `actor/Extension.scala`。`ActorSystemImpl` 使用 `ConcurrentHashMap` + `CountDownLatch` 保证同一 `ExtensionId` 在多线程并发注册时只初始化一次，并在构造末尾按 `tapio.library-extensions`（失败即抛出）和 `tapio.extensions`（失败记录日志并跳过）自动加载扩展。
+- `DynamicAccess` 和 `ReflectiveDynamicAccess` 对应上游 `actor/DynamicAccess.scala` 和 `actor/ReflectiveDynamicAccess.scala`。Java 版本以 `Class<T>` 参数和 `List<Map.Entry<Class<?>, Object>>` 替代 Scala `ClassTag` 与 `Try`，内部复用 `MethodHandle` 与 `VarHandle` 缓存；`LocalActorRefProvider` 的 `SupervisorStrategyConfigurator` 与 `ActorSystemImpl.createScheduler` 已统一经由 `ExtendedActorSystem.dynamicAccess()` 实例化。
+- `VirtualThreadSupport`、`VirtualizedExecutorService` 和 `VirtualThreadExecutorConfigurator` 对应上游 `dispatch/VirtualThreadSupport.scala`、`dispatch/VirtualizedExecutorService.scala` 与 `fork-join-executor` / `thread-pool-executor` 的 `virtualize = on` 及 `executor = "virtual-thread-executor"`。Java 25 上直接使用公开 API `Thread.ofVirtual()` 和 `Executors.newThreadPerTaskExecutor`；绑定自定义底层 `scheduler` 字段时若 JVM 未开启 `--add-opens java.base/java.lang=ALL-UNNAMED`，则自动回退到 JVM 默认虚拟线程调度器。
+
+## Timers、PipeTo、GracefulStop、Stash 与扩展邮箱
+
+- `TimerScheduler`、`TimerSchedulerImpl`、`AbstractActorWithTimers` 和 `AbstractLoggingActorWithTimers` 对应上游 `actor/Timers.scala` 和 `actor/dungeon/TimerSchedulerImpl.scala`。支持 `startSingleTimer`、`startTimerWithFixedDelay`、`startTimerAtFixedRate`、`isTimerActive`、`cancel` 和 `cancelAll`，并在 `aroundPreRestart` / `aroundPostStop` 自动取消；通过 `owner` 引用与 `generation` 令牌丢弃已取消或旧重启实例的过期定时消息。
+- `Patterns.pipe` 和 `Patterns.gracefulStop` 对应上游 `pattern/PipeToSupport.scala`、`pattern/GracefulStopSupport.scala` 和 `pattern/Patterns.scala`。`pipe` 支持将 `CompletionStage` 成功值或 `Status.Failure` 转发至 `ActorRef` 或 `ActorSelection`；`gracefulStop` 通过 `PromiseActorRef` 监听目标 `Terminated` 并发送 `PoisonPill` 或自定义停止消息。`ActorSystem.registerOnTermination` 通过 `whenTerminated.thenRun` 注册终止回调。
+- `DequeBasedMessageQueueSemantics`、`UnboundedDequeBasedMailbox`、`BoundedDequeBasedMailbox`、`AbstractActorWithStash`、`AbstractActorWithUnboundedStash`、`AbstractActorWithUnrestrictedStash` 和 `StashOverflowException` 对应上游 `actor/Stash.scala`、`actor/AbstractActor.scala` 和 `dispatch/Mailbox.scala`，并支持 `stash-capacity` 配置与 `preRestart`/`postStop` 自动释放到 `deadLetters`。
+- `PriorityGenerator`、`UnboundedPriorityMailbox`、`ControlMessage` 和 `UnboundedControlAwareMailbox` 对应上游 `dispatch/Mailbox.scala` 中的优先级与控制感知邮箱。
+- `LoggingReceive` 对应上游 `event/LoggingReceive.scala`，在 `tapio.actor.debug.receive = on` 时发布已处理/未处理消息的 `DEBUG` 日志。

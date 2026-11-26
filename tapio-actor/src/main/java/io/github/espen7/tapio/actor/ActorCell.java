@@ -1047,6 +1047,21 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         return currentMessage == null ? system.deadLetters() : currentMessage.sender();
     }
 
+    /** INTERNAL API：返回当前正在处理的 Envelope。 */
+    public Envelope currentMessage() {
+        return currentMessage;
+    }
+
+    /** INTERNAL API：更新当前正在处理的 Envelope。 */
+    public void setCurrentMessage(Envelope message) {
+        currentMessage = message;
+    }
+
+    /** INTERNAL API：确保来自 stash 的 {@code Terminated} 消息可被再次投递。 */
+    public void terminatedQueuedFor(ActorRef actor, Optional<Object> customMessage) {
+        terminatedQueued.putIfAbsent(actor, customMessage);
+    }
+
     /**
      * 使用自动生成的名称创建 child。
      */

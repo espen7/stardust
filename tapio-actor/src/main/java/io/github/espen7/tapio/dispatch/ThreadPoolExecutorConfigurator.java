@@ -14,7 +14,6 @@
 package io.github.espen7.tapio.dispatch;
 
 import com.typesafe.config.Config;
-import io.github.espen7.tapio.ConfigurationException;
 
 import java.time.Duration;
 import java.util.concurrent.BlockingQueue;
@@ -25,6 +24,8 @@ import java.util.function.Supplier;
 /** 按 Pekko thread-pool-executor 配置创建 ThreadPoolExecutor。 */
 public final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigurator {
     private final ThreadPoolConfig threadPoolConfig;
+    private final boolean isVirtualized;
+    private final int virtualThreadStartNumber;
 
     /**
      * 创建 thread-pool-executor configurator。
@@ -34,9 +35,10 @@ public final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigu
      */
     public ThreadPoolExecutorConfigurator(Config config, DispatcherPrerequisites prerequisites) {
         super(config, prerequisites);
-        if (config.getBoolean("virtualize")) {
-            throw new ConfigurationException("Virtualized thread-pool-executor is not supported");
-        }
+        this.isVirtualized = config.getBoolean("virtualize") && VirtualThreadSupport.isSupported;
+        this.virtualThreadStartNumber = config.hasPath("virtual-thread-start-number")
+                ? config.getInt("virtual-thread-start-number")
+                : -1;
         Supplier<BlockingQueue<Runnable>> queueFactory = ThreadPoolConfig.linkedBlockingQueue();
         int queueSize = config.getInt("task-queue-size");
         if (queueSize > 0) {
@@ -69,8 +71,24 @@ public final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigu
     }
 
     @Override
+    public boolean isVirtualized() {
+        return isVirtualized;
+    }
+
+    @Override
     public ExecutorServiceFactory createExecutorServiceFactory(String id, ThreadFactory threadFactory) {
-        return createExecutorServiceFactory(threadPoolConfig, id, threadFactory);
+        ExecutorServiceFactory poolFactory = createExecutorServiceFactory(threadPoolConfig, id, threadFactory);
+        if (!isVirtualized) {
+            return poolFactory;
+        }
+        ThreadFactory namedFactory = threadFactory instanceof MonitorableThreadFactory monitorable
+                ? monitorable.withName(monitorable.name() + "-" + id)
+                : threadFactory;
+        String prefix = namedFactory instanceof MonitorableThreadFactory monitorable
+                ? monitorable.name()
+                : id;
+        return () -> VirtualThreadSupport.createVirtualized(namedFactory, poolFactory.createExecutorService(),
+                prefix, virtualThreadStartNumber);
     }
 
     static ExecutorServiceFactory createExecutorServiceFactory(ThreadPoolConfig config, String id,

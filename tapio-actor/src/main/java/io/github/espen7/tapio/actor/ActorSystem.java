@@ -296,6 +296,13 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     public abstract CompletionStage<Terminated> getWhenTerminated();
 
     /**
+     * 注册在 {@link ActorSystem} 终止完成时执行的回调。若系统已终止，回调会立即执行。
+     *
+     * @param code 终止回调
+     */
+    public abstract void registerOnTermination(Runnable code);
+
+    /**
      * 发起 ActorSystem 关闭。
      *
      * <p>此方法满足 {@link AutoCloseable}，并等待 Pekko 配置的
@@ -305,4 +312,37 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     public void close() {
         terminate();
     }
+
+    /**
+     * 注册并创建指定 {@link ExtensionId} 对应的扩展实例；若已注册则直接返回已有实例。
+     *
+     * <p>该方法具有 {@code putIfAbsent} 语义；当另一线程正在初始化同一扩展时，当前线程会阻塞等待其完成。</p>
+     *
+     * @param ext 扩展标识
+     * @param <T> 扩展实例类型
+     * @return 扩展实例
+     */
+    public abstract <T extends Extension> T registerExtension(ExtensionId<T> ext);
+
+    /**
+     * 返回指定 {@link ExtensionId} 关联的扩展实例；若尚未注册则抛出异常。
+     *
+     * <p>当另一线程正在初始化同一扩展时，当前线程会阻塞等待其完成。</p>
+     *
+     * @param ext 扩展标识
+     * @param <T> 扩展实例类型
+     * @return 已注册的扩展实例
+     * @throws IllegalArgumentException 当扩展未注册时
+     */
+    public abstract <T extends Extension> T extension(ExtensionId<T> ext);
+
+    /**
+     * 返回指定 {@link ExtensionId} 是否已在此系统中注册。
+     *
+     * <p>当另一线程正在初始化同一扩展时，当前线程会阻塞等待其完成。</p>
+     *
+     * @param ext 扩展标识
+     * @return 已注册返回 {@code true}
+     */
+    public abstract boolean hasExtension(ExtensionId<? extends Extension> ext);
 }
