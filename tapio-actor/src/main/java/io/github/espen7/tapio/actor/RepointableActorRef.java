@@ -161,8 +161,15 @@ class RepointableActorRef extends ActorRefWithCell implements RepointableRef {
         while (names.hasNext()) {
             String name = names.next();
             if (name.isEmpty()) continue;
-            InternalActorRef next = name.equals("..") ? getParent() : getSingleChild(name);
-            return next == null ? null : next.getChild(names);
+            if (name.equals("..")) return getParent().getChild(names);
+            int separator = name.indexOf('#');
+            String childName = separator < 0 ? name : name.substring(0, separator);
+            int uid = separator < 0 ? ActorPath.UndefinedUid : Integer.parseInt(name.substring(separator + 1));
+            if (lookup().getChildByName(childName).orElse(null) instanceof ChildRestartStats stats
+                    && (uid == ActorPath.UndefinedUid || uid == stats.uid())) {
+                return ((InternalActorRef) stats.child()).getChild(names);
+            }
+            return Nobody.INSTANCE;
         }
         return this;
     }

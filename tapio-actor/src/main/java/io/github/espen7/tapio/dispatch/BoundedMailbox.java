@@ -91,8 +91,10 @@ public final class BoundedMailbox implements MailboxType,
         @Override
         public void enqueue(ActorRef receiver, Envelope handle) {
             try {
-                if (pushTimeOut.toNanos() >= 0) {
-                    boolean offered = offer(handle, pushTimeOut.toNanos(), TimeUnit.NANOSECONDS);
+                if (!pushTimeOut.isNegative()) {
+                    long timeoutNanos = pushTimeOut.getSeconds() >= Long.MAX_VALUE / 1_000_000_000L
+                            ? Long.MAX_VALUE : pushTimeOut.toNanos();
+                    boolean offered = offer(handle, timeoutNanos, TimeUnit.NANOSECONDS);
                     if (!offered) deadLetter(receiver, handle);
                 } else {
                     put(handle);

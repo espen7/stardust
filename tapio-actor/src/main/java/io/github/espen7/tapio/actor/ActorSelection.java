@@ -174,7 +174,7 @@ public final class ActorSelection implements Serializable {
             }
             ref = element == SelectParent.INSTANCE ? withCell.getParent()
                     : withCell.getSingleChild(((SelectChildName) element).name());
-            if (ref == null) {
+            if (ref == null || ref == Nobody.INSTANCE) {
                 deliverToEmptyRef(anchor, withCell, sender, selection);
                 return;
             }

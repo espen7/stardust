@@ -13,8 +13,6 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
-
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Objects;
@@ -124,17 +122,6 @@ public class OneForOneStrategy extends SupervisorStrategy {
     @Override
     public Function<Throwable, Directive> decider() {
         return decider;
-    }
-
-    /**
-     * 根据失败原因计算监督指令。
-     *
-     * @param cause child failure 原因
-     * @return decider 产生的监督指令
-     */
-    @Override
-    public Directive handle(Throwable cause) {
-        return decider.apply(cause);
     }
 
     /**

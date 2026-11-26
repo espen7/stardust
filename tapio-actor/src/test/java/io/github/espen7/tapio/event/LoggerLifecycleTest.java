@@ -424,7 +424,9 @@ class LoggerLifecycleTest {
         AtomicReference<String> message = new AtomicReference<>();
         Logger logger = (Logger) Proxy.newProxyInstance(Logger.class.getClassLoader(), new Class<?>[]{Logger.class},
                 (proxy, method, arguments) -> {
-                    if ("info".equals(method.getName())) message.set((String) arguments[0]);
+                    if ("info".equals(method.getName())) {
+                        message.set(arguments.length > 1 ? (String) arguments[1] : (String) arguments[0]);
+                    }
                     return null;
                 });
 

@@ -11,10 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.espen7.tapio.actor.dungeon;
+package io.github.espen7.tapio.actor;
+
+import io.github.espen7.tapio.annotation.InternalApi;
 
 /**
- * ChildrenContainer 中的条目基类，保留 Pekko ChildStats 的容器形状。
+ * ChildrenContainer 中的名字预留标记，创建 Actor 期间阻止同名并发创建。
  */
-public sealed interface ChildStats permits ChildRestartStats, ChildNameReserved {
+@InternalApi
+public enum ChildNameReserved implements ChildStats {
+    INSTANCE
 }

@@ -17,10 +17,11 @@ import io.github.espen7.tapio.event.Logging;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
 /** 使用当前 Actor path 和 class 作为日志来源的 Classic Actor。 */
-public abstract class AbstractLoggingActor extends AbstractActor {
+public abstract class AbstractLoggingActor extends AbstractActor implements ActorLogging {
     private LoggingAdapter log;
 
     /** @return 当前 Actor 的日志适配器 */
+    @Override
     public LoggingAdapter log() {
         if (log == null) log = Logging.getLogger(context.system().eventStream(), self.path().toString(), getClass());
         return log;

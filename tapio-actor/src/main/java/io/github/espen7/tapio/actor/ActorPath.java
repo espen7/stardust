@@ -129,6 +129,9 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
     }
 
     static void validatePathElement(String element) {
+        if (element.isEmpty()) {
+            throw new InvalidActorNameException("Actor path element must not be empty");
+        }
         for (int index = 0; index < element.length(); index++) {
             char character = element.charAt(index);
             if (index == 0 && character == '$') {

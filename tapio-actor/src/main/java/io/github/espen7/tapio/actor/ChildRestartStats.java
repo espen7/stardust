@@ -11,9 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.espen7.tapio.actor.dungeon;
-
-import io.github.espen7.tapio.actor.ActorRef;
+package io.github.espen7.tapio.actor;
 
 import java.util.concurrent.TimeUnit;
 

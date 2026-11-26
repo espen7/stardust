@@ -13,9 +13,6 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.actor.dungeon.ChildNameReserved;
-import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
-import io.github.espen7.tapio.actor.dungeon.ChildStats;
 import io.github.espen7.tapio.actor.dungeon.Children;
 import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
 import io.github.espen7.tapio.actor.dungeon.DeathWatch;
@@ -247,7 +244,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
                 && (uid == ActorPath.UndefinedUid || uid == stats.uid())) {
             return (InternalActorRef) stats.child();
         }
-        return null;
+        return Nobody.INSTANCE;
     }
 
     /**
@@ -473,7 +470,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
             throw new ActorInitializationException(self, "interruption during creation", error);
         } catch (Throwable error) {
             rethrowIfFatal(error);
-            if (actor() != null) setFailed(self);
+            if (actor() != null) setFailed(actor().self);
             failActor();
             if (error instanceof InstantiationException instantiation) {
                 throw new ActorInitializationException(self,
@@ -641,7 +638,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         } else if (reschedule || data.task == emptyCancellable) {
             data.task.cancel();
             data.task = system.scheduler().scheduleOnce(data.timeout, self,
-                    new ReceiveTimeout(data.timeout), dispatcher, system.deadLetters());
+                    new ReceiveTimeout(data.timeout), dispatcher, ActorRef.noSender);
             data.version++;
         }
     }
@@ -807,7 +804,12 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         } finally {
             clearFailed();
         }
-        create(Optional.empty());
+        try {
+            create(Optional.empty());
+        } catch (Throwable error) {
+            rethrowIfFatal(error);
+            handleInvokeFailure(error);
+        }
     }
 
     private void faultRecreate(Throwable cause) {
@@ -962,9 +964,12 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
             } finally {
                 try {
                     try {
-                        parent.sendSystemMessage(new DeathWatchNotification(self, true, false));
-                        for (ActorRef watcher : watchedBy) {
-                            if (!watcher.equals(parent)) sendTerminated(watcher);
+                        try {
+                            parent.sendSystemMessage(new DeathWatchNotification(self, true, false));
+                        } finally {
+                            for (ActorRef watcher : watchedBy) {
+                                if (!watcher.equals(parent)) sendTerminated(watcher);
+                            }
                         }
                     } finally {
                         unwatchWatchedActors();

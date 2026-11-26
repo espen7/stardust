@@ -13,12 +13,13 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.TapioException;
 import io.github.espen7.tapio.annotation.InternalApi;
 
 /**
  * Actor constructor 或初始 receive 创建失败时使用的异常。
  */
-public class ActorInitializationException extends RuntimeException {
+public class ActorInitializationException extends TapioException {
     private final ActorRef actor;
 
     /**

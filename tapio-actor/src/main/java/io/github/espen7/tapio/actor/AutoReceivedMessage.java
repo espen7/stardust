@@ -13,6 +13,11 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
+import java.io.Serializable;
+
 /** 标记由 ActorCell 自动处理、不进入用户 receive 的消息。 */
-public interface AutoReceivedMessage {
+@InternalApi
+public interface AutoReceivedMessage extends Serializable {
 }

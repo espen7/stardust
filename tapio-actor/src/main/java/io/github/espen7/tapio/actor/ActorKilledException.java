@@ -13,18 +13,28 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.TapioException;
+import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.util.NoStackTrace;
+
 /**
  * 表示 Actor 收到 Pekko Classic 的 Kill 指令后产生的异常。
  *
  * <p>默认监督策略对该异常执行 {@link SupervisorStrategy.Directive#Stop}。</p>
  */
-public final class ActorKilledException extends RuntimeException {
+public final class ActorKilledException extends TapioException implements NoStackTrace {
     /**
      * 创建 ActorKilledException。
      *
      * @param message 异常消息
      */
+    @InternalApi
     public ActorKilledException(String message) {
-        super(message, null, false, false);
+        super(message);
+    }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
     }
 }

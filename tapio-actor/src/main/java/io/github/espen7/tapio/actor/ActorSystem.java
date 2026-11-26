@@ -89,7 +89,6 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      *
      * <p>每个 ActorSystem 在启动时创建一份不可变的 Settings。</p>
      */
-    @InternalApi
     public static final class Settings {
         private final String name;
         private final Config config;
@@ -120,7 +119,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         /** 是否发布 EventStream 订阅和退订操作的 DEBUG 日志，默认关闭。 */
         public final boolean DebugEventStream;
         /** user guardian 的 SupervisorStrategyConfigurator 全限定类名。 */
-        public final String GuardianSupervisorStrategyClass;
+        public final String SupervisorStrategyClass;
         /** 外部挂载的 Actor 切换 cell 时等待临时队列锁的时限，默认 10 秒。 */
         public final Duration UnstartedPushTimeout;
         /** Scheduler 实现的全限定类名。 */
@@ -162,7 +161,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             DebugAutoReceive = config.getBoolean(ActorPath.Scheme + ".actor.debug.autoreceive");
             DebugUnhandledMessage = config.getBoolean(ActorPath.Scheme + ".actor.debug.unhandled");
             DebugEventStream = config.getBoolean(ActorPath.Scheme + ".actor.debug.event-stream");
-            GuardianSupervisorStrategyClass = config.getString(
+            SupervisorStrategyClass = config.getString(
                     ActorPath.Scheme + ".actor.guardian-supervisor-strategy");
             UnstartedPushTimeout = Duration.ofMillis(config.getDuration(
                     ActorPath.Scheme + ".actor.unstarted-push-timeout").toMillis());
@@ -207,15 +206,6 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             return classLoader;
         }
     }
-
-    /**
-     * 创建挂在 system guardian 下的系统 Actor。
-     *
-     * @param props Actor 创建配置
-     * @param name system guardian 下唯一的 child name
-     * @return 新系统 ActorRef
-     */
-    public abstract ActorRef systemActorOf(Props props, String name);
 
     /**
      * 返回该系统的 dead letters 引用。
@@ -269,16 +259,6 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     public abstract Scheduler scheduler();
 
     /**
-     * 返回此系统共享的线程工厂。
-     *
-     * <p>Scheduler 和 Dispatcher 使用同一基础工厂派生线程名称，并保持相同的
-     * daemon、上下文类加载器和未捕获异常处理语义。</p>
-     *
-     * @return 此 ActorSystem 的线程工厂
-     */
-    public abstract ThreadFactory threadFactory();
-
-    /**
      * 返回此系统的事件总线。
      *
      * <p>日志以结构化 {@link io.github.espen7.tapio.event.LogEvent} 发布到此处；
@@ -316,13 +296,6 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     public abstract CompletionStage<Terminated> getWhenTerminated();
 
     /**
-     * 返回此 ActorSystem 的 CoordinatedShutdown。
-     *
-     * @return 此系统的 CoordinatedShutdown
-     */
-    public abstract CoordinatedShutdown coordinatedShutdown();
-
-    /**
      * 发起 ActorSystem 关闭。
      *
      * <p>此方法满足 {@link AutoCloseable}，并等待 Pekko 配置的
@@ -331,19 +304,5 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     @Override
     public void close() {
         terminate();
-    }
-
-    /**
-     * 安排一个一次性任务。
-     *
-     * <p>任务到期后在 Scheduler 的执行线程上运行。返回的句柄可用于取消尚未执行的任务。</p>
-     *
-     * @param delay 从调用到执行之间的延迟。零值或负值会尽快执行
-     * @param runnable 到期后执行的任务
-     * @return 可取消的任务句柄
-     * @throws java.util.concurrent.RejectedExecutionException 当 Scheduler 已关闭时
-     */
-    public Cancellable scheduleOnce(Duration delay, Runnable runnable) {
-        return scheduler().scheduleOnce(delay, runnable);
     }
 }

@@ -11,11 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.espen7.tapio.actor.dungeon;
+package io.github.espen7.tapio.actor;
 
-/**
- * ChildrenContainer 中的名字预留标记，创建 Actor 期间阻止同名并发创建。
- */
-public enum ChildNameReserved implements ChildStats {
-    INSTANCE
+import io.github.espen7.tapio.event.LoggingAdapter;
+
+/** 为 Actor 提供基于当前实例的 {@link LoggingAdapter}，对应 Pekko {@code ActorLogging}。 */
+public interface ActorLogging {
+    /**
+     * 返回当前 Actor 的日志适配器。
+     *
+     * @return 日志适配器
+     */
+    LoggingAdapter log();
 }

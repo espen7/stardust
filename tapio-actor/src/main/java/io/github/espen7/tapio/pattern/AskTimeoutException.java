@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.pattern;
 
+import io.github.espen7.tapio.util.NoStackTrace;
+
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -20,7 +22,9 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>此异常不采集堆栈跟踪。
  */
-public class AskTimeoutException extends TimeoutException {
+public class AskTimeoutException extends TimeoutException implements NoStackTrace {
+    private final Throwable cause;
+
     /**
      * 创建没有关联原因的 ask 超时异常。
      *
@@ -38,7 +42,12 @@ public class AskTimeoutException extends TimeoutException {
      */
     public AskTimeoutException(String message, Throwable cause) {
         super(message);
-        initCause(cause);
+        this.cause = cause;
+    }
+
+    @Override
+    public synchronized Throwable getCause() {
+        return cause;
     }
 
     /**

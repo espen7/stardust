@@ -34,6 +34,8 @@ public abstract class InternalActorRef extends ActorRef implements ActorRefScope
      */
     public abstract ActorRefProvider provider();
 
+    abstract InternalActorRef getParent();
+
     /**
      * 向此引用投递系统消息。
      *
@@ -43,7 +45,7 @@ public abstract class InternalActorRef extends ActorRef implements ActorRefScope
 
     InternalActorRef getChild(Iterator<String> names) {
         while (names.hasNext()) {
-            if (!names.next().isEmpty()) return null;
+            if (!names.next().isEmpty()) return Nobody.INSTANCE;
         }
         return this;
     }

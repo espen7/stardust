@@ -19,7 +19,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
 /** Mailbox 状态和系统消息队列头的字段句柄。 */
-abstract class AbstractMailbox {
+final class AbstractMailbox {
     static final VarHandle mailboxStatusHandle;
     static final VarHandle systemMessageHandle;
 

@@ -182,7 +182,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
     }
 
     private SupervisorStrategy guardianSupervisorStrategy(ActorSystemImpl system) {
-        String className = system.settings().GuardianSupervisorStrategyClass;
+        String className = system.settings().SupervisorStrategyClass;
         try {
             Class<? extends SupervisorStrategyConfigurator> configuratorClass = Class.forName(className, false,
                             system.settings().classLoader())
@@ -348,7 +348,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
             return deadLetters;
         }
         InternalActorRef resolved = ref.getChild(pathElements.iterator());
-        if (resolved != null) return resolved;
+        if (resolved != null && resolved != Nobody.INSTANCE) return resolved;
         if (log.isDebugEnabled()) {
             logDeser.debug("Resolve (deserialization) of path [{}] doesn't match an active actor. "
                     + "It has probably been stopped, using deadLetters.", String.join("/", pathElements));
@@ -462,6 +462,10 @@ public class LocalActorRefProvider extends ActorRefProvider {
         @Override
         public SupervisorStrategy supervisorStrategy() {
             return supervisorStrategy;
+        }
+
+        @Override
+        public void preRestart(Throwable reason, java.util.Optional<Object> message) {
         }
 
         @Override

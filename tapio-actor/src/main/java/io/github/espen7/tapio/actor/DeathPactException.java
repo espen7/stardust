@@ -13,8 +13,12 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.TapioException;
+import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.util.NoStackTrace;
+
 /** 未处理 DeathWatch 终止通知时由 Actor 抛出的异常。 */
-public final class DeathPactException extends RuntimeException {
+public final class DeathPactException extends TapioException implements NoStackTrace {
     private final ActorRef dead;
 
     /**
@@ -22,9 +26,15 @@ public final class DeathPactException extends RuntimeException {
      *
      * @param dead 已终止的 ActorRef
      */
+    @InternalApi
     public DeathPactException(ActorRef dead) {
         super("Monitored actor [" + dead + "] terminated");
         this.dead = dead;
+    }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
     }
 
     /**

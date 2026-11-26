@@ -52,7 +52,8 @@ public class Dispatchers {
      * @param system 接收 dead-letter 事件并提供 Scheduler 的系统
      */
     public Dispatchers(ActorSystem.Settings settings, ActorSystem system) {
-        this(settings, new DefaultDispatcherPrerequisites(system.threadFactory(), system.eventStream(),
+        this(settings, new DefaultDispatcherPrerequisites(
+                ((io.github.espen7.tapio.actor.ExtendedActorSystem) system).threadFactory(), system.eventStream(),
                 system.scheduler(), settings, system.mailboxes(), Optional.empty()), system.log());
     }
 

@@ -13,11 +13,11 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
 import io.github.espen7.tapio.dispatch.sysmsg.Recreate;
 import io.github.espen7.tapio.dispatch.sysmsg.Resume;
 import io.github.espen7.tapio.dispatch.sysmsg.Suspend;
 import io.github.espen7.tapio.event.Error;
+import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.event.Warning;
 
 import java.lang.reflect.InvocationTargetException;
@@ -35,7 +35,22 @@ public abstract class SupervisorStrategy {
     /**
      * 监督器对 child failure 作出的决定。
      */
-    public enum Directive {Resume, Restart, Stop, Escalate}
+    public enum Directive {
+        Resume(LogEvent.Level.WARNING),
+        Restart(LogEvent.Level.ERROR),
+        Stop(LogEvent.Level.ERROR),
+        Escalate(LogEvent.Level.ERROR);
+
+        private final LogEvent.Level logLevel;
+
+        Directive(LogEvent.Level logLevel) {
+            this.logLevel = logLevel;
+        }
+
+        public LogEvent.Level logLevel() {
+            return logLevel;
+        }
+    }
 
     /**
      * 默认决策：初始化失败、ActorKilledException 和 DeathPactException 停止，普通异常重启。
@@ -79,17 +94,7 @@ public abstract class SupervisorStrategy {
      *
      * @return 将异常映射为监督指令的函数
      */
-    public Function<Throwable, Directive> decider() {
-        return this::handle;
-    }
-
-    /**
-     * 根据失败原因计算监督指令。
-     *
-     * @param cause child failure 原因
-     * @return 监督指令
-     */
-    public abstract Directive handle(Throwable cause);
+    public abstract Function<Throwable, Directive> decider();
 
     /**
      * 返回失败日志是否启用。
@@ -182,7 +187,7 @@ public abstract class SupervisorStrategy {
         }
         String message = String.valueOf(messageCause.getMessage());
         try {
-            if (decision == Directive.Resume) {
+            if (decision.logLevel() == LogEvent.Level.WARNING) {
                 context.system().eventStream().publish(new Warning(child.path().toString(), getClass(), message, cause));
             } else {
                 context.system().eventStream().publish(new Error(child.path().toString(), getClass(), message, cause));

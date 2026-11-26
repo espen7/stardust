@@ -207,7 +207,7 @@ class ActorRuntimeTest {
     @Test
     void systemActorOfUsesSystemGuardianPath() throws Exception {
         system = ActorSystem.create("system-actors");
-        ActorRef actor = system.systemActorOf(Props.create(EchoActor.class), "service");
+        ActorRef actor = ((ExtendedActorSystem) system).systemActorOf(Props.create(EchoActor.class), "service");
 
         assertEquals("/system/service", actor.path().toStringWithoutAddress());
         assertEquals("service", actor.path().name());
@@ -218,7 +218,7 @@ class ActorRuntimeTest {
     void coordinatedShutdownRunsRegisteredTaskBeforeTermination() throws Exception {
         system = ActorSystem.create("coordinated-shutdown");
         BlockingQueue<Object> completed = new LinkedBlockingQueue<>();
-        system.coordinatedShutdown().addTask(
+        CoordinatedShutdown.get(system).addTask(
                 CoordinatedShutdown.PhaseBeforeActorSystemTerminate,
                 "test-task",
                 () -> {
@@ -229,7 +229,7 @@ class ActorRuntimeTest {
         system.terminate().toCompletableFuture().get(WAIT_SECONDS, TimeUnit.SECONDS);
         assertEquals("done", completed.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals(CoordinatedShutdown.ActorSystemTerminateReason.class,
-                system.coordinatedShutdown().shutdownReason().orElseThrow().getClass());
+                CoordinatedShutdown.get(system).shutdownReason().orElseThrow().getClass());
     }
 
     @Test
@@ -257,7 +257,7 @@ class ActorRuntimeTest {
         assertSame(root.path(), root.path().parent());
         assertSame(root, root.getParent());
         assertEquals("/bubble-walker", root.underlying().parent().path().toStringWithoutAddress());
-        assertNull(root.getSingleChild("bubble-walker"));
+        assertSame(Nobody.INSTANCE, root.getSingleChild("bubble-walker"));
         assertSame(root, user.getParent());
         assertSame(root, systemGuardian.getParent());
         assertSame(root, temp.getParent());
@@ -266,7 +266,7 @@ class ActorRuntimeTest {
         assertSame(systemGuardian, root.getSingleChild("system"));
         assertSame(temp, root.getSingleChild("temp"));
         assertSame(system.deadLetters(), root.getSingleChild("deadLetters"));
-        assertNull(root.getSingleChild("remote"));
+        assertSame(Nobody.INSTANCE, root.getSingleChild("remote"));
         assertSame(root.path(), user.path().parent());
         assertSame(root.path(), systemGuardian.path().parent());
         assertSame(root.path(), temp.path().parent());
@@ -285,7 +285,7 @@ class ActorRuntimeTest {
         assertEquals("ready", ask(child, "ready"));
         assertThrows(InvalidActorNameException.class, () -> factory.actorOf(Props.create(EchoActor.class), "$a"));
         assertThrows(InvalidActorNameException.class, () -> factory.actorOf(Props.create(EchoActor.class), "a#b"));
-        ActorRef service = system.systemActorOf(Props.create(EchoActor.class), "service");
+        ActorRef service = ((ExtendedActorSystem) system).systemActorOf(Props.create(EchoActor.class), "service");
 
         Props watcherProps = Props.create(WatcherActor.class);
         ActorRef childWatcher = factory.actorOf(watcherProps, "child-watcher");
@@ -721,18 +721,18 @@ class ActorRuntimeTest {
         assertEquals(window, oneForOne.withinTimeRange());
         assertTrue(oneForOne.loggingEnabled());
         assertEquals(SupervisorStrategy.Directive.Restart,
-                oneForOne.handle(new IllegalStateException("restart")));
+                oneForOne.decider().apply(new IllegalStateException("restart")));
         assertEquals(SupervisorStrategy.Directive.Stop,
-                oneForOne.handle(new ActorKilledException("kill")));
+                oneForOne.decider().apply(new ActorKilledException("kill")));
 
         AllForOneStrategy allForOne = new AllForOneStrategy(3, window, SupervisorStrategy.defaultDecider);
         assertEquals(3, allForOne.maxNrOfRetries());
         assertEquals(window, allForOne.withinTimeRange());
         assertTrue(allForOne.loggingEnabled());
         assertEquals(SupervisorStrategy.Directive.Restart,
-                allForOne.handle(new IllegalStateException("restart")));
+                allForOne.decider().apply(new IllegalStateException("restart")));
         assertEquals(SupervisorStrategy.Directive.Stop,
-                allForOne.handle(new ActorKilledException("kill")));
+                allForOne.decider().apply(new ActorKilledException("kill")));
 
         java.util.List<Class<? extends Throwable>> trapExit = new java.util.ArrayList<>();
         trapExit.add(IllegalStateException.class);
@@ -740,13 +740,13 @@ class ActorRuntimeTest {
         AllForOneStrategy trappingAllForOne = new AllForOneStrategy(3, window, trapExit);
         trapExit.clear();
         assertEquals(SupervisorStrategy.Directive.Restart,
-                trappingOneForOne.handle(new IllegalStateException("restart")));
+                trappingOneForOne.decider().apply(new IllegalStateException("restart")));
         assertEquals(SupervisorStrategy.Directive.Escalate,
-                trappingOneForOne.handle(new IllegalArgumentException("escalate")));
+                trappingOneForOne.decider().apply(new IllegalArgumentException("escalate")));
         assertEquals(SupervisorStrategy.Directive.Restart,
-                trappingAllForOne.handle(new IllegalStateException("restart")));
+                trappingAllForOne.decider().apply(new IllegalStateException("restart")));
         assertEquals(SupervisorStrategy.Directive.Escalate,
-                trappingAllForOne.handle(new IllegalArgumentException("escalate")));
+                trappingAllForOne.decider().apply(new IllegalArgumentException("escalate")));
 
         OneForOneStrategy quietOneForOne = new OneForOneStrategy(false,
                 error -> SupervisorStrategy.Directive.Resume);
@@ -763,15 +763,15 @@ class ActorRuntimeTest {
         assertEquals(4, adjusted.maxNrOfRetries());
         assertEquals(quietOneForOne.withinTimeRange(), adjusted.withinTimeRange());
         assertFalse(adjusted.loggingEnabled());
-        assertEquals(SupervisorStrategy.Directive.Resume, adjusted.handle(new IllegalStateException("resume")));
+        assertEquals(SupervisorStrategy.Directive.Resume, adjusted.decider().apply(new IllegalStateException("resume")));
 
         assertSame(SupervisorStrategy.defaultStrategy, new DefaultSupervisorStrategy().create());
         assertSame(SupervisorStrategy.stoppingStrategy, new StoppingSupervisorStrategy().create());
         OneForOneStrategy stopping = (OneForOneStrategy) SupervisorStrategy.stoppingStrategy;
         assertEquals(-1, stopping.maxNrOfRetries());
         assertTrue(stopping.withinTimeRange().isNegative());
-        assertEquals(SupervisorStrategy.Directive.Stop, stopping.handle(new IllegalStateException("stop")));
-        assertEquals(SupervisorStrategy.Directive.Escalate, stopping.handle(new AssertionError("escalate")));
+        assertEquals(SupervisorStrategy.Directive.Stop, stopping.decider().apply(new IllegalStateException("stop")));
+        assertEquals(SupervisorStrategy.Directive.Escalate, stopping.decider().apply(new AssertionError("escalate")));
     }
 
     @Test
@@ -779,24 +779,21 @@ class ActorRuntimeTest {
         system = ActorSystem.create("restart-stats");
         ActorRef child = system.actorOf(Props.create(SilentActor.class), "child");
 
-        io.github.espen7.tapio.actor.dungeon.ChildRestartStats limited =
-                new io.github.espen7.tapio.actor.dungeon.ChildRestartStats(child);
+        ChildRestartStats limited = new ChildRestartStats(child);
         assertTrue(limited.requestRestartPermission(2, null));
         assertTrue(limited.requestRestartPermission(2, null));
         assertFalse(limited.requestRestartPermission(2, null));
-        assertFalse(new io.github.espen7.tapio.actor.dungeon.ChildRestartStats(child)
+        assertFalse(new ChildRestartStats(child)
                 .requestRestartPermission(0, null));
-        assertTrue(new io.github.espen7.tapio.actor.dungeon.ChildRestartStats(child)
+        assertTrue(new ChildRestartStats(child)
                 .requestRestartPermission(-1, null));
 
-        io.github.espen7.tapio.actor.dungeon.ChildRestartStats windowed =
-                new io.github.espen7.tapio.actor.dungeon.ChildRestartStats(child);
+        ChildRestartStats windowed = new ChildRestartStats(child);
         assertTrue(windowed.requestRestartPermission(2, 60_000));
         assertTrue(windowed.requestRestartPermission(2, 60_000));
         assertFalse(windowed.requestRestartPermission(2, 60_000));
 
-        io.github.espen7.tapio.actor.dungeon.ChildRestartStats expired =
-                new io.github.espen7.tapio.actor.dungeon.ChildRestartStats(child, 2,
+        ChildRestartStats expired = new ChildRestartStats(child, 2,
                         System.nanoTime() - TimeUnit.SECONDS.toNanos(1));
         assertTrue(expired.requestRestartPermission(2, 10));
         assertEquals(1, expired.maxNrOfRetriesCount());
@@ -1117,7 +1114,7 @@ class ActorRuntimeTest {
         assertInstanceOf(AskTimeoutException.class, error.getCause());
         // 定时器顺序执行，后一项任务运行时 ask 的清理回调已经返回。
         CompletableFuture<Void> barrier = new CompletableFuture<>();
-        system.scheduleOnce(Duration.ofNanos(1), () -> barrier.complete(null));
+        system.scheduler().scheduleOnce(Duration.ofNanos(1), () -> barrier.complete(null));
         barrier.get(WAIT_SECONDS, TimeUnit.SECONDS);
 
         assertTrue(((InternalActorRef) replyTo).isTerminated());
@@ -1195,7 +1192,7 @@ class ActorRuntimeTest {
                 """);
         system = ActorSystem.create("guardian-strategy", config);
         assertEquals(StoppingSupervisorStrategyConfigurator.class.getName(),
-                system.settings().GuardianSupervisorStrategyClass);
+                system.settings().SupervisorStrategyClass);
         AtomicInteger instances = new AtomicInteger();
         ActorRef actor = system.actorOf(Props.create(RestartingActor.class,
                 () -> new RestartingActor(instances.incrementAndGet())), "actor");
@@ -1263,7 +1260,7 @@ class ActorRuntimeTest {
         BlockingQueue<String> stopped = new LinkedBlockingQueue<>();
         Props props = Props.create(StopProbe.class, stopped);
         ActorRef actor = system.actorOf(props, "actor");
-        ActorRef service = system.systemActorOf(props, "service");
+        ActorRef service = ((ExtendedActorSystem) system).systemActorOf(props, "service");
         assertEquals("ready", ask(actor, "ready"));
         assertEquals("ready", ask(service, "ready"));
 

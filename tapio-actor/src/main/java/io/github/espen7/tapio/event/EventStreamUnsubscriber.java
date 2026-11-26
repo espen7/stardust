@@ -16,7 +16,7 @@ package io.github.espen7.tapio.event;
 import io.github.espen7.tapio.actor.AbstractActor;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
-import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.ExtendedActorSystem;
 import io.github.espen7.tapio.actor.InternalActorRef;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.actor.Terminated;
@@ -69,10 +69,11 @@ final class EventStreamUnsubscriber extends AbstractActor {
                 .build();
     }
 
-    static ActorRef start(ActorSystem system, EventStream eventStream) {
+    static ActorRef start(io.github.espen7.tapio.actor.ActorSystem system, EventStream eventStream) {
         boolean debug = system.settings().config().getBoolean(ActorPath.Scheme + ".actor.debug.event-stream");
-        ActorRef unsubscriber = system.systemActorOf(Props.create(EventStreamUnsubscriber.class, eventStream, debug)
-                .withDispatcher(Dispatchers.InternalDispatcherId),
+        ActorRef unsubscriber = ((ExtendedActorSystem) system).systemActorOf(
+                Props.create(EventStreamUnsubscriber.class, eventStream, debug)
+                        .withDispatcher(Dispatchers.InternalDispatcherId),
                 "eventStreamUnsubscriber-" + UNSUBSCRIBERS_COUNT.incrementAndGet());
         if (debug) {
             eventStream.publish(new Debug(Logging.simpleName(EventStreamUnsubscriber.class),

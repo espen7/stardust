@@ -34,7 +34,10 @@ public record Envelope(Object message, ActorRef sender) {
      * @throws InvalidMessageException 当 message 为 {@code null}
      */
     public static Envelope apply(Object message, ActorRef sender, ActorSystem system) {
-        if (message == null) throw new InvalidMessageException("Message is null");
+        if (message == null) {
+            throw new InvalidMessageException(sender == ActorRef.noSender
+                    ? "Message is null." : "Message sent from [" + sender + "] is null.");
+        }
         return new Envelope(message, sender == null ? system.deadLetters() : sender);
     }
 }

@@ -13,15 +13,19 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.TapioException;
+import io.github.espen7.tapio.annotation.InternalApi;
+
 /**
  * 消息不满足 Actor 投递约束时抛出的异常。
  */
-public final class InvalidMessageException extends RuntimeException {
+public final class InvalidMessageException extends TapioException {
     /**
      * 创建消息投递异常。
      *
      * @param message 描述违反的投递约束
      */
+    @InternalApi
     public InvalidMessageException(String message) {
         super(message);
     }

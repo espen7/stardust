@@ -173,8 +173,10 @@ public abstract class LoggingBus implements ActorEventBus<Object, Class<?>> {
             } else {
                 if (system.settings().DebugUnhandledMessage) {
                     try {
-                        subscribe(system.systemActorOf(Props.create(UnhandledMessageForwarder.class),
-                                "UnhandledMessageForwarder"), UnhandledMessage.class);
+                        subscribe(((io.github.espen7.tapio.actor.ExtendedActorSystem) system)
+                                        .systemActorOf(Props.create(UnhandledMessageForwarder.class),
+                                                "UnhandledMessageForwarder"),
+                                UnhandledMessage.class);
                     } catch (InvalidActorNameException ignored) {
                     }
                 }

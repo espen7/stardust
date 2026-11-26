@@ -14,6 +14,9 @@
 package io.github.espen7.tapio.actor.dungeon;
 
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ChildNameReserved;
+import io.github.espen7.tapio.actor.ChildRestartStats;
+import io.github.espen7.tapio.actor.ChildStats;
 import io.github.espen7.tapio.actor.InvalidActorNameException;
 
 import java.util.ArrayList;

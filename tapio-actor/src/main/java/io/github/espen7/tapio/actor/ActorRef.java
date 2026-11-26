@@ -77,7 +77,7 @@ public abstract class ActorRef implements Comparable<ActorRef>, Serializable {
      * @return 已定义的 Actor incarnation UID，或未定义 UID 时的路径哈希码
      */
     @Override
-    public int hashCode() {
+    public final int hashCode() {
         ActorPath path = path();
         return path.uid() == ActorPath.UndefinedUid ? path.hashCode() : path.uid();
     }
@@ -86,7 +86,7 @@ public abstract class ActorRef implements Comparable<ActorRef>, Serializable {
      * Actor identity 同时包含路径和 UID。相同路径的新 incarnation 不会与旧引用相等。
      */
     @Override
-    public boolean equals(Object other) {
+    public final boolean equals(Object other) {
         return other instanceof ActorRef ref && path().equals(ref.path()) && path().uid() == ref.path().uid();
     }
 

@@ -53,4 +53,9 @@ public abstract class MinimalActorRef extends InternalActorRef implements LocalR
     @Override
     public void sendSystemMessage(SystemMessage message) {
     }
+
+    @Override
+    InternalActorRef getParent() {
+        return Nobody.INSTANCE;
+    }
 }

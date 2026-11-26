@@ -277,9 +277,15 @@ public class LightArrayRevolverScheduler extends Scheduler {
         } catch (SchedulerException ignored) {
             /* 关闭时的任务可能尝试继续调度。 */
         } catch (Throwable error) {
+            if (error instanceof InterruptedException) throwUnchecked(error);
             ActorCell.rethrowIfFatal(error);
             log.error(error, "exception while executing timer task");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> void throwUnchecked(Throwable error) throws T {
+        throw (T) error;
     }
 
     private final class Timer implements Runnable {

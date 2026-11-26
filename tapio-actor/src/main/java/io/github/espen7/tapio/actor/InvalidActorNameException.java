@@ -13,8 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.TapioException;
+
 /** Actor 名称无效或已被同一父 Actor 的另一个子引用使用。 */
-public final class InvalidActorNameException extends IllegalArgumentException {
+public final class InvalidActorNameException extends TapioException {
     /**
      * 创建名称异常。
      *

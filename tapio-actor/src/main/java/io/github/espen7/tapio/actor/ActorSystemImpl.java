@@ -43,7 +43,7 @@ import java.util.concurrent.TimeoutException;
  * user guardian 和 system guardian。关闭时从 user guardian 开始。</p>
  */
 @InternalApi
-public class ActorSystemImpl extends ActorSystem {
+public class ActorSystemImpl extends ExtendedActorSystem {
 
     private static final String ACTOR_NAME_PATTERN = "^[a-zA-Z0-9][a-zA-Z0-9-_]*$";
 

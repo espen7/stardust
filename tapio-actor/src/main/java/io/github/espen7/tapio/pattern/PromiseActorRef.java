@@ -53,19 +53,8 @@ public final class PromiseActorRef extends MinimalActorRef {
     private static final Object Stopped = new Object();
     private record StoppedWithPath(ActorPath path) {}
     private static final ActorKilledException ActorStopResult = new ActorKilledException("Stopped");
-
-    private static final VarHandle stateHandle;
-    private static final VarHandle watchedByHandle;
-
-    static {
-        try {
-            MethodHandles.Lookup lookup = MethodHandles.lookup();
-            stateHandle = lookup.findVarHandle(PromiseActorRef.class, "state", Object.class);
-            watchedByHandle = lookup.findVarHandle(PromiseActorRef.class, "watchedBy", Set.class);
-        } catch (ReflectiveOperationException error) {
-            throw new ExceptionInInitializerError(error);
-        }
-    }
+    private static final VarHandle stateHandle = AbstractPromiseActorRef.stateHandle;
+    private static final VarHandle watchedByHandle = AbstractPromiseActorRef.watchedByHandle;
 
     private final ActorRefProvider provider;
     private final CompletableFuture<Object> result;

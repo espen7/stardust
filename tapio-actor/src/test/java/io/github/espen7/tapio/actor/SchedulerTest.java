@@ -255,7 +255,7 @@ class SchedulerTest {
         ControlledExecutor executor = new ControlledExecutor();
         Cancellable schedulerFailure = harness.scheduler().scheduleWithFixedDelay(
                 Duration.ZERO, TICK, () -> {
-                    throw new IllegalStateException(new Scheduler.SchedulerException("closed"));
+                    throw new IllegalStateException(new SchedulerException("closed"));
                 }, executor);
         assertDoesNotThrow(executor.take()::run);
         assertTrue(executor.tasks.isEmpty());

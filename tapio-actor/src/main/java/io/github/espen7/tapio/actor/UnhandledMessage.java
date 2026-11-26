@@ -13,8 +13,6 @@
  */
 package io.github.espen7.tapio.actor;
 
-import java.util.Objects;
-
 /**
  * Actor 未处理的用户消息，由 ActorSystem EventStream 发布。
  *
@@ -22,10 +20,6 @@ import java.util.Objects;
  * @param sender 消息 sender
  * @param recipient 未处理该消息的 Actor
  */
-public record UnhandledMessage(Object message, ActorRef sender, ActorRef recipient) implements AllDeadLetters {
-    public UnhandledMessage {
-        Objects.requireNonNull(message, "message");
-        Objects.requireNonNull(sender, "sender");
-        Objects.requireNonNull(recipient, "recipient");
-    }
+public record UnhandledMessage(Object message, ActorRef sender, ActorRef recipient)
+        implements NoSerializationVerificationNeeded, WrappedMessage, AllDeadLetters {
 }

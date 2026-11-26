@@ -94,11 +94,25 @@ public final class DeadLetterListener extends Actor {
             if (count == maxCount) {
                 logDeadLetter(event, ", no more dead letters will be logged in next [" + suspendDescription + "]");
                 suspendDeadline = System.nanoTime() + suspendDuration.toNanos();
+                context.become(receiveWhenSuspended());
             } else logDeadLetter(event, "");
-        } else if (System.nanoTime() - suspendDeadline > 0) {
-            logDeadLetter(event, ", of which " + (count - maxCount - 1) + " were not logged. The counter will be reset now");
-            count = 0;
         }
+    }
+
+    private PartialFunction<Object, Void> receiveWhenSuspended() {
+        return ReceiveBuilder.create()
+                .match(AllDeadLetters.class, event -> {
+                    if (event.message() instanceof WrappedMessage wrapped
+                            && wrapped.message() instanceof DeadLetterSuppression) return;
+                    if (System.nanoTime() - suspendDeadline > 0) {
+                        logDeadLetter(event, ", of which " + (count - maxCount) + " were not logged. The counter will be reset now");
+                        count = 0;
+                        context.become(receive());
+                    } else {
+                        count++;
+                    }
+                })
+                .build().onMessage();
     }
 
     private void logDeadLetter(AllDeadLetters event, String doneMsg) {

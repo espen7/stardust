@@ -13,13 +13,15 @@
  */
 package io.github.espen7.tapio.japi.function;
 
+import java.io.Serializable;
+
 /**
  * Actor 实例的延迟创建函数，对应 Pekko japi.function.Creator。
  *
  * @param <T> 创建结果类型
  */
 @FunctionalInterface
-public interface Creator<T> {
+public interface Creator<T> extends Serializable {
     /**
      * 创建一个 Actor 实例。
      *

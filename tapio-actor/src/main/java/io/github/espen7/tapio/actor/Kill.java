@@ -16,8 +16,9 @@ package io.github.espen7.tapio.actor;
 import java.io.Serializable;
 
 /** ActorCell 自动处理并通过 ActorKilledException 触发监督的消息。 */
-public final class Kill implements AutoReceivedMessage, PossiblyHarmful, Serializable {
-    private static final Kill INSTANCE = new Kill();
+public abstract class Kill implements AutoReceivedMessage, PossiblyHarmful, Serializable {
+    private static final Kill INSTANCE = new Kill() {
+    };
 
     private Kill() {
     }

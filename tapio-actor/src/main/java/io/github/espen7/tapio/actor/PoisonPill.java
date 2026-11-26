@@ -16,8 +16,9 @@ package io.github.espen7.tapio.actor;
 import java.io.Serializable;
 
 /** ActorCell 自动处理并永久停止当前 Actor 的消息。 */
-public final class PoisonPill implements AutoReceivedMessage, PossiblyHarmful, DeadLetterSuppression, Serializable {
-    private static final PoisonPill INSTANCE = new PoisonPill();
+public abstract class PoisonPill implements AutoReceivedMessage, PossiblyHarmful, DeadLetterSuppression, Serializable {
+    private static final PoisonPill INSTANCE = new PoisonPill() {
+    };
 
     private PoisonPill() {
     }

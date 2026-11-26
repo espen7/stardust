@@ -13,8 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.TapioException;
+
 /** 避免 Actor 的 InterruptedException 向其他线程级联传播的包装异常。 */
-final class ActorInterruptedException extends RuntimeException {
+public class ActorInterruptedException extends TapioException {
     ActorInterruptedException(Throwable cause) {
         super(cause.getMessage(), cause);
     }

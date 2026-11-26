@@ -198,7 +198,7 @@ class DispatcherLifecycleTest {
         assertEquals(Dispatcher.class.getName(), event.source());
         assertSame(Dispatcher.class, event.sourceClass());
         assertEquals("registerForExecution was rejected twice!", event.message());
-        assertEquals("rejected-1", event.cause().getMessage());
+        assertEquals("rejected-2", event.cause().getMessage());
         dispatcher.close();
     }
 

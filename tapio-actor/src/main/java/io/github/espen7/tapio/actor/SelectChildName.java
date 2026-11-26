@@ -13,8 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import java.io.Serializable;
+
 /** 按指定名称选择直接子 Actor。 */
-record SelectChildName(String name) implements SelectionPathElement {
+record SelectChildName(String name) implements SelectionPathElement, Serializable {
     @Override
     public String toString() {
         return name;

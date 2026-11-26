@@ -92,6 +92,7 @@ final class VirtualPathContainer extends MinimalActorRef {
         String name = names.next();
         if (name.isEmpty()) return this;
         InternalActorRef child = getChild(name);
-        return child == null || !names.hasNext() ? child : child.getChild(names);
+        if (child == null) return Nobody.INSTANCE;
+        return !names.hasNext() ? child : child.getChild(names);
     }
 }

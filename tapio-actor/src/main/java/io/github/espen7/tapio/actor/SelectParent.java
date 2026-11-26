@@ -13,8 +13,10 @@
  */
 package io.github.espen7.tapio.actor;
 
+import java.io.Serializable;
+
 /** 选择当前引用的父级。 */
-enum SelectParent implements SelectionPathElement {
+enum SelectParent implements SelectionPathElement, Serializable {
     INSTANCE;
 
     @Override

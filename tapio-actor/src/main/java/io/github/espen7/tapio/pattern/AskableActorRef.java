@@ -16,6 +16,8 @@ package io.github.espen7.tapio.pattern;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.InternalActorRef;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -23,7 +25,7 @@ import java.util.concurrent.CompletionStage;
 /**
  * 按目标引用类型、终止状态和超时参数分派 Classic ask。
  */
-final class AskableActorRef {
+public final class AskableActorRef {
     private final ActorRef actorRef;
 
     AskableActorRef(ActorRef actorRef) {
@@ -51,17 +53,20 @@ final class AskableActorRef {
         return "Message of type [" + msg.getClass().getName() + "]" + wasSentBy + ".";
     }
 
+    @InternalApi
     static IllegalArgumentException negativeTimeoutException(Object recipient, Object message, ActorRef sender) {
         return new IllegalArgumentException("Timeout length must be positive, question not sent to [" + recipient + "]. "
                 + messagePartOfException(message, sender));
     }
 
-    private static AskTimeoutException recipientTerminatedException(ActorRef recipient, Object message, ActorRef sender) {
+    @InternalApi
+    static AskTimeoutException recipientTerminatedException(Object recipient, Object message, ActorRef sender) {
         return new AskTimeoutException("Recipient [" + recipient + "] had already been terminated. "
                 + messagePartOfException(message, sender));
     }
 
-    private static IllegalArgumentException unsupportedRecipientType(ActorRef recipient, Object message, ActorRef sender) {
+    @InternalApi
+    static IllegalArgumentException unsupportedRecipientType(Object recipient, Object message, ActorRef sender) {
         return new IllegalArgumentException("Unsupported recipient type, question not sent to [" + recipient + "]. "
                 + messagePartOfException(message, sender));
     }

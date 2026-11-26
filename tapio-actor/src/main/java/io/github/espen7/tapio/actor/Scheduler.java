@@ -262,10 +262,4 @@ public abstract class Scheduler implements AutoCloseable {
             return get() == null;
         }
     }
-
-    static final class SchedulerException extends RuntimeException {
-        SchedulerException(String message) {
-            super(message, null, false, false);
-        }
-    }
 }

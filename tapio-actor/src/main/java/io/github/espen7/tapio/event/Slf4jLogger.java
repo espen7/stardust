@@ -130,13 +130,13 @@ public class Slf4jLogger extends AbstractActor
     }
 
     private static void publishDebug(Logger logger, Marker marker, String message) {
-        if (marker == null) logger.debug(message);
-        else logger.debug(marker, message);
+        if (marker == null) logger.debug("{}", message);
+        else logger.debug(marker, "{}", message);
     }
 
     private static void publishInfo(Logger logger, Marker marker, String message) {
-        if (marker == null) logger.info(message);
-        else logger.info(marker, message);
+        if (marker == null) logger.info("{}", message);
+        else logger.info(marker, "{}", message);
     }
 
     private static void publishWarning(Logger logger, Marker marker, String message) {

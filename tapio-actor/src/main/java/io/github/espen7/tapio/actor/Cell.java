@@ -13,7 +13,6 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.actor.dungeon.ChildStats;
 import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.Envelope;

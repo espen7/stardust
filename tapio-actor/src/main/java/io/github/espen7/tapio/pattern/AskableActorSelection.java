@@ -24,7 +24,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /** 使用临时引用等待选择中的首个回复。 */
-final class AskableActorSelection {
+public final class AskableActorSelection {
     private final ActorSelection selection;
 
     AskableActorSelection(ActorSelection selection) {
@@ -35,7 +35,9 @@ final class AskableActorSelection {
         if (timeout.isZero() || timeout.isNegative()) {
             return CompletableFuture.failedStage(AskableActorRef.negativeTimeoutException(selection, message, sender));
         }
-        InternalActorRef anchor = (InternalActorRef) selection.anchor();
+        if (!(selection.anchor() instanceof InternalActorRef anchor)) {
+            return CompletableFuture.failedStage(AskableActorRef.unsupportedRecipientType(selection, message, sender));
+        }
         String prefix = URLEncoder.encode(selection.pathString().replace('/', '_'), StandardCharsets.UTF_8);
         return PromiseActorRef.apply(anchor.provider(), timeout, selection, message.getClass().getName(), prefix, sender)
                 .ask(selection, message);

@@ -99,7 +99,7 @@ public class LocalActorRef extends ActorRefWithCell implements LocalRef {
                 default -> local.getSingleChild(name);
             };
         }
-        return ref == null || !names.hasNext() ? ref : ref.getChild(names);
+        return ref == null ? Nobody.INSTANCE : (!names.hasNext() ? ref : ref.getChild(names));
     }
 
     /**

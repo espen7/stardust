@@ -13,8 +13,6 @@
  */
 package io.github.espen7.tapio.actor;
 
-import java.io.Serializable;
-
 /** ActorSelection 编译后的单个路径元素。 */
-sealed interface SelectionPathElement extends Serializable permits SelectChildName, SelectChildPattern, SelectParent {
+sealed interface SelectionPathElement permits SelectChildName, SelectChildPattern, SelectParent {
 }

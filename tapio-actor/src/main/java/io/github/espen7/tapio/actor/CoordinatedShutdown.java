@@ -128,6 +128,10 @@ public final class CoordinatedShutdown {
         jvmShutdownHook.cancel();
     }
 
+    public static CoordinatedShutdown get(ActorSystem system) {
+        return ((ActorSystemImpl) system).coordinatedShutdown();
+    }
+
     /**
      * 返回未知关闭原因 singleton。
      *
@@ -195,27 +199,42 @@ public final class CoordinatedShutdown {
     public void addActorTerminationTask(String phase, String taskName, ActorRef actor,
                                         Optional<Object> stopMsg) {
         addTask(phase, taskName, () -> {
-            stopMsg.ifPresent(message -> actor.tell(message, ActorRef.noSender));
             CompletableFuture<Done> result = new CompletableFuture<>();
-            pollTermination(actor, result, timeout(phase));
+            if (actor instanceof InternalActorRef internal && internal.isTerminated()) {
+                return CompletableFuture.completedFuture(Done.done());
+            }
+            system.systemActorOf(Props.create(TerminationWatcher.class, actor, stopMsg, result),
+                    "CoordinatedShutdownTerminationWatcher-" + taskName + "-" + System.nanoTime());
             return result;
         });
     }
 
-    private void pollTermination(ActorRef actor, CompletableFuture<Done> result, Duration timeout) {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        Runnable[] poll = new Runnable[1];
-        poll[0] = () -> {
-            if (actor instanceof InternalActorRef internal && internal.isTerminated()) {
-                result.complete(Done.done());
-            } else if (System.nanoTime() - deadline >= 0) {
-                result.completeExceptionally(new TimeoutException("Actor [" + actor
-                        + "] termination timed out during coordinated shutdown"));
-            } else {
-                system.scheduler().scheduleOnce(Duration.ofMillis(10), poll[0]);
-            }
-        };
-        system.scheduler().scheduleOnce(Duration.ZERO, poll[0]);
+    private static final class TerminationWatcher extends AbstractActor {
+        private final ActorRef target;
+        private final Optional<Object> stopMsg;
+        private final CompletableFuture<Done> result;
+
+        private TerminationWatcher(ActorRef target, Optional<Object> stopMsg, CompletableFuture<Done> result) {
+            this.target = target;
+            this.stopMsg = stopMsg;
+            this.result = result;
+        }
+
+        @Override
+        public void preStart() {
+            getContext().watch(target);
+            stopMsg.ifPresent(message -> target.tell(message, getSelf()));
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder()
+                    .match(Terminated.class, terminated -> {
+                        result.complete(Done.done());
+                        getContext().stop(getSelf());
+                    })
+                    .build();
+        }
     }
 
     /**
@@ -365,34 +384,65 @@ public final class CoordinatedShutdown {
         List<TaskDefinition> definitions = tasks.getOrDefault(name, new CopyOnWriteArrayList<>());
         List<CompletableFuture<Done>> futures = new ArrayList<>();
         for (TaskDefinition task : definitions) futures.add(runTask(task, phase.recover));
-        CompletableFuture<Void> all = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
-        CompletableFuture<Done> result = all.thenApply(ignored -> Done.done());
+        CompletableFuture<Done> result = CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                .thenApply(ignored -> Done.done());
+        if (!phase.recover) {
+            for (CompletableFuture<Done> future : futures) {
+                future.whenComplete((ignored, error) -> {
+                    if (error != null) result.completeExceptionally(error);
+                });
+            }
+        }
         return withTimeout(result, phase.timeout, phase.recover, name);
     }
 
     private CompletableFuture<Done> runTask(TaskDefinition task, boolean recover) {
-        if (!task.started.compareAndSet(false, true) || task.cancelled.get()) {
-            return CompletableFuture.completedFuture(Done.done());
-        }
-        try {
-            CompletionStage<Done> stage = task.task.get();
-            CompletableFuture<Done> future = stage.toCompletableFuture();
-            if (!recover) return future;
-            return future.handle((value, error) -> Done.done()).toCompletableFuture();
-        } catch (Throwable error) {
-            if (recover) return CompletableFuture.completedFuture(Done.done());
-            return CompletableFuture.failedFuture(error);
+        while (true) {
+            TaskState current = task.state.get();
+            if (current instanceof TaskCancelled) {
+                return CompletableFuture.completedFuture(Done.done());
+            }
+            if (current instanceof TaskRunning running) {
+                return running.future;
+            }
+            CompletableFuture<Done> promise = new CompletableFuture<>();
+            if (task.state.compareAndSet(current, new TaskRunning(promise))) {
+                try {
+                    CompletionStage<Done> stage = task.task.get();
+                    CompletableFuture<Done> future = stage.toCompletableFuture();
+                    CompletableFuture<Done> effective = recover
+                            ? future.handle((value, error) -> Done.done()).toCompletableFuture()
+                            : future;
+                    effective.whenComplete((done, error) -> {
+                        if (error == null) promise.complete(done);
+                        else promise.completeExceptionally(error);
+                    });
+                    return promise;
+                } catch (Throwable error) {
+                    if (recover) {
+                        promise.complete(Done.done());
+                    } else {
+                        promise.completeExceptionally(error);
+                    }
+                    return promise;
+                }
+            }
         }
     }
 
     private CompletableFuture<Done> withTimeout(CompletableFuture<Done> value, Duration timeout,
                                                 boolean recover, String phase) {
         CompletableFuture<Done> timeoutFuture = new CompletableFuture<>();
-        Cancellable timer = system.scheduler().scheduleOnce(timeout, () -> {
-            if (recover) timeoutFuture.complete(Done.done());
-            else timeoutFuture.completeExceptionally(new TimeoutException("Coordinated shutdown phase ["
-                    + phase + "] timed out after " + timeout));
-        });
+        Cancellable timer;
+        try {
+            timer = system.scheduler().scheduleOnce(timeout, () -> {
+                if (recover) timeoutFuture.complete(Done.done());
+                else timeoutFuture.completeExceptionally(new TimeoutException("Coordinated shutdown phase ["
+                        + phase + "] timed out after " + timeout));
+            });
+        } catch (IllegalStateException ignored) {
+            return value;
+        }
         CompletableFuture<Done> result = new CompletableFuture<>();
         value.whenComplete((done, error) -> {
             if (error == null) result.complete(done);
@@ -448,11 +498,24 @@ public final class CoordinatedShutdown {
     private record Phase(Duration timeout, List<String> dependsOn, boolean recover, boolean enabled) {
     }
 
+    private sealed interface TaskState permits TaskPending, TaskCancelled, TaskRunning {
+    }
+
+    private static final class TaskPending implements TaskState {
+        static final TaskPending INSTANCE = new TaskPending();
+    }
+
+    private static final class TaskCancelled implements TaskState {
+        static final TaskCancelled INSTANCE = new TaskCancelled();
+    }
+
+    private record TaskRunning(CompletableFuture<Done> future) implements TaskState {
+    }
+
     private static final class TaskDefinition implements Cancellable {
         private final String name;
         private final Supplier<CompletionStage<Done>> task;
-        private final AtomicBoolean started = new AtomicBoolean();
-        private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final AtomicReference<TaskState> state = new AtomicReference<>(TaskPending.INSTANCE);
 
         private TaskDefinition(String name, Supplier<CompletionStage<Done>> task) {
             this.name = name;
@@ -461,12 +524,12 @@ public final class CoordinatedShutdown {
 
         @Override
         public boolean cancel() {
-            return !started.get() && cancelled.compareAndSet(false, true);
+            return state.compareAndSet(TaskPending.INSTANCE, TaskCancelled.INSTANCE);
         }
 
         @Override
         public boolean isCancelled() {
-            return cancelled.get();
+            return state.get() instanceof TaskCancelled;
         }
     }
 }

@@ -39,4 +39,9 @@ public final class Done implements Serializable {
     public static Done done() {
         return INSTANCE;
     }
+
+    @Override
+    public String toString() {
+        return "Done";
+    }
 }

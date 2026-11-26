@@ -162,7 +162,7 @@ public class Dispatcher extends MessageDispatcher {
                 mbox.setAsIdle();
                 DispatchFailureReporting.report(eventStream,
                         new Error(getClass().getName(), getClass(),
-                                "registerForExecution was rejected twice!", e));
+                                "registerForExecution was rejected twice!", e2));
                 throw e2;
             }
         }

@@ -13,7 +13,6 @@
  */
 package io.github.espen7.tapio.actor;
 
-import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
 import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
 import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.sysmsg.Recreate;
@@ -102,7 +101,7 @@ final class UnstartedCell implements Cell {
 
     @Override
     public InternalActorRef getSingleChild(String name) {
-        return null;
+        return Nobody.INSTANCE;
     }
 
     @Override
