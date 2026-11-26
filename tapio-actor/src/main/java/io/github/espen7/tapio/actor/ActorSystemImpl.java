@@ -16,6 +16,7 @@ package io.github.espen7.tapio.actor;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.Done;
+import io.github.espen7.tapio.actor.setup.ActorSystemSetup;
 import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
@@ -92,10 +93,14 @@ public class ActorSystemImpl extends ExtendedActorSystem {
      * @throws IllegalArgumentException 当名称不符合 Pekko 命名规则时
      */
     public ActorSystemImpl(String name) {
-        this(name, null);
+        this(name, null, ActorSystemSetup.empty());
     }
 
     ActorSystemImpl(String name, Config applicationConfig) {
+        this(name, applicationConfig, ActorSystemSetup.empty());
+    }
+
+    ActorSystemImpl(String name, Config applicationConfig, ActorSystemSetup setup) {
         if (name == null || !name.matches(ACTOR_NAME_PATTERN)) {
             throw new IllegalArgumentException(
                     "invalid ActorSystem name [" + name
@@ -106,7 +111,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         if (classLoader == null) classLoader = ActorSystem.class.getClassLoader();
         Config config = applicationConfig == null ? ConfigFactory.load(classLoader)
                 : applicationConfig.withFallback(ConfigFactory.defaultReferenceUnresolved(classLoader)).resolve();
-        this.settings = new Settings(classLoader, config, name);
+        this.settings = new Settings(classLoader, config, name, setup);
         this.dynamicAccess = createDynamicAccess();
         this.eventStream = new EventStream(this, settings.DebugEventStream);
         eventStream.startStdoutLogger(settings);

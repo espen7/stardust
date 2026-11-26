@@ -16,6 +16,7 @@ package io.github.espen7.tapio.actor;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
+import io.github.espen7.tapio.actor.setup.ActorSystemSetup;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
@@ -85,6 +86,29 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     }
 
     /**
+     * 使用编程式 {@link ActorSystemSetup} 创建本地 ActorSystem。
+     *
+     * @param name 用于 ActorPath 的系统名称
+     * @param setups 编程式设置容器
+     * @return 新建的 ActorSystem
+     */
+    public static ActorSystem create(String name, ActorSystemSetup setups) {
+        return new ActorSystemImpl(name, null, setups);
+    }
+
+    /**
+     * 使用指定配置与编程式 {@link ActorSystemSetup} 创建本地 ActorSystem。
+     *
+     * @param name 用于 ActorPath 的系统名称
+     * @param config 应用配置（可为 {@code null}）
+     * @param setups 编程式设置容器（可为 {@code null}）
+     * @return 新建的 ActorSystem
+     */
+    public static ActorSystem create(String name, Config config, ActorSystemSetup setups) {
+        return new ActorSystemImpl(name, config, setups);
+    }
+
+    /**
      * 保存 ActorSystem 的有效配置，以及本地 runtime 使用的已解析设置。
      *
      * <p>每个 ActorSystem 在启动时创建一份不可变的 Settings。</p>
@@ -93,6 +117,8 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         private final String name;
         private final Config config;
         private final ClassLoader classLoader;
+        /** 编程式传入的 {@link ActorSystemSetup}。 */
+        public final ActorSystemSetup setup;
 
         /** 系统日志级别，默认 {@code INFO}。 */
         public final String LogLevel;
@@ -140,12 +166,13 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         /** DeadLetterListener 日志中沿用的配置文本。 */
         final String logDeadLettersSuspendDurationDescription;
 
-        Settings(ClassLoader classLoader, Config cfg, String name) {
+        Settings(ClassLoader classLoader, Config cfg, String name, ActorSystemSetup setup) {
             cfg.checkValid(ConfigFactory.defaultReference(classLoader)
                     .withoutPath(INTERNAL_DISPATCHER_ID), ActorPath.Scheme);
             this.config = cfg;
             this.classLoader = classLoader;
             this.name = name;
+            this.setup = setup == null ? ActorSystemSetup.empty() : setup;
             LogLevel = config.getString(ActorPath.Scheme + ".loglevel");
             LoggingFilter = config.getString(ActorPath.Scheme + ".logging-filter");
             LogConfigOnStart = config.getBoolean(ActorPath.Scheme + ".log-config-on-start");

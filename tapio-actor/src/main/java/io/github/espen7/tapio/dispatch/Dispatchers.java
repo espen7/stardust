@@ -89,6 +89,11 @@ public class Dispatchers {
      * @return 默认 Dispatcher
      * @throws ConfigurationException 当默认 Dispatcher 的类型不受支持时
      */
+    /** 返回此系统 Dispatchers 使用的 {@link DispatcherPrerequisites}。 */
+    public DispatcherPrerequisites prerequisites() {
+        return prerequisites;
+    }
+
     public MessageDispatcher defaultGlobalDispatcher() {
         return lookup(DefaultDispatcherId);
     }
@@ -126,6 +131,17 @@ public class Dispatchers {
      */
     public boolean hasDispatcher(String id) {
         return dispatcherConfigurators.containsKey(id) || settings.config().hasPath(id);
+    }
+
+    /**
+     * 以编程方式注册指定 ID 的 {@link MessageDispatcherConfigurator}；若已存在则不覆盖并返回 {@code false}。
+     *
+     * @param id dispatcher id
+     * @param configurator 调度器配置器
+     * @return 注册成功返回 {@code true}
+     */
+    public boolean registerConfigurator(String id, MessageDispatcherConfigurator configurator) {
+        return dispatcherConfigurators.putIfAbsent(id, configurator) == null;
     }
 
     private MessageDispatcherConfigurator lookupConfigurator(String id, int depth) {

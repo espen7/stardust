@@ -62,6 +62,35 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
     }
 
     /**
+     * 判断队列当前是否为空。
+     *
+     * @return 为空返回 {@code true}
+     */
+    public final boolean isEmpty() {
+        return get() == tail;
+    }
+
+    /**
+     * 统计当前队列中的元素数量（O(n) 遍历）。
+     *
+     * @return 当前元素数
+     */
+    @SuppressWarnings("unchecked")
+    public final int count() {
+        int count = 0;
+        Node<T> current = (Node<T>) tailHandle.getAcquire(this);
+        while (true) {
+            Node<T> next = current.next();
+            if (next == null) {
+                break;
+            }
+            count++;
+            current = next;
+        }
+        return count;
+    }
+
+    /**
      * 取出承载队首元素的节点。仅由消费者线程调用。
      *
      * @return 可重新入队的独立节点，队列为空时为 {@code null}

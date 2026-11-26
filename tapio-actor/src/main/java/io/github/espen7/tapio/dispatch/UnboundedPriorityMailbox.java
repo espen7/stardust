@@ -15,13 +15,14 @@ package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.util.StablePriorityBlockingQueue;
 
 import java.util.Comparator;
 import java.util.Objects;
-import java.util.concurrent.PriorityBlockingQueue;
 
 /**
- * 基于 {@link PriorityBlockingQueue} 的无界优先级邮箱基类，对应 Pekko {@code UnboundedPriorityMailbox}。
+ * 基于 {@link StablePriorityBlockingQueue} 的无界优先级邮箱基类（同优先级保持 FIFO），
+ * 对应 Pekko {@code UnboundedPriorityMailbox}。
  */
 public class UnboundedPriorityMailbox implements MailboxType,
         ProducesMessageQueue<UnboundedPriorityMailbox.MessageQueue> {
@@ -56,8 +57,8 @@ public class UnboundedPriorityMailbox implements MailboxType,
         return new MessageQueue(initialCapacity, cmp);
     }
 
-    /** 基于 {@link PriorityBlockingQueue} 的无界优先级消息队列。 */
-    public static final class MessageQueue extends PriorityBlockingQueue<Envelope>
+    /** 基于 {@link StablePriorityBlockingQueue} 的无界优先级消息队列。 */
+    public static final class MessageQueue extends StablePriorityBlockingQueue<Envelope>
             implements UnboundedMessageQueueSemantics, io.github.espen7.tapio.dispatch.MessageQueue {
         /**
          * 创建无界优先级消息队列。

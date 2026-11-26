@@ -508,3 +508,7 @@ Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.
 - `FSM`、`AbstractFSM`、`FSMStateFunctionBuilder` 和 `FSMTransitionHandlerBuilder` 对应上游 `actor/FSM.scala`、`actor/AbstractFSM.scala` 与 `japi/pf/FSM*.scala`，支持状态超时（`FSM.StateTimeout`）、`onTransition`、`onTermination` 与 `whenUnhandled`。
 - `LoggingFilter`、`DefaultLoggingFilter`、`tapio.logging-filter` 和 `tapio.log-config-on-start`（以及 `ActorSystem.logConfiguration()`）对应上游 `event/Logging.scala` 与 `actor/ActorSystem.scala`。
 - `AbstractLoggingActorWithStash` 和 `AbstractActorWithUnrestrictedStash.unstashAll(Predicate<Object>)` 补齐了 `Stash` 体系的日志组合与过滤重放能力。
+- `PriorityQueueStabilizer`、`StablePriorityQueue` 和 `StablePriorityBlockingQueue` 对应上游 `util/StablePriorityQueue.scala`；`UnboundedPriorityMailbox.MessageQueue` 继承 `StablePriorityBlockingQueue<Envelope>`，保证相同优先级消息按 FIFO 顺序出队。
+- `NodeMessageQueue` 和 `SingleConsumerOnlyUnboundedMailbox` 对应上游 `dispatch/Mailbox.scala`，复用 `AbstractNodeQueue<Envelope>` 实现多生产者单消费者无界邮箱。
+- `RetrySupport.retry` 对应上游 `pattern/RetrySupport.scala`，支持立即重试、固定延迟、指数退避及自定义重试条件与延迟函数。
+- `Dispatchers.registerConfigurator` 对应上游 `dispatch/Dispatchers.scala`；`Setup` 与 `ActorSystemSetup` 对应上游 `actor/setup/ActorSystemSetup.scala`。
