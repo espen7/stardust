@@ -88,6 +88,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
     public static final class Settings {
         private final String name;
         private final Config config;
+        private final ClassLoader classLoader;
 
         /** 系统日志级别，默认 {@code INFO}。 */
         public final String LogLevel;
@@ -99,8 +100,12 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         public final Duration LogDeadLettersSuspendDuration;
         /** 是否记录 Actor 生命周期的 DEBUG 日志，默认关闭。 */
         public final boolean DebugLifecycle;
+        /** 是否记录自动接收消息的 DEBUG 日志，默认关闭。 */
+        public final boolean DebugAutoReceive;
         /** 是否将未处理消息转为 DEBUG 日志，默认关闭。 */
         public final boolean DebugUnhandledMessage;
+        /** user guardian 的 SupervisorStrategyConfigurator 全限定类名。 */
+        public final String GuardianSupervisorStrategyClass;
         /** 外部挂载的 Actor 切换 cell 时等待临时队列锁的时限，默认 10 秒。 */
         public final Duration UnstartedPushTimeout;
         /** Scheduler 实现的全限定类名。 */
@@ -119,6 +124,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             cfg.checkValid(ConfigFactory.defaultReference(classLoader)
                     .withoutPath(INTERNAL_DISPATCHER_ID), ActorPath.Scheme);
             this.config = cfg;
+            this.classLoader = classLoader;
             this.name = name;
             LogLevel = config.getString(ActorPath.Scheme + ".loglevel");
             LogDeadLetters = switch (config.getString(ActorPath.Scheme + ".log-dead-letters").toLowerCase(Locale.ROOT)) {
@@ -132,7 +138,10 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             LogDeadLettersSuspendDuration = logDeadLettersSuspendDurationDescription.equalsIgnoreCase("infinite")
                     ? null : Duration.ofMillis(config.getDuration(key).toMillis());
             DebugLifecycle = config.getBoolean(ActorPath.Scheme + ".actor.debug.lifecycle");
+            DebugAutoReceive = config.getBoolean(ActorPath.Scheme + ".actor.debug.autoreceive");
             DebugUnhandledMessage = config.getBoolean(ActorPath.Scheme + ".actor.debug.unhandled");
+            GuardianSupervisorStrategyClass = config.getString(
+                    ActorPath.Scheme + ".actor.guardian-supervisor-strategy");
             UnstartedPushTimeout = Duration.ofMillis(config.getDuration(
                     ActorPath.Scheme + ".actor.unstarted-push-timeout").toMillis());
             SchedulerClass = config.getString(ActorPath.Scheme + ".scheduler.implementation");
@@ -164,6 +173,10 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
          */
         public Config config() {
             return config;
+        }
+
+        ClassLoader classLoader() {
+            return classLoader;
         }
     }
 

@@ -23,6 +23,7 @@ import io.github.espen7.tapio.dispatch.Mailbox;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.MessageQueue;
 import io.github.espen7.tapio.dispatch.UnboundedMailbox;
+import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.event.Info;
 import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.pattern.AskTimeoutException;
@@ -360,8 +361,17 @@ class ActorRuntimeTest {
         system = ActorSystem.create("repointable-failure", ConfigFactory.parseString("""
                 failing-mailbox.mailbox-type = "io.github.espen7.tapio.actor.ActorRuntimeTest$FailingMailbox"
                 """));
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "events");
+        system.eventStream().subscribe(subscriber, Error.class);
         ActorRef watcher = system.actorOf(Props.create(WatcherActor.class), "watcher");
         ActorRef actor = system.actorOf(Props.create(EchoActor.class).withMailbox("failing-mailbox"), "failed");
+        Error error = assertInstanceOf(Error.class, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        ActorInitializationException exception =
+                assertInstanceOf(ActorInitializationException.class, error.cause());
+        assertEquals(actor, exception.getActor());
+        assertEquals(actor.path() + ": failure while creating ActorCell", exception.getMessage());
+        assertEquals("mailbox creation failure", exception.getCause().getMessage());
         assertEquals("watching", ask(watcher, new Watch(actor)));
         assertEquals(actor.path().toString(), ask(watcher, "await-termination"));
         assertTrue(actor.isTerminated());
@@ -569,6 +579,67 @@ class ActorRuntimeTest {
                 SupervisorStrategy.defaultDecider.apply(new IllegalStateException("restart")));
         assertEquals(SupervisorStrategy.Directive.Escalate,
                 SupervisorStrategy.defaultDecider.apply(new AssertionError("fatal")));
+    }
+
+    @Test
+    void strategyConstructorsUsePekkoDefaults() {
+        Duration window = Duration.ofSeconds(1);
+        OneForOneStrategy oneForOne = new OneForOneStrategy(2, window, SupervisorStrategy.defaultDecider);
+        assertEquals(2, oneForOne.maxNrOfRetries());
+        assertEquals(window, oneForOne.withinTimeRange());
+        assertTrue(oneForOne.loggingEnabled());
+        assertEquals(SupervisorStrategy.Directive.Restart,
+                oneForOne.handle(new IllegalStateException("restart")));
+        assertEquals(SupervisorStrategy.Directive.Stop,
+                oneForOne.handle(new ActorKilledException("kill")));
+
+        AllForOneStrategy allForOne = new AllForOneStrategy(3, window, SupervisorStrategy.defaultDecider);
+        assertEquals(3, allForOne.maxNrOfRetries());
+        assertEquals(window, allForOne.withinTimeRange());
+        assertTrue(allForOne.loggingEnabled());
+        assertEquals(SupervisorStrategy.Directive.Restart,
+                allForOne.handle(new IllegalStateException("restart")));
+        assertEquals(SupervisorStrategy.Directive.Stop,
+                allForOne.handle(new ActorKilledException("kill")));
+
+        java.util.List<Class<? extends Throwable>> trapExit = new java.util.ArrayList<>();
+        trapExit.add(IllegalStateException.class);
+        OneForOneStrategy trappingOneForOne = new OneForOneStrategy(2, window, trapExit);
+        AllForOneStrategy trappingAllForOne = new AllForOneStrategy(3, window, trapExit);
+        trapExit.clear();
+        assertEquals(SupervisorStrategy.Directive.Restart,
+                trappingOneForOne.handle(new IllegalStateException("restart")));
+        assertEquals(SupervisorStrategy.Directive.Escalate,
+                trappingOneForOne.handle(new IllegalArgumentException("escalate")));
+        assertEquals(SupervisorStrategy.Directive.Restart,
+                trappingAllForOne.handle(new IllegalStateException("restart")));
+        assertEquals(SupervisorStrategy.Directive.Escalate,
+                trappingAllForOne.handle(new IllegalArgumentException("escalate")));
+
+        OneForOneStrategy quietOneForOne = new OneForOneStrategy(false,
+                error -> SupervisorStrategy.Directive.Resume);
+        AllForOneStrategy quietAllForOne = new AllForOneStrategy(false,
+                error -> SupervisorStrategy.Directive.Resume);
+        assertEquals(-1, quietOneForOne.maxNrOfRetries());
+        assertTrue(quietOneForOne.withinTimeRange().isNegative());
+        assertFalse(quietOneForOne.loggingEnabled());
+        assertEquals(-1, quietAllForOne.maxNrOfRetries());
+        assertTrue(quietAllForOne.withinTimeRange().isNegative());
+        assertFalse(quietAllForOne.loggingEnabled());
+
+        OneForOneStrategy adjusted = quietOneForOne.withMaxNrOfRetries(4);
+        assertEquals(4, adjusted.maxNrOfRetries());
+        assertEquals(quietOneForOne.withinTimeRange(), adjusted.withinTimeRange());
+        assertFalse(adjusted.loggingEnabled());
+        assertEquals(SupervisorStrategy.Directive.Resume, adjusted.handle(new IllegalStateException("resume")));
+
+        assertSame(SupervisorStrategy.defaultStrategy, new DefaultSupervisorStrategy().create());
+        assertSame(SupervisorStrategy.stoppingStrategy, new StoppingSupervisorStrategy().create());
+        OneForOneStrategy stopping = (OneForOneStrategy) SupervisorStrategy.stoppingStrategy;
+        assertEquals(-1, stopping.maxNrOfRetries());
+        assertTrue(stopping.withinTimeRange().isNegative());
+        assertEquals(SupervisorStrategy.Directive.Stop, stopping.handle(new IllegalStateException("stop")));
+        assertEquals(SupervisorStrategy.Directive.Escalate, stopping.handle(new AssertionError("escalate")));
     }
 
     @Test
@@ -985,6 +1056,27 @@ class ActorRuntimeTest {
     }
 
     @Test
+    void configuredGuardianSupervisorStrategyStopsTopLevelActor() throws Exception {
+        Config config = ConfigFactory.parseString("""
+                tapio.actor.guardian-supervisor-strategy =
+                  "io.github.espen7.tapio.actor.ActorRuntimeTest$StoppingSupervisorStrategyConfigurator"
+                """);
+        system = ActorSystem.create("guardian-strategy", config);
+        assertEquals(StoppingSupervisorStrategyConfigurator.class.getName(),
+                system.settings().GuardianSupervisorStrategyClass);
+        AtomicInteger instances = new AtomicInteger();
+        ActorRef actor = system.actorOf(Props.create(RestartingActor.class,
+                () -> new RestartingActor(instances.incrementAndGet())), "actor");
+
+        assertEquals(1, ask(actor, "instance"));
+        actor.tell("fail");
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        while (!actor.isTerminated() && System.nanoTime() < deadline) Thread.yield();
+        assertTrue(actor.isTerminated());
+        assertEquals(1, instances.get());
+    }
+
+    @Test
     void terminateCompletesSystemTerminationStage() throws Exception {
         system = ActorSystem.create("terminate");
         LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
@@ -1283,6 +1375,13 @@ class ActorRuntimeTest {
                         }
                     })
                     .build();
+        }
+    }
+
+    public static final class StoppingSupervisorStrategyConfigurator implements SupervisorStrategyConfigurator {
+        @Override
+        public SupervisorStrategy create() {
+            return SupervisorStrategy.stoppingStrategy;
         }
     }
 

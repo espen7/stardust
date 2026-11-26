@@ -43,11 +43,11 @@ public interface ChildrenContainer {
      *
      * @param cause restart 原因
      */
-    record Recreation(Throwable cause) implements SuspendReason {
+    record Recreation(Throwable cause) implements SuspendReason, WaitingForChildren {
     }
 
     /** 表示 ActorCell 正在等待停止 children 后完成创建。 */
-    record Creation() implements SuspendReason {
+    record Creation() implements SuspendReason, WaitingForChildren {
     }
 
     /** 表示 ActorCell 正在等待 children 全部终止。 */

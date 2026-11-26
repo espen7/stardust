@@ -25,6 +25,7 @@ import io.github.espen7.tapio.event.LoggingAdapter;
 import io.github.espen7.tapio.serialization.Serialization;
 import io.github.espen7.tapio.util.Helpers;
 
+import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
@@ -154,7 +155,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
         MailboxType defaultMailbox = system.mailboxes().lookup(Mailboxes.DefaultMailboxId);
 
         cell.reserveChild("user");
-        guardian = new LocalActorRef(system, Props.create(Guardian.class, SupervisorStrategy.defaultStrategy),
+        guardian = new LocalActorRef(system, Props.create(Guardian.class, guardianSupervisorStrategy(system)),
                 system.dispatcher(), defaultMailbox, rootGuardian,
                 new ActorPath(rootPath, "user"), "user", false);
         cell.initChild(guardian);
@@ -169,6 +170,24 @@ public class LocalActorRefProvider extends ActorRefProvider {
 
         systemGuardian.sendSystemMessage(new SystemMessage.Watch(guardian, systemGuardian));
         rootGuardian.sendSystemMessage(new SystemMessage.Watch(systemGuardian, rootGuardian));
+    }
+
+    private SupervisorStrategy guardianSupervisorStrategy(ActorSystemImpl system) {
+        String className = system.settings().GuardianSupervisorStrategyClass;
+        try {
+            Class<? extends SupervisorStrategyConfigurator> configuratorClass = Class.forName(className, false,
+                            system.settings().classLoader())
+                    .asSubclass(SupervisorStrategyConfigurator.class);
+            var constructor = configuratorClass.getDeclaredConstructor();
+            if (!constructor.canAccess(null)) constructor.setAccessible(true);
+            return ((SupervisorStrategyConfigurator) constructor.newInstance()).create();
+        } catch (InvocationTargetException error) {
+            ActorCell.<RuntimeException>throwUnchecked(error.getCause());
+            return null;
+        } catch (ReflectiveOperationException error) {
+            ActorCell.<RuntimeException>throwUnchecked(error);
+            return null;
+        }
     }
 
     private SupervisorStrategy rootGuardianStrategy() {

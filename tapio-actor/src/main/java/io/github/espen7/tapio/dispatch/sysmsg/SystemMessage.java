@@ -59,7 +59,7 @@ public abstract class SystemMessage {
     /**
      * 请求重新创建 Actor 实例，保留 ActorRef 和 ActorCell。
      */
-    public static final class Recreate extends SystemMessage {
+    public static final class Recreate extends SystemMessage implements StashWhenWaitingForChildren {
         public final Throwable cause;
 
         public Recreate(Throwable cause) {
@@ -70,10 +70,10 @@ public abstract class SystemMessage {
     /**
      * 暂停或恢复普通消息处理。
      */
-    public static final class Suspend extends SystemMessage {
+    public static final class Suspend extends SystemMessage implements StashWhenWaitingForChildren {
     }
 
-    public static final class Resume extends SystemMessage {
+    public static final class Resume extends SystemMessage implements StashWhenWaitingForChildren {
         public final Throwable causedByFailure;
 
         public Resume(Throwable causedByFailure) {
@@ -81,7 +81,7 @@ public abstract class SystemMessage {
         }
     }
 
-    public static final class Terminate extends SystemMessage {
+    public static final class Terminate extends SystemMessage implements io.github.espen7.tapio.actor.DeadLetterSuppression {
     }
 
     /** 请求 guardian 停止指定 child。 */
@@ -120,7 +120,7 @@ public abstract class SystemMessage {
     /**
      * child failure 发给 parent，由 parent 的 SupervisorStrategy 决定如何处理。
      */
-    public static final class Failed extends SystemMessage {
+    public static final class Failed extends SystemMessage implements StashWhenFailed, StashWhenWaitingForChildren {
         public final ActorRef child;
         public final Throwable cause;
         public final int uid;
@@ -166,7 +166,8 @@ public abstract class SystemMessage {
         }
     }
 
-    public static final class DeathWatchNotification extends SystemMessage {
+    public static final class DeathWatchNotification extends SystemMessage
+            implements io.github.espen7.tapio.actor.DeadLetterSuppression {
         public final ActorRef actor;
         public final boolean existenceConfirmed;
         public final boolean addressTerminated;

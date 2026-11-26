@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.function.Function;
 import io.github.espen7.tapio.actor.dungeon.ChildRestartStats;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
@@ -43,9 +44,33 @@ public abstract class SupervisorStrategy {
         if (error instanceof Exception) return Directive.Restart;
         return Directive.Escalate;
     };
-    public static final SupervisorStrategy defaultStrategy = new OneForOneStrategy(-1, java.time.Duration.ofNanos(-1), defaultDecider);
-    public static final SupervisorStrategy stoppingStrategy = new OneForOneStrategy(-1, java.time.Duration.ofNanos(-1),
+
+    /** 普通 Classic Actor 默认使用的 One-for-One 策略。 */
+    public static final SupervisorStrategy defaultStrategy =
+            new OneForOneStrategy(-1, java.time.Duration.ofNanos(-1), defaultDecider);
+
+    /** 对 Exception 执行 Stop、其他 Throwable 向上升级的 One-for-One 策略。 */
+    public static final SupervisorStrategy stoppingStrategy = new OneForOneStrategy(
             error -> error instanceof Exception ? Directive.Stop : Directive.Escalate);
+
+    /**
+     * 创建异常集合到监督指令的映射：集合中的异常类型执行 Restart，其他异常向上升级。
+     *
+     * @param trapExit 需要重启的异常类型
+     * @return 与 Pekko {@code makeDecider(JIterable)} 等价的决策函数
+     */
+    public static Function<Throwable, Directive> makeDecider(
+            Iterable<Class<? extends Throwable>> trapExit) {
+        java.util.List<Class<? extends Throwable>> trappedExceptions = new java.util.ArrayList<>();
+        for (Class<? extends Throwable> exceptionType : trapExit) trappedExceptions.add(exceptionType);
+        List<Class<? extends Throwable>> snapshot = List.copyOf(trappedExceptions);
+        return cause -> {
+            for (Class<? extends Throwable> exceptionType : snapshot) {
+                if (exceptionType.isInstance(cause)) return Directive.Restart;
+            }
+            return Directive.Escalate;
+        };
+    }
 
     /**
      * 返回此策略的决策函数。

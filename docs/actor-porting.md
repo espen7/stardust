@@ -54,7 +54,8 @@ Provider 的 `rootGuardianAt`、`getDefaultAddress` 和 `getExternalAddressFor` 
 最后在锁内排空缓存并切换消息投递入口。异步 mailbox 创建失败时使用默认 dispatcher 和无界邮箱，
 由监督流程处理初始化异常。`tapio.actor.unstarted-push-timeout` 默认 10 秒，对应上游
 `actor/RepointableActorRef.scala`、`actor/dungeon/Dispatch.scala` 和 `actor/src/main/resources/reference.conf`。
-Java 使用 `VarHandle.getAndSet` 表达上游 CAS 循环的原子替换。临时队列锁等待被中断时，
+`ActorCell.swapMailbox` 使用 VarHandle 的 volatile read 和 compareAndSet 重试循环，保留上游
+CAS 替换语义。临时队列锁等待被中断时，
 借用现有的泛型重抛机制传播原 `InterruptedException`。
 
 `ActorRefFactory.actorSelection` 支持相对路径、绝对路径和带地址的 ActorPath。系统入口
@@ -167,17 +168,81 @@ unwatch → stopped lifecycle → 清理字段` 的顺序。因此 watcher 收�
 mailbox 已完成关闭和清理，并已切到 dead-letter mailbox。对应上游
 `actor/dungeon/FaultHandling.scala` 的 `finishTerminate`。
 
-`ChildRestartStats` 对应 `actor/.../actor/FaultHandling.scala`，其 `uid`、有限重试计数、无限重试、
+`ChildRestartStats` 对应 `actor/dungeon/FaultHandling.scala`，其 `uid`、有限重试计数、无限重试、
 时间窗累计及过期重置逻辑与上游一致。纳秒时间通过 `System.nanoTime()`，时间窗配置按上游转为毫秒。
-`SupervisorStrategy`、`OneForOneStrategy` 和新增的 `AllForOneStrategy` 对齐同文件的
-`handleFailure`、`processFailure`、`logFailure` 和 `restartChild` 职责。Java 使用
-`Function<Throwable, Directive>` 表达 decider，并以负 `Duration` 表示 Pekko `Duration.Inf`。
+`SupervisorStrategy`、`OneForOneStrategy` 和 `AllForOneStrategy` 对齐
+`actor/FaultHandling.scala` 中的 `handleFailure`、`processFailure`、`logFailure` 和 `restartChild` 职责。
+Java 使用 `Function<Throwable, Directive>` 表达 decider，并以负 `Duration` 表示 Pekko `Duration.Inf`。
 未匹配异常返回 `Escalate`，由 `ActorCell.handleFailure` 原样向上抛出；默认策略对
 `ActorInitializationException`、`ActorKilledException` 和 `DeathPactException` 执行 Stop，普通
-`Exception` 执行 Restart。此批仍未移植顶层 guardian 的 strategy configurator 和 Pekko 的所有 Java
-构造重载，也不代表通过 Pekko 完整测试套件。
+`Exception` 执行 Restart。`stoppingStrategy` 不限制重试次数和时间窗，对 `Exception` 执行 Stop，
+其他 `Throwable` 向上升级。
 
-## 本地 ask 与一次性调度
+两个具体策略保留上游 Java API：`(int, java.time.Duration, Function, boolean)`、
+`(int, java.time.Duration, Function)`、`(int, java.time.Duration, Iterable<Class<? extends Throwable>>)`、
+`(boolean, Function)` 和 `(Function)`；不增加上游没有的省略 decider 构造重载。
+`makeDecider(JIterable)` 在构造时快照异常类型集合。`OneForOneStrategy.withMaxNrOfRetries`
+保留时间窗、decider 和日志设置，仅替换重试上限。
+
+`ActorSystem.Settings` 从 `tapio.actor.guardian-supervisor-strategy` 读取 configurator 全限定类名。
+`LocalActorRefProvider` 使用 ActorSystem 的 ClassLoader 反射查找无参构造，调用 `create()` 后将结果
+注入 `/user` guardian。`InvocationTargetException` 解包为构造器原异常；Java checked 反射异常沿用
+`ActorCell.throwUnchecked` 原样抛出，对应上游 `DynamicAccess.createInstanceFor(...).get` 的传播方式。
+`DefaultSupervisorStrategy` 和 `StoppingSupervisorStrategy` 均为 final、无显式构造参数，分别返回
+共享的 `defaultStrategy` 与 `stoppingStrategy`。对应上游 `actor/FaultHandling.scala`、
+`actor/ActorSystem.scala`、`actor/ActorRefProvider.scala`、`actor/ReflectiveDynamicAccess.scala` 和
+`actor/src/main/resources/reference.conf`。测试通过只证明 Tapio 已实现契约可用，不代表通过 Pekko
+完整测试套件或达到全量源码 parity。
+
+## 控制消息、ReceiveTimeout 与 restart
+
+`PoisonPill` 和 `Kill` 是 `AutoReceivedMessage`：前者在 auto-receive 路径调用 `self.stop()`，后者抛出
+无栈 `ActorKilledException("Kill")` 并进入 supervision。`Kill` 本身不等于 restart；默认策略将其 Stop，
+只有 supervisor 选择 Restart 时才重新创建 Actor。`Terminated`、`Identify` 和 `ActorSelectionMessage`
+也进入 auto-receive，`tapio.actor.debug.autoreceive` 控制对应 lifecycle 日志。对应上游
+`actor/Actor.scala`、`actor/ActorCell.scala`、`actor/Identify.scala`、`actor/ActorSelection.scala` 和
+`actor/src/main/resources/reference.conf`。
+
+`ReceiveTimeout` 使用 `timeout/task/version` 三字段状态。`setReceiveTimeout` 只更新时长和版本，
+`cancelReceiveTimeout` 将时长设为 undefined；普通消息和 auto 消息在处理前取消 task，处理后按版本决定
+是否重排。`NotInfluenceReceiveTimeout` 不取消、不重排，除非 handler 修改了 timeout。`ReceiveTimeout`
+自身不属于该 marker，因此会重复触发，sender 为 dead letters。create/preStart 与 restart/postRestart
+后强制重排，faultCreate 和 terminate 先取消时长及 task。对应上游 `actor/dungeon/ReceiveTimeout.scala`、
+`actor/dungeon/FaultHandling.scala` 和 `actor/AbstractActor.scala`。Java 以 `Duration.ZERO` 表示未设置，
+以内部 `null` 表示 undefined。
+
+DeathWatch 使用 `watching: Map[ActorRef, Optional[Any]]` 和 `terminatedQueued` 区分默认
+`Terminated` 与 `watchWith` 自定义消息。自定义消息在 `receivedTerminated` 中替换 currentMessage，
+再交给当前 behavior；未 watch 或已 unwatch 的 `Terminated` 被丢弃。同一目标混用 `watch`/`watchWith`
+或更换自定义消息会抛出 `IllegalStateException`。两张 map 都是 ActorCell 消息线程私有，以 Java
+`HashMap` 表达上游 immutable Map 的更新语义。`Optional` 无法表达 `Some(null)`，因此内部用哨兵区分
+自定义 null 与默认 `Terminated`，最终仍向 behavior 投递 null。对应上游 `actor/dungeon/DeathWatch.scala`。
+
+`ActorCell.newActor` 先清空旧 behaviorStack，再调用 Props 创建实例；只有 constructor 未调用 `become`
+时才压入 `instance.receive()`。因此 constructor 中选定的 behavior 在首次创建和 restart 后都保留。
+对应上游 `actor/ActorCell.scala` 的 `newActor`。
+
+constructor/preStart 失败包装为带 ActorRef 的 `ActorInitializationException`，消息前缀为 Actor path；
+mailbox 类型的延迟复核失败和 ActorCell 初始化失败也保留该 ActorRef 元数据。`InstantiationException`
+保留上游的专门诊断文本，其他异常取最深 root cause 的消息。Creator 的 checked exception 由 Java
+`throws Exception` 边界直接传到 ActorCell，只包装一次。preRestart 失败发布 `PreRestartException` Error
+后继续 restart；constructor/postRestart 失败设置 fatal，并包装为 `PostRestartException` 交给 supervisor。
+`InterruptedException` 在升级给 supervisor 时包装为 `ActorInterruptedException`，处理路径恢复线程
+中断标志。对应上游 `actor/Actor.scala`、`actor/ActorCell.scala`、`actor/dungeon/Dispatch.scala`、
+`actor/Props.scala`、`actor/IndirectActorProducer.scala` 和 `actor/dungeon/FaultHandling.scala`。
+
+restart 等待 children 期间，system message 按 `Default → Suspended → SuspendedWaitForChildren`
+状态处理。Suspended 只暂存 `StashWhenFailed`，等待 children 时只暂存 `StashWhenWaitingForChildren`；
+`Failed` 同时实现两者，`Recreate`、`Suspend`、`Resume` 实现后者。每条消息后重新计算状态，只有状态
+下降才按原顺序重放暂存消息。`Creation` 和 `Recreation` 实现 `WaitingForChildren`。等待期间保留旧
+Actor 实例，postRestart 失败终止时也保留新实例供 `postStop` 调用，与上游生命周期顺序一致。对应上游
+`actor/ActorCell.scala` 的 `systemInvoke`、`dispatch/sysmsg/SystemMessage.scala`、
+`actor/dungeon/ChildrenContainer.scala` 和 `actor/dungeon/FaultHandling.scala`。
+
+`ClassicControlMessageTest` 以 14 项定向测试覆盖上述契约。测试通过只证明 Tapio 已实现契约可用，
+不代表通过 Pekko 完整测试套件或达到全量源码 parity。
+
+## 本地 ask、一次性与周期调度
 
 `Patterns.ask` 通过 `AskableActorRef.internalAsk` 检查目标类型、终止状态和 timeout，之后由
 `PromiseActorRef` 先注册超时再投递请求。普通回复、Classic `Status.Success` / `Status.Failure` 和超时
@@ -211,15 +276,25 @@ Provider 的 `terminationFuture` 以根引用完成，ActorSystem 在 Scheduler 
 `ActorSystem.terminate()` 的最后终止任务，并按配置注册可取消的 JVM shutdown hook；
 `System.exit`、集群任务和远程 Actor 的扩展仍待移植。
 
-一次性调度移植 `actor/LightArrayRevolverScheduler.scala` 和
-`dispatch/AbstractNodeQueue.java` 中对应的时间轮、发布队列、取消和关闭路径。关闭时仅运行
-待执行的 `Scheduler.TaskRunOnClose`。系统关闭时尚未触发的普通 ask 超时任务会丢弃，
+一次性与周期调度移植 `actor/Scheduler.scala`、`actor/LightArrayRevolverScheduler.scala` 和
+`dispatch/AbstractNodeQueue.java` 中对应的时间轮、发布队列、取消和关闭路径。fixed-delay
+在上次任务完成后重新等待完整间隔；fixed-rate 使用 ideal deadline，每次增加原始 interval，
+错过周期时补偿执行且不重叠。initialDelay 非正时直接提交给 Executor，delay/interval 必须严格
+大于 0；向上取整后的最大延迟为 `tickNanos * Integer.MAX_VALUE`，包含等号。
+
+周期 handle 使用 `AtomicCancellable`：初始为非 null sentinel，首次任务返回后才发布；null 表示
+已取消，`swap` 在取消后取消 replacement，底层 `cancel()` 返回 false 时包装器仍可脱离并返回 true。
+ActorRef 重载先 `tell` 再检查 termination，terminated 后静默停止后续调度。普通任务异常会终止
+后续调度，但不会自动把 handle 标为 cancelled；fixed-delay 仅吞掉 SchedulerException 及其包装。
+`maxFrequency` 返回 `1 second / TickDuration`，默认 10ms tick 对应 100Hz。
+
+关闭时仅运行待执行的 `Scheduler.TaskRunOnClose`。系统关闭时尚未触发的普通 ask 超时任务会丢弃，
 对应结果仍可能处于未完成状态。配置位于
 `tapio.scheduler`，默认 10ms tick、512 个时间轮槽和 5s 停止等待时间。
-周期调度仍待移植；普通 Dispatcher 的延迟 shutdown 已由 `TaskRunOnClose` 接入。Actor tree
+普通 Dispatcher 的延迟 shutdown 已由 `TaskRunOnClose` 接入。Actor tree
 终止后，ActorSystem 先关闭 Scheduler 并执行 pending Dispatcher shutdown，再完成
-`whenTerminated`。Java 使用 `Executor` 对应 Scheduler 的 `ExecutionContext`，现有无 Executor
-重载在触发任务的线程执行。应用通过
+`whenTerminated`。Java 使用 `Executor` 对应 Scheduler 的 `ExecutionContext`，一次性调度的
+现有无 Executor 重载在触发任务的线程执行。应用通过
 `ActorSystem.scheduler()` 取得 Scheduler。自定义实现通过 `tapio.scheduler.implementation`
 配置，使用接收 `Config`、`LoggingAdapter` 和 `ThreadFactory` 的公开构造方法。
 由于 Java `Executor` 没有 `reportFailure`，新增 `dispatch.ExecutionContext` 提供对应接口；

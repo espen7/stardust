@@ -18,7 +18,8 @@ import java.io.Serializable;
 /**
  * DeathWatch 发送给 watcher 的终止通知消息。
  */
-public final class Terminated implements Serializable {
+public final class Terminated implements AutoReceivedMessage, PossiblyHarmful, DeadLetterSuppression,
+        NoSerializationVerificationNeeded, Serializable {
     private final ActorRef actor;
     private final boolean existenceConfirmed;
     private final boolean addressTerminated;

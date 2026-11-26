@@ -134,14 +134,8 @@ public final class Props {
     /**
      * INTERNAL API：由 ActorCell 调用，每次调用都应产生新的 Actor 实例。
      */
-    Actor newActor() {
-        try {
-            return creator.create();
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ActorInitializationException(e);
-        }
+    Actor newActor() throws Exception {
+        return creator.create();
     }
 
     /**

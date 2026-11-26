@@ -20,5 +20,5 @@ import java.io.Serializable;
  *
  * @param messageId 原样放入回复中的关联标识
  */
-public record Identify(Object messageId) implements Serializable {
+public record Identify(Object messageId) implements AutoReceivedMessage, NotInfluenceReceiveTimeout, Serializable {
 }

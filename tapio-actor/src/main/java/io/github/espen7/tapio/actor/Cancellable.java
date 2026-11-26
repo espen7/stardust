@@ -14,12 +14,42 @@
 package io.github.espen7.tapio.actor;
 
 /**
- * 一次性调度任务的取消句柄。
+ * 调度任务的取消句柄。
  */
 public interface Cancellable {
 
     /**
-     * 尝试取消尚未执行的任务。
+     * 已取消且不能再次取消的任务句柄。
+     */
+    public static final Cancellable alreadyCancelled = new Cancellable() {
+        @Override
+        public boolean cancel() {
+            return false;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return true;
+        }
+    };
+
+    /**
+     * INTERNAL API：周期任务首次发布前使用的未取消哨兵。
+     */
+    static final Cancellable initialNotCancelled = new Cancellable() {
+        @Override
+        public boolean cancel() {
+            return false;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+    };
+
+    /**
+     * 尝试取消任务。并发取消时，只有一次调用可能返回 {@code true}。
      *
      * @return 成功取消时返回 {@code true}
      */

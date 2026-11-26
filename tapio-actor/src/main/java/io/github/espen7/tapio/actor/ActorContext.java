@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.concurrent.CompletionStage;
 
@@ -51,6 +52,34 @@ public interface ActorContext extends ActorRefFactory {
      * @return 被观察的 ActorRef
      */
     ActorRef watch(ActorRef actor);
+
+    /**
+     * 建立 DeathWatch 关系，并在目标终止时投递自定义消息。
+     *
+     * @param actor 要观察的 ActorRef
+     * @param message 目标终止时投递的消息；可以为 {@code null}
+     * @return 被观察的 ActorRef
+     */
+    ActorRef watchWith(ActorRef actor, Object message);
+
+    /**
+     * 返回当前 receive timeout；未设置时返回 {@link Duration#ZERO}。
+     *
+     * @return 当前 receive timeout
+     */
+    Duration getReceiveTimeout();
+
+    /**
+     * 设置静默后投递 {@link ReceiveTimeout} 的时长。
+     *
+     * @param timeout 静默时长
+     */
+    void setReceiveTimeout(Duration timeout);
+
+    /**
+     * 取消 receive timeout。
+     */
+    void cancelReceiveTimeout();
 
     /**
      * 解除 DeathWatch 关系。

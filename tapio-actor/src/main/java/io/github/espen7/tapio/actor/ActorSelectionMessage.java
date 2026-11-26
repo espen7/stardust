@@ -17,5 +17,5 @@ import java.util.List;
 
 /** 携带尚待遍历的 ActorSelection 路径元素。 */
 record ActorSelectionMessage(Object message, List<SelectionPathElement> elements, boolean wildcardFanOut)
-        implements WrappedMessage {
+        implements AutoReceivedMessage, PossiblyHarmful, WrappedMessage {
 }

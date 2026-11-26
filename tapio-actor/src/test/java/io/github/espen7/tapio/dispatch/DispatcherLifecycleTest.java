@@ -491,6 +491,17 @@ class DispatcherLifecycleTest {
         }
 
         @Override
+        protected Cancellable schedule(Duration initialDelay, Duration interval,
+                                       Runnable runnable, Executor executor) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public double maxFrequency() {
+            return 0;
+        }
+
+        @Override
         public synchronized void close() {
             if (closed) return;
             closed = true;

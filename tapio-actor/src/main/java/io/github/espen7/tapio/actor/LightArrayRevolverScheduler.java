@@ -31,10 +31,11 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 按 tick 触发一次性任务的时间轮调度器。
+ * 按 tick 触发一次性与周期任务的时间轮调度器。
  *
  * <p>单个定时线程推进时间轮，并将到期任务提交给各自的 {@link Executor}。
  */
@@ -43,6 +44,17 @@ public class LightArrayRevolverScheduler extends Scheduler {
     private static final Runnable CancelledTask = () -> {};
     private static final Runnable ExecutedTask = () -> {};
     private static final Cancellable NotCancellable = new Cancellable() {
+        @Override
+        public boolean cancel() {
+            return false;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+    };
+    private static final Cancellable InitialRepeatMarker = new Cancellable() {
         @Override
         public boolean cancel() {
             return false;
@@ -154,6 +166,53 @@ public class LightArrayRevolverScheduler extends Scheduler {
         }
     }
 
+    @Override
+    public Cancellable scheduleWithFixedDelay(Duration initialDelay, Duration delay,
+                                              Runnable runnable, Executor executor) {
+        checkPeriod(delay);
+        checkMaxDelay(roundUp(delay.toNanos()));
+        return super.scheduleWithFixedDelay(initialDelay, delay, runnable, executor);
+    }
+
+    @Override
+    protected Cancellable schedule(Duration initialDelay, Duration interval,
+                                   Runnable runnable, Executor executor) {
+        checkPeriod(interval);
+        checkMaxDelay(roundUp(interval.toNanos()));
+        return new AtomicCancellable(InitialRepeatMarker) {
+            @Override
+            protected Cancellable scheduledFirst() {
+                AtomicCancellable self = this;
+                AtomicLong nextDeadline = new AtomicLong(clock() + initialDelay.toNanos());
+                SchedulerTask task = new SchedulerTask() {
+                    @Override
+                    public void run() {
+                        try {
+                            runnable.run();
+                            long driftNanos = clock() - nextDeadline.getAndAdd(interval.toNanos());
+                            if (self.get() != null) {
+                                long nextDelayNanos = Math.max(interval.toNanos() - driftNanos, 1);
+                                self.swap(schedule(executor, this, nextDelayNanos));
+                            }
+                        } catch (SchedulerException ignored) {
+                        }
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        if (runnable instanceof SchedulerTask schedulerTask) schedulerTask.cancelled();
+                    }
+                };
+                return schedule(executor, task, roundUp(initialDelay.toNanos()));
+            }
+        };
+    }
+
+    @Override
+    public double maxFrequency() {
+        return 1_000_000_000.0 / tickNanos;
+    }
+
     private Cancellable schedule(Executor executor, Runnable runnable, long delayNanos) {
         Objects.requireNonNull(runnable, "runnable");
         Objects.requireNonNull(executor, "executor");
@@ -170,6 +229,14 @@ public class LightArrayRevolverScheduler extends Scheduler {
             throw new SchedulerException("cannot enqueue after timer shutdown");
         }
         return task;
+    }
+
+    private void checkPeriod(Duration delay) {
+        if (delay.toNanos() <= 0) {
+            throw new IllegalArgumentException("Task scheduled with [" + delay.toSeconds()
+                    + "] seconds delay, which means creating an infinite loop. "
+                    + "The expected delay must be greater than 0.");
+        }
     }
 
     private void checkMaxDelay(long delayNanos) {
@@ -405,9 +472,4 @@ public class LightArrayRevolverScheduler extends Scheduler {
         }
     }
 
-    private static final class SchedulerException extends RuntimeException {
-        private SchedulerException(String message) {
-            super(message, null, false, false);
-        }
-    }
 }

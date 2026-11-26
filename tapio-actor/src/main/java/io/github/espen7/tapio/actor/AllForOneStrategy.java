@@ -44,6 +44,18 @@ public class AllForOneStrategy extends SupervisorStrategy {
     }
 
     /**
+     * 创建对指定异常类型执行 Restart、其他异常向上升级的策略。
+     *
+     * @param maxNrOfRetries 时间窗内允许的最大重试数，负数表示不限制重试数
+     * @param withinTimeRange 重试计数时间窗，负 duration 表示不使用时间窗
+     * @param trapExit 需要重启的异常类型
+     */
+    public AllForOneStrategy(int maxNrOfRetries, Duration withinTimeRange,
+                             Iterable<Class<? extends Throwable>> trapExit) {
+        this(maxNrOfRetries, withinTimeRange, SupervisorStrategy.makeDecider(trapExit));
+    }
+
+    /**
      * 创建 AllForOneStrategy。
      *
      * @param maxNrOfRetries 时间窗内允许的最大重试数，负数表示不限制重试数
@@ -57,6 +69,16 @@ public class AllForOneStrategy extends SupervisorStrategy {
         this.withinTimeRange = Objects.requireNonNull(withinTimeRange, "withinTimeRange");
         this.decider = Objects.requireNonNull(decider, "decider");
         this.loggingEnabled = loggingEnabled;
+    }
+
+    /**
+     * 创建不限制重试次数和重试时间窗的策略。
+     *
+     * @param loggingEnabled 是否通过 EventStream 发布失败日志
+     * @param decider 将失败异常映射为监督指令的函数
+     */
+    public AllForOneStrategy(boolean loggingEnabled, Function<Throwable, Directive> decider) {
+        this(-1, Duration.ofNanos(-1), decider, loggingEnabled);
     }
 
     /**

@@ -25,6 +25,6 @@ public final class ActorKilledException extends RuntimeException {
      * @param message 异常消息
      */
     public ActorKilledException(String message) {
-        super(message);
+        super(message, null, false, false);
     }
 }

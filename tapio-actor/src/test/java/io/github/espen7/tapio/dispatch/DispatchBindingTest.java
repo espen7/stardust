@@ -21,8 +21,10 @@ import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.ActorCell;
+import io.github.espen7.tapio.actor.ActorInitializationException;
 import io.github.espen7.tapio.actor.ActorRefWithCell;
 import io.github.espen7.tapio.actor.Props;
+import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.pattern.Patterns;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -178,6 +180,26 @@ class DispatchBindingTest {
     }
 
     @Test
+    void lateMailboxRequirementFailureRetainsActorReference() throws Exception {
+        system = ActorSystem.create("dispatch-requirement-runtime", ConfigFactory.parseString("""
+                lying-mailbox.mailbox-type = "io.github.espen7.tapio.dispatch.DispatchBindingTest$LyingBoundedMailbox"
+                """));
+        BlockingQueue<Object> events = new LinkedBlockingQueue<>();
+        ActorRef subscriber = system.actorOf(Props.create(Subscriber.class, events), "events");
+        system.eventStream().subscribe(subscriber, Error.class);
+
+        ActorRef actor = system.actorOf(Props.create(BoundedOnlyActor.class).withMailbox("lying-mailbox"),
+                "bounded-only");
+        Error error = assertInstanceOf(Error.class, events.poll(WAIT_SECONDS, TimeUnit.SECONDS));
+        ActorInitializationException exception =
+                assertInstanceOf(ActorInitializationException.class, error.cause());
+        assertEquals(actor, exception.getActor());
+        assertTrue(exception.getMessage().startsWith(actor.path() + ": "));
+        assertTrue(exception.getMessage().contains("requires mailbox type ["));
+        assertTrue(exception.getMessage().contains(UnboundedMailbox.MessageQueue.class.getName()));
+    }
+
+    @Test
     void actorRequirementSelectsMappedMailboxWithoutExplicitMailbox() {
         system = ActorSystem.create("dispatch-requirement-default");
 
@@ -314,6 +336,17 @@ class DispatchBindingTest {
         @Override
         public Receive createReceive() {
             return receiveBuilder().matchAny(events::add).build();
+        }
+    }
+
+    public static final class LyingBoundedMailbox implements MailboxType,
+            ProducesMessageQueue<BoundedMailbox.MessageQueue> {
+        public LyingBoundedMailbox(ActorSystem.Settings settings, Config config) {
+        }
+
+        @Override
+        public MessageQueue create(ActorRef owner, ActorSystem system) {
+            return new UnboundedMailbox.MessageQueue();
         }
     }
 

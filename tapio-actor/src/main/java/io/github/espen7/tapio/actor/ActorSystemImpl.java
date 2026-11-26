@@ -272,6 +272,10 @@ public class ActorSystemImpl extends ActorSystem {
         return settings.DebugLifecycle;
     }
 
+    boolean debugAutoReceive() {
+        return settings.DebugAutoReceive;
+    }
+
     boolean debugUnhandled() {
         return settings.DebugUnhandledMessage;
     }

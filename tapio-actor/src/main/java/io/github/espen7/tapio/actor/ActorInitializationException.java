@@ -17,13 +17,15 @@ package io.github.espen7.tapio.actor;
  * Actor constructor 或初始 receive 创建失败时使用的异常。
  */
 public class ActorInitializationException extends RuntimeException {
+    private final ActorRef actor;
+
     /**
      * 创建带 cause 的初始化异常。
      *
      * @param cause 初始化失败原因
      */
     public ActorInitializationException(Throwable cause) {
-        super(cause);
+        this(null, null, cause);
     }
 
     /**
@@ -32,10 +34,24 @@ public class ActorInitializationException extends RuntimeException {
      * @param message 异常消息
      */
     public ActorInitializationException(String message) {
-        super(message);
+        this(null, message, null);
     }
 
     ActorInitializationException(String message, Throwable cause) {
-        super(message, cause);
+        this(null, message, cause);
+    }
+
+    ActorInitializationException(ActorRef actor, String message, Throwable cause) {
+        super(actor == null ? message : actor.path() + ": " + message, cause);
+        this.actor = actor;
+    }
+
+    /**
+     * 返回初始化失败的 Actor。
+     *
+     * @return 关联 ActorRef；未知时为 {@code null}
+     */
+    public ActorRef getActor() {
+        return actor;
     }
 }
