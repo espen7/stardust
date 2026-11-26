@@ -74,8 +74,11 @@ wildcard fan-out。`Patterns.ask` 复用 `PromiseActorRef`，等待首个回复�
 
 `ActorSystemImpl` 在初始化 runtime 组件前创建 `ActorSystem.Settings`，由后者调用
 `Config.checkValid` 并解析日志、Scheduler 和系统终止使用的设置。随后按
-`Settings/EventStream/Log → Scheduler → Dispatchers → Mailboxes → 默认 Dispatcher →
-CoordinatedShutdown → Provider` 的顺序启动，确保 Dispatcher 创建时 Scheduler 已可用。
+`Settings/EventStream/Log → Scheduler → Provider → Mailboxes → Dispatchers → 默认 Dispatcher →
+CoordinatedShutdown → Provider.init` 的顺序启动。Provider 构造只创建 deadLetters 等内部引用，
+root/user/system guardian 延后到 `init` 创建，避免 Provider、Mailboxes 和 Dispatcher 的构造循环依赖；
+启动失败时若 guardian 尚未存在，则直接关闭已创建的 Scheduler 与 Dispatcher；若已发起 guardian 停止，
+则保留处理终止消息所需的资源，由终止回调收尾。
 关闭任务配置要求 `run-by-actor-system-terminate=on` 时同时启用 `terminate-actor-system`。对应上游
 `actor/src/main/scala/org/apache/pekko/actor/ActorSystem.scala` 的 `Settings` 和 `ActorSystemImpl`，
 以及 `actor/src/main/scala/org/apache/pekko/PekkoException.scala` 的 `ConfigurationException`。
@@ -162,9 +165,9 @@ mailbox 前再次校验实际队列是否满足 `RequiresMessageQueue`；校验�
 在 `push-timeout` 内仍无法入队时通过 provider 的 dead letters 发布 `DeadLetter`；
 `bounded-capacity:N` 直接按容量创建 `BoundedMailbox`，并复用同一 id 的 mailbox type。
 非零 `push-timeout` 由实现 `ProducesPushTimeoutSemanticsMailbox` 的 mailbox type 触发一次告警。
-Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此有界队列在 `offer` 或 `put`
-被中断时恢复线程中断标志并发布当前消息的 `DeadLetter`；Pekko 的对应实现会让该异常继续传播，
-这是 Java 接口边界造成的已知可观察差异。
+Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此通过现有泛型重抛机制
+让 `offer` 或 `put` 抛出的原异常继续向上传播；不恢复中断标志，也不把当前消息发布为 `DeadLetter`，
+与 Pekko 的中断路径一致。只有超过 `push-timeout` 的正常入队失败才发布 `DeadLetter`。
 对应上游 `dispatch/Mailbox.scala` 和 `dispatch/Mailboxes.scala`。`WildcardIndex` 保持
 `WildcardTree` 的 exact、`*`、`**` 匹配顺序。对应上游
 `util/WildcardIndex.scala`。
@@ -298,8 +301,10 @@ Actor 实例，postRestart 失败终止时也保留新实例供 `postStop` 调�
 `PromiseActorRef` 使用 VarHandle CAS 表达上游的 path 与 watcher 状态。Java 用 `Set.copyOf` 快照表达
 Scala immutable Set。Provider 分配带目标路径前缀的临时路径。首次读取存活引用的 path 时才注册，
 停止时回收已注册的路径并通知 watcher。迟到或重复的回复通过 `DeadLetterActorRef` 发布事件。
-Actor 注销时将该 Dispatcher 持有的 dead-letter Mailbox 换入，并关闭、清理旧 Mailbox。
-当前每个 Dispatcher 各自持有 dead-letter mailbox；上游 `Mailboxes` 共享实例的拓扑尚未对齐。对应 `actor/ActorRef.scala`、
+Actor 注销时将系统共享的 dead-letter Mailbox 换入，并关闭、清理旧 Mailbox。
+`Mailboxes` 持有全系统唯一的 `DeadLetterMailbox`，所有 Dispatcher 通过注册表委托到同一实例；
+该队列不保存消息，普通消息立即转为 `DeadLetter` 投递到 `deadLetters`，已是 `DeadLetter` 的消息不再递归发布。
+对应 `actor/ActorRef.scala`、
 `actor/ActorRefProvider.scala`、`actor/dungeon/DeathWatch.scala`、`dispatch/AbstractDispatcher.scala`、
 `dispatch/Mailboxes.scala` 和 `dispatch/Mailbox.scala`。本地 Actor 和 dead letters 已处理
 `Identify` / `ActorIdentity`；引用序列化仍待移植。
@@ -362,7 +367,15 @@ ask 使用 `CompletableFuture` 保存结果，并返回只读的 `CompletionStag
 EventStream 使用 ActorRef 作为 subscriber、class 作为 channel；订阅父类 channel 会收到子类事件，
 发布通过 `ActorRef.tell` 进入 subscriber mailbox。订阅变更同步锁定 `subscriptions`；channel 查询结果保存在
 volatile cache 中，发布仅在 cache miss 时获取同一把锁，对应 `SubchannelClassification` 的索引与缓存路径。
-Java 使用 `HashMap` 和不可变集合快照表达上游索引及 immutable cache。终止订阅者自动清理仍未移植。
+Java 使用 `HashMap` 和不可变集合快照表达上游索引及 immutable cache。`ActorSystem` 就绪后创建独立的
+`EventStreamUnsubscriber` 系统 Actor，使用 internal Dispatcher 和全系统唯一名称。订阅先通过
+`AtomicReference` 状态机登记；启动前保存初始订阅集合，启动后切换为 unsubscriber 引用并转发
+`Register` / `UnregisterIfNoMoreSubscribedChannels`。unsubscriber 使用 DeathWatch 观察 `InternalActorRef`，
+收到 `Terminated` 后取消该订阅者的全部 channel；取消最后一个 channel 时解除观察。对应上游
+`event/EventStream.scala`、`event/EventStreamUnsubscriber.scala` 和 `event/EventBus.scala`。
+`tapio.actor.debug.event-stream` 默认 `off`，开启后发布与上游文本一致的订阅、退订和观察 DEBUG 事件。
+Java 的自定义非 `InternalActorRef` 无法参与本地 DeathWatch，因此 unsubscriber 跳过对这类引用的 watch/unwatch；
+普通发布与显式退订仍可使用，但不会获得终止自动退订。
 
 默认 logger 生命周期对应 `startDefaultLoggers` / `stopDefaultLoggers`。启动时先读取
 `tapio.stdout-loglevel` 安装同步 `StandardOutLogger`，再从 `tapio.loggers` 解析全部 Actor class；
@@ -406,7 +419,7 @@ Java 边界：`Timeout(...)` 日志按上游文本保留，数字由配置毫秒
 和 `InterruptedException`；Java 没有 Scala `ControlThrowable`。`NoStackTrace` 用 marker interface 对应
 Scala trait，stdout 对其异常输出 ` (class: message)` 短文本。logger 清理覆盖非致命 `Error`，
 fatal Error 直接抛出。`Settings.Loggers` 从 Config list 复制为不可变 list。
-EventStream 自动退订、logging filter 和启动时配置日志仍未移植；serialization 不在当前范围内。
+logging filter 和启动时配置日志仍未移植；serialization 不在当前范围内。
 
 ## Java 语言适配
 

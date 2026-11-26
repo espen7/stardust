@@ -361,6 +361,21 @@ class DispatcherLifecycleTest {
     }
 
     @Test
+    void dispatchersShareTheSystemDeadLetterMailbox() {
+        system = ActorSystem.create("dispatcher-shared-dead-letters", ConfigFactory.parseString("""
+                dispatchers.other {
+                  type = "Dispatcher"
+                  throughput = 1
+                }
+                """));
+        Dispatcher defaultDispatcher = system.dispatcher();
+        Dispatcher otherDispatcher = system.dispatchers().lookup("dispatchers.other");
+
+        assertSame(defaultDispatcher.deadLetterMailbox(), otherDispatcher.deadLetterMailbox());
+        assertSame(defaultDispatcher.deadLetters(), otherDispatcher.deadLetters());
+    }
+
+    @Test
     void taskAfterSystemTerminationRecreatesAndShutsDownExecutor() throws Exception {
         system = ActorSystem.create("dispatcher-after-termination");
         CountingExecutorFactory factory = new CountingExecutorFactory();

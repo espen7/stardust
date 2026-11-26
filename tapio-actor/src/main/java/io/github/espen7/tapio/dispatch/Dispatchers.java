@@ -30,8 +30,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
     public static final String DefaultDispatcherId = ActorPath.Scheme + ".actor.default-dispatcher";
-    /** Pekko 内部 Dispatcher 的配置路径。 */
-    static final String InternalDispatcherId = ActorPath.Scheme + ".actor.internal-dispatcher";
+    /** INTERNAL API：Pekko 内部 Dispatcher 的配置路径。 */
+    @InternalApi
+    public static final String InternalDispatcherId = ActorPath.Scheme + ".actor.internal-dispatcher";
     private static final int MaxDispatcherAliasDepth = 20;
 
     private final ActorSystem.Settings settings;

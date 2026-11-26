@@ -98,8 +98,7 @@ public final class BoundedMailbox implements MailboxType,
                     put(handle);
                 }
             } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                deadLetter(receiver, handle);
+                MessageQueue.<RuntimeException>throwUnchecked(error);
             }
         }
 
@@ -122,6 +121,11 @@ public final class BoundedMailbox implements MailboxType,
         private static void deadLetter(ActorRef receiver, Envelope handle) {
             ((InternalActorRef) receiver).provider().deadLetters().tell(
                     new DeadLetter(handle.message(), handle.sender(), receiver), handle.sender());
+        }
+
+        @SuppressWarnings("unchecked")
+        private static <E extends Throwable> void throwUnchecked(Throwable error) throws E {
+            throw (E) error;
         }
     }
 }

@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -45,6 +46,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * 发布通过 ActorRef.tell 投递，不会在发布线程中执行 subscriber 的业务逻辑。</p>
  */
 public final class EventStream {
+    private final ActorSystem system;
+    private final boolean debug;
+    private final AtomicReference<UnsubscriberState> initiallySubscribedOrUnsubscriber =
+            new AtomicReference<>(new InitialSubscriptions(Set.of()));
     private final Map<Class<?>, Set<ActorRef>> subscriptions = new HashMap<>();
     private final ReentrantLock guard = new ReentrantLock();
     private final LogExt logExt = new LogExt();
@@ -55,6 +60,7 @@ public final class EventStream {
 
     /** 创建尚未安装默认 logger 的 EventStream。 */
     public EventStream() {
+        this(null, false);
     }
 
     /**
@@ -63,7 +69,28 @@ public final class EventStream {
      * @param logLevel 低于此级别的日志事件不会发送给默认 logger
      */
     public EventStream(LogEvent.Level logLevel) {
+        this(null, false);
         this.logLevel = logLevel;
+    }
+
+    /**
+     * 创建绑定 ActorSystem 的 EventStream。
+     *
+     * @param system 所属 ActorSystem；为 {@code null} 时不启用自动退订
+     * @param debug 是否发布订阅和退订操作的 DEBUG 事件
+     */
+    public EventStream(ActorSystem system, boolean debug) {
+        this.system = system;
+        this.debug = debug;
+    }
+
+    private sealed interface UnsubscriberState permits InitialSubscriptions, ActiveUnsubscriber {
+    }
+
+    private record InitialSubscriptions(Set<ActorRef> subscribers) implements UnsubscriberState {
+    }
+
+    private record ActiveUnsubscriber(ActorRef unsubscriber) implements UnsubscriberState {
     }
 
     /**
@@ -76,6 +103,11 @@ public final class EventStream {
     public boolean subscribe(ActorRef subscriber, Class<?> channel) {
         if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
         if (channel == null) throw new IllegalArgumentException("channel is null");
+        if (debug) {
+            publish(new Debug(Logging.simpleName(this), getClass(),
+                    "subscribing " + subscriber + " to channel " + channel));
+        }
+        registerWithUnsubscriber(subscriber);
         synchronized (subscriptions) {
             boolean added = subscriptions.computeIfAbsent(channel, ignored -> new HashSet<>()).add(subscriber);
             if (added) updateCache();
@@ -93,14 +125,21 @@ public final class EventStream {
     public boolean unsubscribe(ActorRef subscriber, Class<?> channel) {
         if (subscriber == null) throw new IllegalArgumentException("subscriber is null");
         if (channel == null) throw new IllegalArgumentException("channel is null");
+        boolean removed = false;
         synchronized (subscriptions) {
             Set<ActorRef> channelSubscribers = subscriptions.get(channel);
-            if (channelSubscribers == null) return false;
-            boolean removed = channelSubscribers.remove(subscriber);
-            if (channelSubscribers.isEmpty()) subscriptions.remove(channel);
-            if (removed) updateCache();
-            return removed;
+            if (channelSubscribers != null) {
+                removed = channelSubscribers.remove(subscriber);
+                if (channelSubscribers.isEmpty()) subscriptions.remove(channel);
+                if (removed) updateCache();
+            }
         }
+        unregisterIfNoMoreSubscribedChannels(subscriber);
+        if (debug) {
+            publish(new Debug(Logging.simpleName(this), getClass(),
+                    "unsubscribing " + subscriber + " from channel " + channel));
+        }
+        return removed;
     }
 
     /**
@@ -117,6 +156,90 @@ public final class EventStream {
             }
             subscriptions.values().removeIf(Set::isEmpty);
             if (removed) updateCache();
+        }
+        unregisterIfNoMoreSubscribedChannels(subscriber);
+        if (debug) {
+            publish(new Debug(Logging.simpleName(this), getClass(),
+                    "unsubscribing " + subscriber + " from all channels"));
+        }
+    }
+
+    boolean hasSubscriptions(ActorRef subscriber) {
+        synchronized (subscriptions) {
+            for (Set<ActorRef> channelSubscribers : subscriptions.values()) {
+                if (channelSubscribers.contains(subscriber)) return true;
+            }
+            return false;
+        }
+    }
+
+    /**
+     * INTERNAL API：ActorSystem 就绪后启动自动退订订阅者的系统 Actor。
+     */
+    @InternalApi
+    public void startUnsubscriber() {
+        if (system != null) EventStreamUnsubscriber.start(system, this);
+    }
+
+    boolean initUnsubscriber(ActorRef unsubscriber) {
+        if (system == null) return false;
+        for (; ; ) {
+            UnsubscriberState current = initiallySubscribedOrUnsubscriber.get();
+            if (current instanceof ActiveUnsubscriber present) {
+                if (debug) {
+                    publish(new Debug(Logging.simpleName(this), getClass(),
+                            "not using unsubscriber " + unsubscriber + ", because already initialized with "
+                                    + present.unsubscriber()));
+                }
+                return false;
+            }
+            InitialSubscriptions initial = (InitialSubscriptions) current;
+            if (initiallySubscribedOrUnsubscriber.compareAndSet(current, new ActiveUnsubscriber(unsubscriber))) {
+                if (debug) {
+                    publish(new Debug(Logging.simpleName(this), getClass(),
+                            "initialized unsubscriber to: " + unsubscriber + ", registering "
+                                    + initial.subscribers().size() + " initial subscribers with it"));
+                }
+                initial.subscribers().forEach(this::registerWithUnsubscriber);
+                return true;
+            }
+        }
+    }
+
+    private void registerWithUnsubscriber(ActorRef subscriber) {
+        if (system == null) return;
+        for (; ; ) {
+            UnsubscriberState current = initiallySubscribedOrUnsubscriber.get();
+            if (current instanceof InitialSubscriptions initial) {
+                Set<ActorRef> updated = new HashSet<>(initial.subscribers());
+                updated.add(subscriber);
+                if (!initiallySubscribedOrUnsubscriber.compareAndSet(current,
+                        new InitialSubscriptions(Set.copyOf(updated)))) {
+                    continue;
+                }
+                return;
+            }
+            ((ActiveUnsubscriber) current).unsubscriber().tell(new EventStreamUnsubscriber.Register(subscriber));
+            return;
+        }
+    }
+
+    private void unregisterIfNoMoreSubscribedChannels(ActorRef subscriber) {
+        if (system == null) return;
+        for (; ; ) {
+            UnsubscriberState current = initiallySubscribedOrUnsubscriber.get();
+            if (current instanceof InitialSubscriptions initial) {
+                Set<ActorRef> updated = new HashSet<>(initial.subscribers());
+                updated.remove(subscriber);
+                if (!initiallySubscribedOrUnsubscriber.compareAndSet(current,
+                        new InitialSubscriptions(Set.copyOf(updated)))) {
+                    continue;
+                }
+                return;
+            }
+            ((ActiveUnsubscriber) current).unsubscriber()
+                    .tell(new EventStreamUnsubscriber.UnregisterIfNoMoreSubscribedChannels(subscriber));
+            return;
         }
     }
 
@@ -142,7 +265,12 @@ public final class EventStream {
                 }
             }
         }
-        for (ActorRef recipient : recipients) recipient.tell(event);
+        for (ActorRef recipient : recipients) publish(event, recipient);
+    }
+
+    private void publish(Object event, ActorRef subscriber) {
+        if (system == null && subscriber.isTerminated()) unsubscribe(subscriber);
+        else subscriber.tell(event);
     }
 
     /**

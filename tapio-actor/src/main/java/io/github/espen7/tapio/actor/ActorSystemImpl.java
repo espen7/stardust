@@ -96,7 +96,7 @@ public class ActorSystemImpl extends ActorSystem {
         Config config = applicationConfig == null ? ConfigFactory.load(classLoader)
                 : applicationConfig.withFallback(ConfigFactory.defaultReferenceUnresolved(classLoader)).resolve();
         this.settings = new Settings(classLoader, config, name);
-        this.eventStream = new EventStream();
+        this.eventStream = new EventStream(this, settings.DebugEventStream);
         eventStream.startStdoutLogger(settings);
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
         this.threadFactory = new MonitorableThreadFactory(name, settings.Daemonicity, classLoader,
@@ -107,11 +107,11 @@ public class ActorSystemImpl extends ActorSystem {
         LocalActorRefProvider startedProvider = null;
         try {
             this.scheduler = startedScheduler = createScheduler();
+            this.provider = startedProvider = new LocalActorRefProvider(this);
+            this.mailboxes = new Mailboxes(settings, eventStream, provider.deadLetters());
             this.dispatchers = new Dispatchers(settings, this);
-            this.mailboxes = new Mailboxes(settings, eventStream);
             this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
             this.coordinatedShutdown = startedShutdown = new CoordinatedShutdown(this);
-            this.provider = startedProvider = new LocalActorRefProvider(this);
             provider.terminationFuture().whenComplete(this::finishTermination);
             provider.init(this);
             if (settings.LogDeadLetters > 0) {
@@ -121,6 +121,7 @@ public class ActorSystemImpl extends ActorSystem {
             } else {
                 this.logDeadLetterListener = null;
             }
+            eventStream.startUnsubscriber();
             if (settings.CoordinatedShutdownTerminateActorSystem) {
                 coordinatedShutdown.addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-system", () -> {
                     finalTerminate();
@@ -130,7 +131,21 @@ public class ActorSystemImpl extends ActorSystem {
         } catch (RuntimeException | Error error) {
             if (error instanceof Error && !NonFatal.apply(error)) throw error;
             if (startedShutdown != null) startedShutdown.cancelJvmShutdownHook();
-            if (startedProvider == null) {
+            boolean terminationInitiated = false;
+            if (startedProvider != null) {
+                try {
+                    LocalActorRef guardian = startedProvider.guardian();
+                    if (guardian == null) guardian = startedProvider.rootGuardian();
+                    if (guardian != null) {
+                        guardian.stop();
+                        terminationInitiated = true;
+                    }
+                } catch (RuntimeException | Error closeError) {
+                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                    else throw closeError;
+                }
+            }
+            if (!terminationInitiated) {
                 try {
                     if (startedScheduler != null) startedScheduler.close();
                 } catch (RuntimeException | Error closeError) {
@@ -142,27 +157,6 @@ public class ActorSystemImpl extends ActorSystem {
                 } catch (RuntimeException | Error closeError) {
                     if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
                     else throw closeError;
-                }
-            } else {
-                try {
-                    LocalActorRef guardian = startedProvider.guardian();
-                    if (guardian != null) guardian.stop();
-                    else startedProvider.rootGuardian().stop();
-                } catch (RuntimeException | Error closeError) {
-                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
-                    else throw closeError;
-                    try {
-                        if (startedScheduler != null) startedScheduler.close();
-                    } catch (RuntimeException | Error schedulerError) {
-                        if (NonFatal.apply(schedulerError)) error.addSuppressed(schedulerError);
-                        else throw schedulerError;
-                    }
-                    try {
-                        if (startedDispatcher != null) startedDispatcher.close();
-                    } catch (RuntimeException | Error dispatcherError) {
-                        if (NonFatal.apply(dispatcherError)) error.addSuppressed(dispatcherError);
-                        else throw dispatcherError;
-                    }
                 }
             }
             throw error;

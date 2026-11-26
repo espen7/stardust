@@ -69,7 +69,7 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
     private final EventStream eventStream;
     private final Scheduler scheduler;
     private final Duration shutdownTimeout;
-    private final DeadLetterMailbox deadLetterMailbox;
+    private final Mailboxes mailboxes;
     private final int throughput;
     private final Duration throughputDeadlineTime;
 
@@ -135,10 +135,10 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
         this.eventStream = system.eventStream();
         this.scheduler = scheduler;
         this.shutdownTimeout = shutdownTimeout;
+        this.mailboxes = system.mailboxes();
         this.throughput = throughput;
         this.throughputDeadlineTime = throughputDeadlineTime;
         this.executorServiceDelegate = new LazyExecutorServiceDelegate(executorServiceFactory);
-        this.deadLetterMailbox = new DeadLetterMailbox(system);
     }
 
     static ExecutorServiceFactory defaultExecutorServiceFactory(ActorSystem system) {
@@ -173,7 +173,7 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
      * @return dead letters message queue
      */
     public MessageQueue deadLetters() {
-        return deadLetterMailbox.messageQueue();
+        return mailboxes.deadLetterMailbox().messageQueue();
     }
 
     /**
@@ -188,7 +188,7 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
     }
 
     Mailbox deadLetterMailbox() {
-        return deadLetterMailbox;
+        return mailboxes.deadLetterMailbox();
     }
 
     /**
@@ -234,7 +234,7 @@ public class Dispatcher implements ExecutionContext, AutoCloseable {
     @InternalApi
     public void unregister(ActorCell actor) {
         addInhabitants(-1);
-        Mailbox mailbox = actor.swapMailbox(deadLetterMailbox);
+        Mailbox mailbox = actor.swapMailbox(deadLetterMailbox());
         mailbox.close();
         mailbox.cleanUp();
     }

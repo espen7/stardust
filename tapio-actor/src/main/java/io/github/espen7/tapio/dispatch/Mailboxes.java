@@ -18,6 +18,7 @@ import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.actor.Actor;
 import io.github.espen7.tapio.actor.ActorPath;
+import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.Deploy;
 import io.github.espen7.tapio.actor.Props;
@@ -45,6 +46,7 @@ public final class Mailboxes {
 
     private final ActorSystem.Settings settings;
     private final EventStream eventStream;
+    private final DeadLetterMailbox deadLetterMailbox;
     private final Map<Class<?>, String> mailboxBindings;
     private final ConcurrentHashMap<String, MailboxType> mailboxTypeConfigurators = new ConcurrentHashMap<>();
     private final Config defaultMailboxConfig;
@@ -55,12 +57,23 @@ public final class Mailboxes {
      *
      * @param settings 所属系统的有效配置
      * @param eventStream 接收 mailbox 警告事件的 EventStream
+     * @param deadLetters 接收无法投递消息的 ActorRef
      */
-    public Mailboxes(ActorSystem.Settings settings, EventStream eventStream) {
+    public Mailboxes(ActorSystem.Settings settings, EventStream eventStream, ActorRef deadLetters) {
         this.settings = settings;
         this.eventStream = eventStream;
+        this.deadLetterMailbox = new DeadLetterMailbox(deadLetters);
         this.defaultMailboxConfig = settings.config().getConfig(DefaultMailboxId);
         this.mailboxBindings = loadMailboxBindings();
+    }
+
+    /**
+     * 返回此 ActorSystem 所有 Dispatcher 共用的 dead-letter mailbox。
+     *
+     * @return 共享的 dead-letter mailbox
+     */
+    public Mailbox deadLetterMailbox() {
+        return deadLetterMailbox;
     }
 
     /**

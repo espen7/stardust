@@ -52,7 +52,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
     private final long systemUid = ThreadLocalRandom.current().nextLong();
     private final ActorPath rootPath;
     private final InternalActorRef theOneWhoWalksTheBubblesOfSpaceTime;
-    private final LocalActorRef rootGuardian;
+    private LocalActorRef rootGuardian;
     private LocalActorRef guardian;
     private LocalActorRef systemGuardian;
     private final DeadLetterActorRef deadLetters;
@@ -60,7 +60,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
     private final CompletableFuture<Terminated> terminationPromise = new CompletableFuture<>();
     private final AtomicLong tempNumber = new AtomicLong();
     private final ActorPath tempNode;
-    private final VirtualPathContainer tempContainer;
+    private VirtualPathContainer tempContainer;
     private Serialization.Information serializationInformationCache;
 
     /**
@@ -128,6 +128,10 @@ public class LocalActorRefProvider extends ActorRefProvider {
                 }
             }
         };
+    }
+
+    @Override
+    void init(ActorSystemImpl system) {
         this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class, rootGuardianStrategy()),
                 system.dispatchers().internalDispatcher(), system.mailboxes().lookup(Mailboxes.DefaultMailboxId),
                 theOneWhoWalksTheBubblesOfSpaceTime, rootPath, rootPath.name(), false) {
@@ -146,10 +150,6 @@ public class LocalActorRefProvider extends ActorRefProvider {
             }
         };
         this.tempContainer = new VirtualPathContainer(this, tempNode, rootGuardian, log);
-    }
-
-    @Override
-    void init(ActorSystemImpl system) {
         rootGuardian.start();
         ActorCell cell = rootGuardian.underlying();
         MailboxType defaultMailbox = system.mailboxes().lookup(Mailboxes.DefaultMailboxId);

@@ -343,7 +343,7 @@ class LoggerLifecycleTest {
                 tapio.stdout-loglevel = OFF
                 tapio.log-dead-letters = off
                 """));
-        Mailboxes mailboxes = new Mailboxes(system.settings(), system.eventStream());
+        Mailboxes mailboxes = new Mailboxes(system.settings(), system.eventStream(), system.deadLetters());
         assertEquals(LoggerMessageQueueSemantics.class, mailboxes.getRequiredType(DefaultLogger.class));
         ActorRef owner = observer("logger-mailbox-owner", new LinkedBlockingQueue<>());
         MessageQueue queue = mailboxes.getMailboxType(Props.create(DefaultLogger.class),
@@ -383,7 +383,7 @@ class LoggerLifecycleTest {
     @Test
     void slf4jLoggerRequiresLoggerMailbox() {
         system = ActorSystem.create("slf4j-mailbox", config(RecordingLogger.class));
-        Mailboxes mailboxes = new Mailboxes(system.settings(), system.eventStream());
+        Mailboxes mailboxes = new Mailboxes(system.settings(), system.eventStream(), system.deadLetters());
 
         assertEquals(LoggerMessageQueueSemantics.class, mailboxes.getRequiredType(Slf4jLogger.class));
         MessageQueue queue = mailboxes.getMailboxType(Props.create(Slf4jLogger.class),

@@ -42,13 +42,13 @@ Tapio is in early development. Public APIs and configuration may change before t
 | Internal Dispatcher for guardians and PinnedDispatcher for dedicated single-actor execution | Available in `tapio-actor` |
 | Built-in `default-executor`, `fork-join-executor`, and `thread-pool-executor` configuration | Available in `tapio-actor` |
 | Props and deployment binding of Dispatcher/Mailbox, unbounded and bounded mailboxes | Available in `tapio-actor` |
-| EventStream, structured logging, default logger startup/shutdown and dynamic levels, local ActorSelection, `ask`, and one-shot and periodic scheduling | Available in `tapio-actor` |
+| EventStream with automatic unsubscription on subscriber termination, structured logging, default logger startup/shutdown and dynamic levels, local ActorSelection, `ask`, and one-shot and periodic scheduling | Available in `tapio-actor` |
 | Routing | Planned |
 | Cluster Sharding | Planned |
 | Kubernetes-based cluster discovery | Planned |
 | The transport and membership pieces required by the cluster features | Planned as focused Tapio components |
 
-`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Virtual/affinity/custom executors, externally supplied default execution contexts, advanced mailboxes other than the logger mailbox, automatic EventStream unsubscription, logging filters, and startup config logging remain incomplete.
+`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Virtual/affinity/custom executors, externally supplied default execution contexts, advanced mailboxes other than the logger mailbox, logging filters, and startup config logging remain incomplete.
 
 The initial scope does not include the complete Akka/Pekko ecosystem: Typed APIs, Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
 

@@ -18,6 +18,7 @@ import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.dispatch.Dispatcher;
 import io.github.espen7.tapio.dispatch.Dispatchers;
+import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
@@ -114,6 +115,8 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         public final boolean DebugAutoReceive;
         /** 是否将未处理消息转为 DEBUG 日志，默认关闭。 */
         public final boolean DebugUnhandledMessage;
+        /** 是否发布 EventStream 订阅和退订操作的 DEBUG 日志，默认关闭。 */
+        public final boolean DebugEventStream;
         /** user guardian 的 SupervisorStrategyConfigurator 全限定类名。 */
         public final String GuardianSupervisorStrategyClass;
         /** 外部挂载的 Actor 切换 cell 时等待临时队列锁的时限，默认 10 秒。 */
@@ -156,6 +159,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             DebugLifecycle = config.getBoolean(ActorPath.Scheme + ".actor.debug.lifecycle");
             DebugAutoReceive = config.getBoolean(ActorPath.Scheme + ".actor.debug.autoreceive");
             DebugUnhandledMessage = config.getBoolean(ActorPath.Scheme + ".actor.debug.unhandled");
+            DebugEventStream = config.getBoolean(ActorPath.Scheme + ".actor.debug.event-stream");
             GuardianSupervisorStrategyClass = config.getString(
                     ActorPath.Scheme + ".actor.guardian-supervisor-strategy");
             UnstartedPushTimeout = Duration.ofMillis(config.getDuration(
@@ -237,6 +241,13 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @return 此系统的 Dispatchers
      */
     public abstract Dispatchers dispatchers();
+
+    /**
+     * 返回此系统共享的 mailbox 注册表。
+     *
+     * @return 负责 mailbox type 选择和共享 dead-letter mailbox 的注册表
+     */
+    public abstract Mailboxes mailboxes();
 
     /**
      * 返回此系统的运行时设置。

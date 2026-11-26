@@ -14,7 +14,6 @@
 package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorRef;
-import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
@@ -22,14 +21,14 @@ import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
  * 已终止的 Actor 共用的 Mailbox，将无法投递的消息转发给 dead letters。
  */
 final class DeadLetterMailbox extends Mailbox {
-    private final ActorSystem system;
+    private final ActorRef deadLetters;
 
-    DeadLetterMailbox(ActorSystem system) {
-        super(system == null ? new UnboundedMailbox.MessageQueue() : new MessageQueue() {
+    DeadLetterMailbox(ActorRef deadLetters) {
+        super(new MessageQueue() {
             @Override
             public void enqueue(ActorRef receiver, Envelope envelope) {
                 if (!(envelope.message() instanceof DeadLetter)) {
-                    system.deadLetters().tell(new DeadLetter(envelope.message(), envelope.sender(), receiver), envelope.sender());
+                    deadLetters.tell(new DeadLetter(envelope.message(), envelope.sender(), receiver), envelope.sender());
                 }
             }
 
@@ -47,12 +46,12 @@ final class DeadLetterMailbox extends Mailbox {
             public void cleanUp(ActorRef owner, MessageQueue deadLetters) {
             }
         });
-        this.system = system;
+        this.deadLetters = deadLetters;
         close();
     }
 
     @Override
     public void systemEnqueue(ActorRef receiver, SystemMessage message) {
-        if (system != null) system.deadLetters().tell(new DeadLetter(message, receiver, receiver));
+        deadLetters.tell(new DeadLetter(message, receiver, receiver));
     }
 }

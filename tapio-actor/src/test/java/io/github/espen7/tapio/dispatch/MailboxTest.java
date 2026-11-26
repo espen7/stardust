@@ -20,11 +20,31 @@ import io.github.espen7.tapio.actor.ActorSystemImpl;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class MailboxTest {
+    @Test
+    void interruptedBoundedEnqueuePropagatesInterruptedException() {
+        try (ActorSystem system = ActorSystem.create("mailbox-interrupted")) {
+            for (Duration pushTimeout : List.of(Duration.ofSeconds(1), Duration.ofSeconds(-1))) {
+                BoundedMailbox.MessageQueue queue = new BoundedMailbox.MessageQueue(1, pushTimeout);
+                queue.enqueue(system.deadLetters(), Envelope.apply("first", null, system));
+                Thread.currentThread().interrupt();
+                try {
+                    assertThrows(InterruptedException.class,
+                            () -> queue.enqueue(system.deadLetters(), Envelope.apply("second", null, system)));
+                } finally {
+                    Thread.interrupted();
+                }
+                assertEquals(1, queue.size());
+            }
+        }
+    }
+
     @Test
     void throughputDeadlineEndsTheCurrentMailboxBatch() {
         var config = ConfigFactory.parseString("""
