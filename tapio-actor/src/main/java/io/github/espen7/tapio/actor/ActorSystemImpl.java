@@ -23,10 +23,10 @@ import io.github.espen7.tapio.dispatch.MonitorableThreadFactory;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
-import io.github.espen7.tapio.event.LogEvent;
 import io.github.espen7.tapio.event.Logging;
 import io.github.espen7.tapio.event.LoggingAdapter;
 import io.github.espen7.tapio.event.DeadLetterListener;
+import io.github.espen7.tapio.util.NonFatal;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -96,23 +96,24 @@ public class ActorSystemImpl extends ActorSystem {
         Config config = applicationConfig == null ? ConfigFactory.load(classLoader)
                 : applicationConfig.withFallback(ConfigFactory.defaultReferenceUnresolved(classLoader)).resolve();
         this.settings = new Settings(classLoader, config, name);
-        this.eventStream = new EventStream(LogEvent.Level.parse(settings.LogLevel));
+        this.eventStream = new EventStream();
+        eventStream.startStdoutLogger(settings);
         this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
         this.threadFactory = new MonitorableThreadFactory(name, settings.Daemonicity, classLoader,
                 uncaughtExceptionHandler());
         Dispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
         CoordinatedShutdown startedShutdown = null;
+        LocalActorRefProvider startedProvider = null;
         try {
             this.scheduler = startedScheduler = createScheduler();
             this.dispatchers = new Dispatchers(settings, this);
             this.mailboxes = new Mailboxes(settings, eventStream);
             this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
             this.coordinatedShutdown = startedShutdown = new CoordinatedShutdown(this);
-            this.provider = new LocalActorRefProvider(this);
+            this.provider = startedProvider = new LocalActorRefProvider(this);
             provider.terminationFuture().whenComplete(this::finishTermination);
             provider.init(this);
-            Logging.installSlf4jLogger(this, debugUnhandled());
             if (settings.LogDeadLetters > 0) {
                 this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class,
                         settings.LogDeadLetters, settings.LogDeadLettersSuspendDuration,
@@ -126,14 +127,43 @@ public class ActorSystemImpl extends ActorSystem {
                     return whenTerminated.thenApply(ignored -> Done.done());
                 });
             }
-        } catch (RuntimeException error) {
+        } catch (RuntimeException | Error error) {
+            if (error instanceof Error && !NonFatal.apply(error)) throw error;
             if (startedShutdown != null) startedShutdown.cancelJvmShutdownHook();
-            try {
-                if (startedScheduler != null) startedScheduler.close();
-            } catch (RuntimeException closeError) {
-                error.addSuppressed(closeError);
-            } finally {
-                if (startedDispatcher != null) startedDispatcher.close();
+            if (startedProvider == null) {
+                try {
+                    if (startedScheduler != null) startedScheduler.close();
+                } catch (RuntimeException | Error closeError) {
+                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                    else throw closeError;
+                }
+                try {
+                    if (startedDispatcher != null) startedDispatcher.close();
+                } catch (RuntimeException | Error closeError) {
+                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                    else throw closeError;
+                }
+            } else {
+                try {
+                    LocalActorRef guardian = startedProvider.guardian();
+                    if (guardian != null) guardian.stop();
+                    else startedProvider.rootGuardian().stop();
+                } catch (RuntimeException | Error closeError) {
+                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                    else throw closeError;
+                    try {
+                        if (startedScheduler != null) startedScheduler.close();
+                    } catch (RuntimeException | Error schedulerError) {
+                        if (NonFatal.apply(schedulerError)) error.addSuppressed(schedulerError);
+                        else throw schedulerError;
+                    }
+                    try {
+                        if (startedDispatcher != null) startedDispatcher.close();
+                    } catch (RuntimeException | Error dispatcherError) {
+                        if (NonFatal.apply(dispatcherError)) error.addSuppressed(dispatcherError);
+                        else throw dispatcherError;
+                    }
+                }
             }
             throw error;
         }
@@ -141,7 +171,7 @@ public class ActorSystemImpl extends ActorSystem {
 
     protected Thread.UncaughtExceptionHandler uncaughtExceptionHandler() {
         return (thread, cause) -> {
-            if (cause instanceof InterruptedException || isNonFatal(cause)) {
+            if (cause instanceof InterruptedException || NonFatal.apply(cause)) {
                 log.error(cause, "Uncaught error from thread [{}]", thread.getName());
             } else if (settings.JvmExitOnFatalError) {
                 try {
@@ -157,10 +187,6 @@ public class ActorSystemImpl extends ActorSystem {
                 }
             }
         };
-    }
-
-    private static boolean isNonFatal(Throwable cause) {
-        return !(cause instanceof VirtualMachineError || cause instanceof ThreadDeath || cause instanceof LinkageError);
     }
 
     private void logFatalError(String message, Throwable cause, Thread thread) {
@@ -212,6 +238,24 @@ public class ActorSystemImpl extends ActorSystem {
      */
     public LocalActorRefProvider provider() {
         return provider;
+    }
+
+    /**
+     * INTERNAL API：返回本地 ActorSystem 的 UID。
+     *
+     * @return 系统 UID
+     */
+    @InternalApi
+    public long uid() {
+        try {
+            return provider.systemUid();
+        } catch (RuntimeException | Error error) {
+            if (!NonFatal.apply(error)) throw error;
+            throw new IllegalStateException(
+                    "uid accessed before provider has been initialized. "
+                            + "This is a bug, please report at https://github.com/apache/pekko/issues",
+                    error);
+        }
     }
 
     @Override

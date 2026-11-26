@@ -214,6 +214,7 @@ class DispatchBindingTest {
                 tapio.actor.deployment."/exact".dispatcher = "tapio.custom-dispatcher"
                 tapio.actor.deployment."/*".mailbox = "tapio.small-mailbox"
                 tapio.actor.deployment."/deep/**".mailbox = "tapio.small-mailbox"
+                tapio.loggers = ["io.github.espen7.tapio.event.StandardOutLogger"]
                 """));
         system = ActorSystem.create("dispatch-wildcards", config);
 

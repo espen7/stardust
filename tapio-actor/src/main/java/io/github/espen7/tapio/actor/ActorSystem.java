@@ -22,6 +22,7 @@ import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ThreadFactory;
@@ -93,6 +94,14 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
 
         /** 系统日志级别，默认 {@code INFO}。 */
         public final String LogLevel;
+        /** ActorSystem 启动前的标准输出日志级别，默认 {@code WARNING}。 */
+        public final String StdoutLogLevel;
+        /** 启动时创建的默认 logger 类名；空列表使用 DefaultLogger。 */
+        public final List<String> Loggers;
+        /** 默认 logger Actor 使用的 Dispatcher id。 */
+        public final String LoggersDispatcher;
+        /** 等待默认 logger 初始化响应的时限，默认 5 秒。 */
+        public final Duration LoggerStartTimeout;
         /** 每轮记录的 dead letters 上限。{@code 0} 表示关闭，{@link Integer#MAX_VALUE} 表示不限。 */
         public final int LogDeadLetters;
         /** 系统终止期间是否继续记录 dead letters，默认关闭。 */
@@ -130,6 +139,10 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             this.classLoader = classLoader;
             this.name = name;
             LogLevel = config.getString(ActorPath.Scheme + ".loglevel");
+            StdoutLogLevel = config.getString(ActorPath.Scheme + ".stdout-loglevel");
+            Loggers = List.copyOf(config.getStringList(ActorPath.Scheme + ".loggers"));
+            LoggersDispatcher = config.getString(ActorPath.Scheme + ".loggers-dispatcher");
+            LoggerStartTimeout = Duration.ofMillis(config.getDuration(ActorPath.Scheme + ".logger-startup-timeout").toMillis());
             LogDeadLetters = switch (config.getString(ActorPath.Scheme + ".log-dead-letters").toLowerCase(Locale.ROOT)) {
                 case "off", "false" -> 0;
                 case "on", "true" -> Integer.MAX_VALUE;
@@ -179,7 +192,12 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             return config;
         }
 
-        ClassLoader classLoader() {
+        /**
+         * INTERNAL API：返回 ActorSystem 创建时使用的上下文类加载器。
+         *
+         * @return 类加载器
+         */
+        public ClassLoader classLoader() {
             return classLoader;
         }
     }

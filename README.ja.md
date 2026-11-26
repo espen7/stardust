@@ -42,13 +42,13 @@ Tapio は現在、初期開発段階です。最初の安定版までは公開 A
 | guardian 用の internal Dispatcher と、Actor ごとに専用スレッドを提供する PinnedDispatcher | `tapio-actor` で提供中 |
 | 組み込みの `default-executor`、`fork-join-executor`、`thread-pool-executor` 設定 | `tapio-actor` で提供中 |
 | Dispatcher/Mailbox の Props・デプロイ設定による結合、無制限/上限付き mailbox | `tapio-actor` で提供中 |
-| EventStream、構造化ログ、`ask`、一回限りと周期のスケジューリング | `tapio-actor` で提供中 |
+| EventStream、構造化ログ、デフォルト logger の起動/停止と動的レベル、`ask`、一回限りと周期のスケジューリング | `tapio-actor` で提供中 |
 | Routing | 計画中 |
 | Cluster Sharding | 計画中 |
 | Kubernetes によるクラスタディスカバリ | 計画中 |
 | クラスタ機能に必要な transport と membership | Tapio の限定的なコンポーネントとして計画中 |
 
-「提供中」は、ローカル runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。virtual/affinity/カスタム executor、外部指定の default ExecutionContext、高度な mailbox、完全なロギングライフサイクルは未実装のままです。
+「提供中」は、ローカル runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。virtual/affinity/カスタム executor、外部指定の default ExecutionContext、logger mailbox 以外の高度な mailbox、EventStream の自動 unsubscribe、logging filter、起動時の設定ログは未実装のままです。
 
 初期範囲には、Akka/Pekko の完全なエコシステムは含めません。Typed API、Streams、Persistence、大規模な serialization 統合、完全な remote 互換性、無関係なエンタープライズ統合は対象外です。Actor プラットフォームと対象ワークロードに直接役立つ機能を優先します。
 
@@ -118,7 +118,7 @@ tapio-actor/
     ├── java/io/github/espen7/tapio/
     │   ├── actor/       # ActorSystem、ActorRef、lifecycle、supervision
     │   ├── dispatch/    # Dispatcher、Mailbox、Envelope、system message
-    │   ├── event/       # EventStream、LogEvent、SLF4J bridge
+    │   ├── event/       # EventStream、LogEvent、デフォルト logger、SLF4J bridge
     │   ├── japi/        # Java Creator と ReceiveBuilder API
     │   └── pattern/     # ask パターン
     └── resources/       # reference.conf のデフォルト設定
@@ -128,9 +128,11 @@ tapio-actor/
 
 ## 設定とログ
 
-`ActorSystem.create(name)` は `application.conf` とモジュールの `reference.conf` を読み込みます。runtime は `ActorSystem` を通じて名前付き Dispatcher、guardian 用の internal Dispatcher、PinnedDispatcher 設定、組み込み fork-join/thread-pool executor 設定、共有 thread factory、Scheduler、協調シャットダウン、dead-letter ログ、SLF4J ベースの構造化イベントを提供します。
+`ActorSystem.create(name)` は `application.conf` とモジュールの `reference.conf` を読み込みます。runtime は `ActorSystem` を通じて名前付き Dispatcher、guardian 用の internal Dispatcher、PinnedDispatcher 設定、組み込み fork-join/thread-pool executor 設定、共有 thread factory、Scheduler、協調シャットダウン、dead-letter ログ、構造化イベントを提供します。
 
-Tapio は `slf4j-api` のみに依存します。アプリケーション側で Logback、Log4j2、SLF4J Simple、JUL provider などを選択して設定してください。
+ログはまず同期 stdout logger を導入し、次に `tapio.loggers` の Actor を `tapio.loggers-dispatcher` 上で起動して、上限付きの `tapio.logger-startup-timeout` ハンドシェイクで初期化を確認します。logger 名にはシステムごとに単調増加する ID を使うため、同じ logger class を複数設定しても衝突しません。デフォルトは `DefaultLogger`、通常の Dispatcher、`5s` です。`tapio.stdout-loglevel` のデフォルトは `WARNING`、設定済み logger のレベルは `tapio.loglevel` で制御します。`EventStream.setLogLevel` はレベル別の購読を更新し、termination hooks の完了後に unsubscribe と停止を行います。デフォルト logger mailbox は終了前に条件を満たすキュー済みイベントを stdout へ排出します。
+
+Tapio は `slf4j-api` のみに依存し、provider は同梱しません。SLF4J へ橋渡しする場合は `tapio.loggers = ["io.github.espen7.tapio.event.Slf4jLogger"]` を明示設定し、Logback、Log4j2、SLF4J Simple、JUL provider などを選択してください。bridge は logger mailbox を使い、marker プロパティ、Pekko メタデータ、イベント MDC の順に書き込み、元のメッセージを保持して、各呼び出し後に MDC をクリアします。システム UID は遅延解決し、利用できない間は MDC に書き込みません。stdout と SLF4J logger の時刻形式はどちらもサブクラスで上書きできます。
 
 詳細な設定とソースレベルの設計記録は [docs/actor-porting.md](docs/actor-porting.md) を参照してください。
 

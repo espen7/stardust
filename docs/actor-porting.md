@@ -171,7 +171,9 @@ Java `MessageQueue.enqueue` 不能声明 checked `InterruptedException`，因此
 
 自定义 dispatcher/executor configurator、virtual/affinity executor、外部默认 `ExecutionContext`、
 `CachingConfig` 优化、router 分支、其他 mailbox 类型（priority、deque、control-aware、
-single-consumer）和 logger mailbox 仍待移植。Java 公开 Dispatcher 构造器要求 `ActorSystem`，
+single-consumer）仍待移植。logger mailbox 已按 `LoggerMessageQueueSemantics` 选择 `LoggerMailbox`，
+其终止清理会把满足当前级别的剩余 `LogEvent` 同步刷到 `StandardOutLogger`，其余消息丢弃。
+Java 公开 Dispatcher 构造器要求 `ActorSystem`，
 不再提供没有 Scheduler 的无参或仅含 throughput 的假生命周期入口；默认参数读取该 ActorSystem
 的有效配置，而不是绕过应用配置直接读取 `reference.conf`。
 
@@ -184,8 +186,8 @@ Mailbox 的 `Open`、`Closed`、`Scheduled` 和 suspend 位
 没有移植 batching；task 结束或提交失败都会释放 inhabitants。`executeTask` 与
 `registerForExecution` 连续两次拒绝时发布固定消息 `executeTask was rejected twice!` 或
 `registerForExecution was rejected twice!`，Error 的 cause 保留第一次拒绝异常，并抛出第二次异常。
-失败报告用线程集合防止 EventStream 重新进入 Dispatcher 时递归；Tapio 尚无
-`StandardOutLogger`，递归分支改用 `slf4j-api` 记录，这是一处已记录的适配差异。
+失败报告用线程集合防止 EventStream 重新进入 Dispatcher 时递归；递归分支直接调用
+`StandardOutLogger.INSTANCE.tell`，与上游 `StandardOutLogger` 的同步输出路径一致。
 对应上游 `dispatch/Dispatcher.scala`、`dispatch/Mailbox.scala`、`dispatch/AbstractMailbox.scala`
 和 `dispatch/AbstractDispatcher.scala`。
 
@@ -310,9 +312,14 @@ Actor 注销时将该 Dispatcher 持有的 dead-letter Mailbox 换入，并关�
 再由 DeathWatch 依次通知 system guardian 和 root guardian。根的监督锚点收到终止通知后，
 Provider 的 `terminationFuture` 以根引用完成，ActorSystem 在 Scheduler 清理后发布这一结果。
 对应上游 `actor/ActorRefProvider.scala`、`actor/ActorSystem.scala` 和 `actor/dungeon/FaultHandling.scala`。
-系统 logger 仍作为 system guardian 的子 Actor 随它停止，完整的 `stopDefaultLoggers` 生命周期尚未移植。
-日志事件提供
-`LogEventWithMarker` 和 `LogMarker`，SLF4J bridge 会将 marker 属性写入 MDC 后清理。
+系统 logger 通过 `tapio.loggers` 创建。system guardian 的 termination hooks 完成后调用
+`stopDefaultLoggers`：恢复 stdout 兜底，逐个先退订再停止 logger，最后才允许 guardian 停止。
+ActorSystem 启动失败时不无界等待终止：先停止已创建的 user guardian，仅在其尚未创建时回退到
+root guardian，使 `user guardian → system guardian → stopDefaultLoggers` 关闭链保持有效。
+日志事件提供 `LogEventWithMarker` 和 `LogMarker`。`LogEvent` 保存不可变的
+`mdc()` / `getMDC()` 快照，`LoggingAdapter` 的 `mdc`、`setMDC`、`getMDC` 和 `clearMDC`
+在发布时写入事件；stdout 和 SLF4J 均使用该事件 MDC。SLF4J bridge 依次写入 marker 属性、
+Pekko 标准字段和事件 MDC，并在日志调用结束后执行 `MDC.clear()`。
 `CoordinatedShutdown` 已实现配置阶段 DAG、阶段超时、并行任务、recover、取消句柄和
 `ActorSystem.terminate()` 的最后终止任务，并按配置注册可取消的 JVM shutdown hook；
 `System.exit`、集群任务和远程 Actor 的扩展仍待移植。
@@ -355,12 +362,51 @@ ask 使用 `CompletableFuture` 保存结果，并返回只读的 `CompletionStag
 EventStream 使用 ActorRef 作为 subscriber、class 作为 channel；订阅父类 channel 会收到子类事件，
 发布通过 `ActorRef.tell` 进入 subscriber mailbox。订阅变更同步锁定 `subscriptions`；channel 查询结果保存在
 volatile cache 中，发布仅在 cache miss 时获取同一把锁，对应 `SubchannelClassification` 的索引与缓存路径。
-Java 使用 `HashMap` 和不可变集合快照表达上游索引及 immutable cache。终止订阅者自动清理、完整的 `LoggingBus` logger
-生命周期和动态 log level 管理尚未移植。
+Java 使用 `HashMap` 和不可变集合快照表达上游索引及 immutable cache。终止订阅者自动清理仍未移植。
 
-SLF4J bridge 由系统内 logger Actor 消费 `LogEvent`，不创建专用事件分发线程。库只依赖
-`slf4j-api`，不捆绑 provider。对应上游 `event/EventStream.scala`、`event/EventBus.scala`、
-`event/Logging.scala` 和 `event/EventStreamUnsubscriber.scala`。
+默认 logger 生命周期对应 `startDefaultLoggers` / `stopDefaultLoggers`。启动时先读取
+`tapio.stdout-loglevel` 安装同步 `StandardOutLogger`，再从 `tapio.loggers` 解析全部 Actor class；
+默认类为 `DefaultLogger`，配置中的 `StandardOutLogger` Actor class 会被排除。所有 class 解析成功后，
+按 `"log" + LogExt(system).id() + "-" + simpleName(clazz)` 命名，在 `tapio.loggers-dispatcher` 上创建 logger Actor，
+并通过 `InitializeLogger` / `LoggerInitialized` 握手确认初始化，超时为 `tapio.logger-startup-timeout`，
+默认 `5s`。`debug.unhandled` 开启时同时创建 `UnhandledMessageForwarder`。
+
+启动结果先保存在本地列表，全部成功后才在锁内发布共享 logger 列表和级别；后续 logger 失败会退订、
+停止已启动 logger，并恢复此前状态，清理异常作为 suppressed 保留。启动失败输出
+`error while starting up loggers` 和原始堆栈，包装为 `ConfigurationException`；中断会恢复线程中断标志。
+关闭时确保 stdout 兜底存在，逐个先 `unsubscribe(logger)` 再 `stop()`，避免停止消息变成 DeadLetter
+后再次进入关闭流程。`DefaultLogger` 声明 `LoggerMessageQueueSemantics`；终止前仅把满足当前级别的
+剩余日志同步刷到 stdout。对应上游 `event/EventStream.scala`、`event/LoggingBus.scala`、
+`event/DefaultLogger.scala`、`event/StandardOutLogger.scala`、`event/LoggerMailbox.scala`、
+`event/LoggerMailboxType.scala` 和 `event/UnhandledMessageForwarder.scala`。
+
+动态级别使用 `OFF, DEBUG, INFO, WARNING, ERROR` 顺序。`setLogLevel` 按新旧启用级别差异切换订阅，
+`OFF` 表示完全关闭；`isEnabled` 同时要求事件级别与当前级别均不为 `OFF`。日志事件记录
+`timestamp` 和 `threadName`，stdout 格式保留级别标签、时间、线程、source、marker、MDC、message 和 cause。
+`LoggingAdapter` 按上游 `format1` / `formatImpl` 处理模板参数：单参数数组先展开，再逐个替换 `{}`；
+普通模板参数中的 `Throwable` 仍作为参数格式化，只有显式 cause 重载才设置事件 cause；
+多余参数追加 ` WARNING arguments left: N`。Java varargs 的 null 数组规范化为单参数 `null`，与 Scala 单参数调用一致。
+
+SLF4J bridge 由系统内 logger Actor 消费 `LogEvent`，不创建专用事件分发线程。
+`Slf4jLogger` 与 `DefaultLogger` 一样声明 `LoggerMessageQueueSemantics`，使用 `LoggerMailbox`。
+标准 MDC 字段为 `sourceThread`、`sourceActorSystem`、`pekkoSource`、`pekkoTimestamp`、
+`pekkoAddress` 和 `pekkoUid`；marker properties 先写入，再写标准字段，最后写入事件 MDC，
+因此同名键由后者覆盖。`pekkoUid` 惰性解析，只在非空时写入；MDC 写入无论日志调用是否成功都会清空。
+`Slf4jLogger.formatTimestamp` 为 protected 实例扩展点，默认时间格式为 `HH:mm:ss.SSSUTC`；
+`StdOutLogger.timestamp` 同样可由子类覆盖。日志参数保持原始 `event.message()`，
+不添加 `[source]` 前缀。`Slf4jLogMarker` 保留原始 SLF4J Marker，bridge 优先透传该 Marker，
+普通 `LogMarker` 才按名称创建 Marker；初始化握手前通过 SLF4J 输出 `Slf4jLogger started`。
+库只依赖 `slf4j-api`，不捆绑 provider；必须显式设置
+`tapio.loggers = ["io.github.espen7.tapio.event.Slf4jLogger"]` 才会启用。对应上游
+`event/Logging.scala` 和 `slf4j/src/main/scala/org/apache/pekko/event/slf4j/Slf4jLogger.scala`。
+
+Java 边界：`Timeout(...)` 日志按上游文本保留，数字由配置毫秒值构造；`UnboundedMailbox.MessageQueue`
+改为可继承以容纳 `LoggerMailbox`；`LoggerMailboxType` 公开构造以沿用现有反射式 mailbox type 契约。
+`NonFatal` 对应 `scala.util.control.NonFatal`，排除 `VirtualMachineError`、`ThreadDeath`、`LinkageError`
+和 `InterruptedException`；Java 没有 Scala `ControlThrowable`。`NoStackTrace` 用 marker interface 对应
+Scala trait，stdout 对其异常输出 ` (class: message)` 短文本。logger 清理覆盖非致命 `Error`，
+fatal Error 直接抛出。`Settings.Loggers` 从 Config list 复制为不可变 list。
+EventStream 自动退订、logging filter 和启动时配置日志仍未移植；serialization 不在当前范围内。
 
 ## Java 语言适配
 

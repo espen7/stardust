@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.event;
 
+import java.util.Map;
+
 /** INFO 级别的结构化日志事件。 */
 public final class Info extends LogEvent {
     /**
@@ -61,5 +63,33 @@ public final class Info extends LogEvent {
      */
     public Info(String source, Class<?> sourceClass, String message, Throwable cause, LogMarker marker) {
         super(Level.INFO, source, sourceClass, message, cause, marker);
+    }
+
+    /**
+     * 创建带 MDC 和 marker 的 INFO 事件。
+     *
+     * @param source 日志 source
+     * @param sourceClass 日志 source class
+     * @param message 日志消息
+     * @param mdc 额外的日志上下文字段
+     * @param marker 日志 marker
+     */
+    public Info(String source, Class<?> sourceClass, String message, Map<String, Object> mdc, LogMarker marker) {
+        this(source, sourceClass, message, null, marker, mdc);
+    }
+
+    /**
+     * 创建带 cause、MDC 和 marker 的 INFO 事件。
+     *
+     * @param source 日志 source
+     * @param sourceClass 日志 source class
+     * @param message 日志消息
+     * @param cause 异常原因
+     * @param marker 日志 marker
+     * @param mdc 额外的日志上下文字段
+     */
+    public Info(String source, Class<?> sourceClass, String message, Throwable cause, LogMarker marker,
+                Map<String, Object> mdc) {
+        super(Level.INFO, source, sourceClass, message, cause, marker, mdc);
     }
 }

@@ -15,8 +15,7 @@ package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.event.EventStream;
 import io.github.espen7.tapio.event.LogEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.espen7.tapio.event.StandardOutLogger;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,24 +30,13 @@ final class DispatchFailureReporting {
     static void report(EventStream eventStream, LogEvent event) {
         Thread thread = Thread.currentThread();
         if (!REPORTING.add(thread)) {
-            publishToSlf4j(event);
+            StandardOutLogger.INSTANCE.tell(event);
             return;
         }
         try {
             eventStream.publish(event);
         } finally {
             REPORTING.remove(thread);
-        }
-    }
-
-    private static void publishToSlf4j(LogEvent event) {
-        Logger logger = LoggerFactory.getLogger(event.sourceClass());
-        String message = "[" + event.source() + "] " + event.message();
-        switch (event.level()) {
-            case DEBUG -> logger.debug(message, event.cause());
-            case INFO -> logger.info(message, event.cause());
-            case WARNING -> logger.warn(message, event.cause());
-            case ERROR -> logger.error(message, event.cause());
         }
     }
 }

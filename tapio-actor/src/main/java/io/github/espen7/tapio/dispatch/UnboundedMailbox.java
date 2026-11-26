@@ -46,7 +46,7 @@ public final class UnboundedMailbox implements MailboxType, ProducesMessageQueue
     /**
      * 不限制容量的普通消息队列。
      */
-    public static final class MessageQueue
+    public static class MessageQueue
             implements io.github.espen7.tapio.dispatch.MessageQueue, UnboundedMessageQueueSemantics {
         private final ConcurrentLinkedQueue<Envelope> queue = new ConcurrentLinkedQueue<>();
 

@@ -42,13 +42,13 @@ Tapio 目前处于早期开发阶段。第一个稳定版本发布前，公开 A
 | guardian 使用的 internal Dispatcher，以及为单个 Actor 提供专用线程的 PinnedDispatcher | `tapio-actor` 已提供 |
 | 内置 `default-executor`、`fork-join-executor` 和 `thread-pool-executor` 配置 | `tapio-actor` 已提供 |
 | Dispatcher/Mailbox 的 Props 与部署绑定、无界/有界 mailbox | `tapio-actor` 已提供 |
-| EventStream、结构化日志、`ask`、一次性与周期调度 | `tapio-actor` 已提供 |
+| EventStream、结构化日志、默认 logger 启动/关闭与动态级别、`ask`、一次性与周期调度 | `tapio-actor` 已提供 |
 | 路由（Routing） | 计划中 |
 | Cluster Sharding | 计划中 |
 | Kubernetes 集群发现 | 计划中 |
 | 集群功能所需的传输和成员关系组件 | 作为 Tapio 聚焦组件计划实现 |
 
-「已提供」表示本地 runtime 契约已有实现并有 Tapio 测试覆盖。这不代表与 Pekko 全量源码一致，也不代表已通过 Pekko 完整测试套件。virtual/affinity/自定义 executor、外部默认 ExecutionContext、高级 mailbox 和完整日志生命周期仍未完成。
+「已提供」表示本地 runtime 契约已有实现并有 Tapio 测试覆盖。这不代表与 Pekko 全量源码一致，也不代表已通过 Pekko 完整测试套件。virtual/affinity/自定义 executor、外部默认 ExecutionContext、logger mailbox 之外的高级 mailbox、EventStream 自动退订、logging filter 和启动时配置日志仍未完成。
 
 首期范围不包含完整的 Akka/Pekko 生态：Typed API、Streams、Persistence、大范围序列化集成、完整 Remote 兼容，以及无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
 
@@ -118,7 +118,7 @@ tapio-actor/
     ├── java/io/github/espen7/tapio/
     │   ├── actor/       # ActorSystem、ActorRef、生命周期、supervision
     │   ├── dispatch/    # Dispatcher、Mailbox、Envelope、system message
-    │   ├── event/       # EventStream、LogEvent、SLF4J bridge
+    │   ├── event/       # EventStream、LogEvent、默认 logger、SLF4J bridge
     │   ├── japi/        # Java Creator 和 ReceiveBuilder API
     │   └── pattern/     # ask 模式
     └── resources/       # reference.conf 默认配置
@@ -128,9 +128,11 @@ tapio-actor/
 
 ## 配置与日志
 
-`ActorSystem.create(name)` 会加载 `application.conf` 和模块的 `reference.conf` 默认值。runtime 通过 `ActorSystem` 提供命名 Dispatcher 查找、guardian 使用的 internal Dispatcher、PinnedDispatcher 配置、内置 fork-join/thread-pool executor 配置、共享线程工厂、Scheduler 设置、协调关闭、dead-letter 日志和基于 SLF4J 的结构化事件。
+`ActorSystem.create(name)` 会加载 `application.conf` 和模块的 `reference.conf` 默认值。runtime 通过 `ActorSystem` 提供命名 Dispatcher 查找、guardian 使用的 internal Dispatcher、PinnedDispatcher 配置、内置 fork-join/thread-pool executor 配置、共享线程工厂、Scheduler 设置、协调关闭、dead-letter 日志和结构化事件。
 
-Tapio 只依赖 `slf4j-api`。应用可以选择并配置 Logback、Log4j2、SLF4J Simple 或 JUL provider。
+日志系统先安装同步 stdout logger，再按 `tapio.loggers` 在 `tapio.loggers-dispatcher` 上创建 logger Actor，并通过有上限的 `tapio.logger-startup-timeout` 握手确认初始化。logger 名称按系统使用单调递增 ID，重复配置同一个 logger class 也不会重名。默认值分别为 `DefaultLogger`、默认 Dispatcher 和 `5s`；`tapio.stdout-loglevel` 默认 `WARNING`，`tapio.loglevel` 控制已配置 logger 的级别。`EventStream.setLogLevel` 会调整其级别订阅；termination hooks 完成后，关闭流程先退订再停止 logger。默认 logger mailbox 会在终止前把满足级别的队列事件刷到 stdout。
+
+Tapio 只依赖 `slf4j-api`，不捆绑 provider。如需桥接到 SLF4J，请显式配置 `tapio.loggers = ["io.github.espen7.tapio.event.Slf4jLogger"]`，并选择 Logback、Log4j2、SLF4J Simple 或 JUL provider。桥接层使用 logger mailbox，按 marker 属性、Pekko 元数据、事件 MDC 的顺序写入，保留原始消息文本，并在每次调用后清空 MDC。系统 UID 惰性解析，不可用时暂不写入 MDC；stdout 和 SLF4J logger 的时间格式均保留子类覆盖入口。
 
 详细配置说明和源码设计记录见 [docs/actor-porting.md](docs/actor-porting.md)。
 

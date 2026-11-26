@@ -13,10 +13,11 @@
  */
 package io.github.espen7.tapio.event;
 
+import io.github.espen7.tapio.util.NoStackTrace;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Objects;
-import io.github.espen7.tapio.actor.ActorRef;
-import io.github.espen7.tapio.actor.ActorSystemImpl;
-import io.github.espen7.tapio.actor.Props;
 
 /** 创建绑定 EventStream 和 source 元数据的 LoggingAdapter。 */
 public final class Logging {
@@ -48,20 +49,42 @@ public final class Logging {
     }
 
     /**
-     * 创建系统 logger Actor，并订阅日志事件。
+     * 返回对象 class 的 binary simple name。
      *
-     * @param system 所属 ActorSystem
-     * @param debugUnhandled 是否将 UnhandledMessage 转成 DEBUG 日志
-     * @return logger ActorRef
+     * @param obj 源对象
+     * @return 去掉包名后的 class 名
      */
-    public static ActorRef installSlf4jLogger(ActorSystemImpl system, boolean debugUnhandled) {
-        EventStream eventStream = system.eventStream();
-        ActorRef logger = system.systemActorOf(
-                Props.create(Slf4jLogger.class, eventStream.logLevel(), debugUnhandled), "eventStreamLogger");
-        eventStream.subscribe(logger, LogEvent.class);
-        if (debugUnhandled) {
-            eventStream.subscribe(logger, io.github.espen7.tapio.actor.UnhandledMessage.class);
+    public static String simpleName(Object obj) {
+        return simpleName(obj.getClass());
+    }
+
+    /**
+     * 返回 class 的 binary simple name，保留嵌套 class 的 {@code $} 分隔符。
+     *
+     * @param clazz 源 class
+     * @return 去掉包名后的 class 名
+     */
+    public static String simpleName(Class<?> clazz) {
+        String n = clazz.getName();
+        int i = n.lastIndexOf('.');
+        return n.substring(i + 1);
+    }
+
+    /**
+     * 将 Throwable 格式化为日志堆栈文本。
+     *
+     * @param cause 异常；{@code null} 返回空文本
+     * @return 完整堆栈或 {@link NoStackTrace} 异常的短文本
+     */
+    public static String stackTraceFor(Throwable cause) {
+        if (cause == null) return "";
+        if (cause instanceof NoStackTrace) {
+            return " (" + cause.getClass().getName() + ": " + cause.getMessage() + ")";
         }
-        return logger;
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        pw.append('\n');
+        cause.printStackTrace(pw);
+        return sw.toString();
     }
 }

@@ -170,6 +170,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
 
         systemGuardian.sendSystemMessage(new SystemMessage.Watch(guardian, systemGuardian));
         rootGuardian.sendSystemMessage(new SystemMessage.Watch(systemGuardian, rootGuardian));
+        system.eventStream().startDefaultLoggers(system);
     }
 
     private SupervisorStrategy guardianSupervisorStrategy(ActorSystemImpl system) {
@@ -476,7 +477,10 @@ public class LocalActorRefProvider extends ActorRefProvider {
         }
 
         private void stopWhenAllTerminationHooksDone() {
-            if (terminating && terminationHooks.isEmpty()) getContext().stop(getSelf());
+            if (terminating && terminationHooks.isEmpty()) {
+                getContext().system().eventStream().stopDefaultLoggers(getContext().system());
+                getContext().stop(getSelf());
+            }
         }
     }
 }

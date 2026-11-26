@@ -42,13 +42,13 @@ Tapio is in early development. Public APIs and configuration may change before t
 | Internal Dispatcher for guardians and PinnedDispatcher for dedicated single-actor execution | Available in `tapio-actor` |
 | Built-in `default-executor`, `fork-join-executor`, and `thread-pool-executor` configuration | Available in `tapio-actor` |
 | Props and deployment binding of Dispatcher/Mailbox, unbounded and bounded mailboxes | Available in `tapio-actor` |
-| EventStream, structured logging, local ActorSelection, `ask`, and one-shot and periodic scheduling | Available in `tapio-actor` |
+| EventStream, structured logging, default logger startup/shutdown and dynamic levels, local ActorSelection, `ask`, and one-shot and periodic scheduling | Available in `tapio-actor` |
 | Routing | Planned |
 | Cluster Sharding | Planned |
 | Kubernetes-based cluster discovery | Planned |
 | The transport and membership pieces required by the cluster features | Planned as focused Tapio components |
 
-`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Virtual/affinity/custom executors, externally supplied default execution contexts, advanced mailboxes, and the complete logging lifecycle remain incomplete.
+`Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Virtual/affinity/custom executors, externally supplied default execution contexts, advanced mailboxes other than the logger mailbox, automatic EventStream unsubscription, logging filters, and startup config logging remain incomplete.
 
 The initial scope does not include the complete Akka/Pekko ecosystem: Typed APIs, Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
 
@@ -122,7 +122,7 @@ tapio-actor/
     ├── java/io/github/espen7/tapio/
     │   ├── actor/       # ActorSystem, ActorRef, lifecycle, supervision
     │   ├── dispatch/    # Dispatcher, Mailbox, Envelope, system messages
-    │   ├── event/       # EventStream, LogEvent, SLF4J bridge
+    │   ├── event/       # EventStream, LogEvent, default loggers, SLF4J bridge
     │   ├── japi/        # Java Creator and ReceiveBuilder APIs
     │   └── pattern/     # ask pattern
     └── resources/       # reference.conf defaults
@@ -132,9 +132,11 @@ tapio-actor/
 
 ## Configuration and Logging
 
-`ActorSystem.create(name)` loads `application.conf` and the module defaults from `reference.conf`. The runtime exposes named Dispatcher lookup, an internal Dispatcher for guardians, PinnedDispatcher configuration, built-in fork-join/thread-pool executor configuration, a shared thread factory, Scheduler settings, coordinated shutdown, dead-letter logging, and SLF4J-backed structured events through `ActorSystem`.
+`ActorSystem.create(name)` loads `application.conf` and the module defaults from `reference.conf`. The runtime exposes named Dispatcher lookup, an internal Dispatcher for guardians, PinnedDispatcher configuration, built-in fork-join/thread-pool executor configuration, a shared thread factory, Scheduler settings, coordinated shutdown, dead-letter logging, and structured events through `ActorSystem`.
 
-Tapio depends on `slf4j-api` only. Applications choose and configure a provider such as Logback, Log4j2, SLF4J Simple, or a JUL provider.
+Logging starts with a synchronous stdout logger, then initializes the actors configured by `tapio.loggers` on `tapio.loggers-dispatcher` with the bounded `tapio.logger-startup-timeout` handshake. Logger names use monotonically increasing IDs per system, including when the same logger class is configured more than once. The defaults are `DefaultLogger`, the default Dispatcher, and `5s`; `tapio.stdout-loglevel` defaults to `WARNING`, while `tapio.loglevel` controls the configured loggers. `EventStream.setLogLevel` updates their level subscriptions, and shutdown unsubscribes and stops them after termination hooks complete. The default logger mailbox drains eligible queued events to stdout before termination.
+
+Tapio depends on `slf4j-api` only and does not bundle a provider. To bridge events to SLF4J, explicitly configure `tapio.loggers = ["io.github.espen7.tapio.event.Slf4jLogger"]` and choose a provider such as Logback, Log4j2, SLF4J Simple, or JUL. The bridge uses the logger mailbox, writes marker properties, Pekko metadata, and event MDC in that order, preserves the original message text, and clears MDC after each call. The system UID is resolved lazily and omitted from MDC while unavailable; timestamp formatting remains overridable in both the stdout and SLF4J loggers.
 
 Detailed configuration notes and source-level design records are available in [docs/actor-porting.md](docs/actor-porting.md).
 

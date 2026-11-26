@@ -14,48 +14,104 @@
 package io.github.espen7.tapio.event;
 
 import io.github.espen7.tapio.actor.AbstractActor;
-import io.github.espen7.tapio.actor.UnhandledMessage;
+import io.github.espen7.tapio.actor.ActorSystemImpl;
+import io.github.espen7.tapio.dispatch.RequiresMessageQueue;
+import io.github.espen7.tapio.util.Helpers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Marker;
 import org.slf4j.MarkerFactory;
 import org.slf4j.MDC;
 
+import java.util.function.BiConsumer;
 
 /**
  * 将 EventStream 中的日志事件桥接到应用选择的 SLF4J provider。
+ *
+ * <p>可通过 {@code tapio.loggers} 配置为默认 logger；级别过滤由 EventStream 的
+ * channel 订阅负责，未处理消息由独立的 UnhandledMessageForwarder 转换。</p>
  */
-final class Slf4jLogger extends AbstractActor {
-    private final LogEvent.Level logLevel;
-    private final boolean debugUnhandled;
-
-    Slf4jLogger(LogEvent.Level logLevel, boolean debugUnhandled) {
-        this.logLevel = logLevel;
-        this.debugUnhandled = debugUnhandled;
-    }
+public class Slf4jLogger extends AbstractActor
+        implements RequiresMessageQueue<LoggerMessageQueueSemantics> {
+    public final String mdcThreadAttributeName = "sourceThread";
+    public final String mdcActorSystemAttributeName = "sourceActorSystem";
+    public final String mdcPekkoSourceAttributeName = "pekkoSource";
+    public final String mdcPekkoTimestamp = "pekkoTimestamp";
+    public final String mdcPekkoAddressAttributeName = "pekkoAddress";
+    public final String mdcPekkoUidAttributeName = "pekkoUid";
+    private final Logger log = LoggerFactory.getLogger(Slf4jLogger.class);
+    private String _pekkoUid = "";
 
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-                .match(LogEvent.class, event -> {
-                    if (event.level().ordinal() >= logLevel.ordinal()) publish(event);
+                .match(InitializeLogger.class, ignored -> {
+                    log.info("Slf4jLogger started");
+                    getSender().tell(LoggerInitialized.getInstance());
                 })
-                .match(UnhandledMessage.class, event -> {
-                    if (debugUnhandled) publishUnhandled(event);
-                })
+                .match(LogEvent.class, this::publish)
                 .build();
     }
 
-    private static void publish(LogEvent event) {
-        Logger logger = LoggerFactory.getLogger(event.sourceClass());
-        String message = "[" + event.source() + "] " + event.message();
-        Marker marker = null;
+    private void publish(LogEvent event) {
+        withMdc(event.source(), event,
+                () -> publish(LoggerFactory.getLogger(event.sourceClass()), markerIfPresent(event), event));
+    }
+
+    /**
+     * 在日志调用前写入标准 MDC 和事件 MDC，并在结束后清空。
+     *
+     * @param logSource 日志 source
+     * @param logEvent 日志事件
+     * @param logStatement 日志调用
+     */
+    public final void withMdc(String logSource, LogEvent logEvent, Runnable logStatement) {
+        ActorSystemImpl system = (ActorSystemImpl) getContext().system();
+        withMdc(logEvent, logSource, system.name(), pekkoAddress(), pekkoUid(), MDC::put, MDC::clear, logStatement);
+    }
+
+    final void withMdc(LogEvent event, String logSource, String systemName, String address, String uid,
+                      BiConsumer<String, String> put, Runnable clear, Runnable statement) {
         if (event.marker() != null) {
-            marker = MarkerFactory.getMarker(event.marker().name());
-            event.marker().properties().forEach((key, value) -> MDC.put(key, String.valueOf(value)));
+            event.marker().properties().forEach((key, value) -> put.accept(key, String.valueOf(value)));
         }
+        put.accept(mdcPekkoSourceAttributeName, logSource);
+        put.accept(mdcThreadAttributeName, event.threadName());
+        put.accept(mdcPekkoTimestamp, formatTimestamp(event.timestamp()));
+        put.accept(mdcActorSystemAttributeName, systemName);
+        put.accept(mdcPekkoAddressAttributeName, address);
+        if (!uid.isEmpty()) put.accept(mdcPekkoUidAttributeName, uid);
+        event.mdc().forEach((key, value) -> put.accept(key, String.valueOf(value)));
         try {
-            switch (event.level()) {
+            statement.run();
+        } finally {
+            clear.run();
+        }
+    }
+
+    private String pekkoAddress() {
+        return ((ActorSystemImpl) getContext().system()).provider().getDefaultAddress().toString();
+    }
+
+    private String pekkoUid() {
+        if (_pekkoUid.isEmpty()) {
+            try {
+                _pekkoUid = Long.toString(((ActorSystemImpl) getContext().system()).uid());
+            } catch (IllegalStateException ignored) {
+            }
+        }
+        return _pekkoUid;
+    }
+
+    static Marker markerIfPresent(LogEvent event) {
+        if (event.marker() == null) return null;
+        if (event.marker() instanceof Slf4jLogMarker slf4jMarker) return slf4jMarker.marker();
+        return MarkerFactory.getMarker(event.marker().name());
+    }
+
+    static void publish(Logger logger, Marker marker, LogEvent event) {
+        String message = event.message();
+        switch (event.level()) {
             case DEBUG -> publishDebug(logger, marker, message);
             case INFO -> publishInfo(logger, marker, message);
             case WARNING -> {
@@ -68,9 +124,8 @@ final class Slf4jLogger extends AbstractActor {
                 else if (marker == null) logger.error(message, event.cause());
                 else logger.error(marker, message, event.cause());
             }
+            default -> {
             }
-        } finally {
-            if (event.marker() != null) MDC.clear();
         }
     }
 
@@ -94,14 +149,13 @@ final class Slf4jLogger extends AbstractActor {
         else logger.error(marker, message);
     }
 
-    private static void publishUnhandled(UnhandledMessage event) {
-        Class<?> actorClass = event.recipient().getClass();
-        if (event.recipient() instanceof io.github.espen7.tapio.actor.ActorRefWithCell withCell
-                && withCell.underlying() instanceof io.github.espen7.tapio.actor.ActorCell cell) {
-            var actor = cell.actor();
-            if (actor != null) actorClass = actor.getClass();
-        }
-        String message = "unhandled message from " + event.sender() + ": " + event.message();
-        publish(new Debug(event.recipient().path().toString(), actorClass, message));
+    /**
+     * 格式化 UTC 时间戳，可由子类覆盖。
+     *
+     * @param timestamp 毫秒时间戳
+     * @return UTC 时间文本
+     */
+    protected String formatTimestamp(long timestamp) {
+        return Helpers.currentTimeMillisToUTCString(timestamp);
     }
 }

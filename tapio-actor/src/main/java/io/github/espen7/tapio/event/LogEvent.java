@@ -13,6 +13,9 @@
  */
 package io.github.espen7.tapio.event;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -24,6 +27,8 @@ import java.util.Objects;
 public abstract class LogEvent implements LogEventWithMarker {
     /** 日志级别，顺序同时表示过滤优先级。 */
     public enum Level {
+        /** 关闭日志。 */
+        OFF,
         /** DEBUG 日志。 */
         DEBUG,
         /** INFO 日志。 */
@@ -42,6 +47,7 @@ public abstract class LogEvent implements LogEventWithMarker {
          */
         public static Level parse(String value) {
             return switch (value.toUpperCase(java.util.Locale.ROOT)) {
+                case "OFF" -> OFF;
                 case "DEBUG" -> DEBUG;
                 case "INFO" -> INFO;
                 case "WARNING", "WARN" -> WARNING;
@@ -52,11 +58,14 @@ public abstract class LogEvent implements LogEventWithMarker {
     }
 
     private final Level level;
+    private final long timestamp;
+    private final String threadName;
     private final String source;
     private final Class<?> sourceClass;
     private final String message;
     private final Throwable cause;
     private final LogMarker marker;
+    private final Map<String, Object> mdc;
 
     /**
      * 创建不带 marker 的日志事件。
@@ -83,12 +92,31 @@ public abstract class LogEvent implements LogEventWithMarker {
      */
     protected LogEvent(Level level, String source, Class<?> sourceClass, String message, Throwable cause,
                        LogMarker marker) {
+        this(level, source, sourceClass, message, cause, marker, Map.of());
+    }
+
+    /**
+     * 创建带 MDC 和 marker 的日志事件。
+     *
+     * @param level 日志级别
+     * @param source 日志 source
+     * @param sourceClass 日志 source class
+     * @param message 日志消息
+     * @param cause 异常原因
+     * @param marker 日志 marker
+     * @param mdc 写入日志上下文的额外字段
+     */
+    protected LogEvent(Level level, String source, Class<?> sourceClass, String message, Throwable cause,
+                       LogMarker marker, Map<String, Object> mdc) {
         this.level = Objects.requireNonNull(level, "level");
+        this.timestamp = System.currentTimeMillis();
+        this.threadName = Thread.currentThread().getName();
         this.source = Objects.requireNonNull(source, "source");
         this.sourceClass = Objects.requireNonNull(sourceClass, "sourceClass");
         this.message = Objects.requireNonNull(message, "message");
         this.cause = cause;
         this.marker = marker;
+        this.mdc = Collections.unmodifiableMap(new HashMap<>(Objects.requireNonNull(mdc, "mdc")));
     }
 
     /**
@@ -98,6 +126,24 @@ public abstract class LogEvent implements LogEventWithMarker {
      */
     public final Level level() {
         return level;
+    }
+
+    /**
+     * 返回事件创建时的毫秒时间戳。
+     *
+     * @return 毫秒时间戳
+     */
+    public final long timestamp() {
+        return timestamp;
+    }
+
+    /**
+     * 返回事件创建时的线程名。
+     *
+     * @return 线程名
+     */
+    public final String threadName() {
+        return threadName;
     }
 
     /**
@@ -144,5 +190,23 @@ public abstract class LogEvent implements LogEventWithMarker {
      */
     public final LogMarker marker() {
         return marker;
+    }
+
+    /**
+     * 返回事件的只读 MDC 快照。
+     *
+     * @return 额外的日志上下文字段
+     */
+    public final Map<String, Object> mdc() {
+        return mdc;
+    }
+
+    /**
+     * 返回事件的只读 MDC 快照。
+     *
+     * @return 额外的日志上下文字段
+     */
+    public final Map<String, Object> getMDC() {
+        return mdc;
     }
 }

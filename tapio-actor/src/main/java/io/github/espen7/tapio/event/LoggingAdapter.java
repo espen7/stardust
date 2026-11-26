@@ -13,9 +13,11 @@
  */
 package io.github.espen7.tapio.event;
 
+import java.lang.reflect.Array;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
-import org.slf4j.helpers.FormattingTuple;
-import org.slf4j.helpers.MessageFormatter;
 
 /**
  * 面向 Actor 和应用代码的日志 facade。
@@ -27,6 +29,7 @@ public final class LoggingAdapter {
     private final EventStream eventStream;
     private final String source;
     private final Class<?> sourceClass;
+    private Map<String, Object> mdc = Map.of();
 
     LoggingAdapter(EventStream eventStream, String source, Class<?> sourceClass) {
         this.eventStream = Objects.requireNonNull(eventStream, "eventStream");
@@ -108,6 +111,49 @@ public final class LoggingAdapter {
      */
     public boolean isErrorEnabled(LogMarker marker) {
         return isErrorEnabled();
+    }
+
+    /**
+     * 返回当前日志上下文的只读快照。
+     *
+     * @return MDC 字段
+     */
+    public Map<String, Object> mdc() {
+        return Collections.unmodifiableMap(new HashMap<>(mdc));
+    }
+
+    /**
+     * 设置后续日志事件的 MDC 字段。
+     *
+     * @param mdc MDC 字段；{@code null} 表示清空
+     */
+    public void mdc(Map<String, Object> mdc) {
+        this.mdc = mdc == null ? Map.of() : Collections.unmodifiableMap(new HashMap<>(mdc));
+    }
+
+    /**
+     * 返回当前日志上下文的只读快照。
+     *
+     * @return MDC 字段
+     */
+    public Map<String, Object> getMDC() {
+        return mdc();
+    }
+
+    /**
+     * 设置后续日志事件的 MDC 字段。
+     *
+     * @param mdc MDC 字段；{@code null} 表示清空
+     */
+    public void setMDC(Map<String, Object> mdc) {
+        mdc(mdc);
+    }
+
+    /**
+     * 清空后续日志事件的 MDC 字段。
+     */
+    public void clearMDC() {
+        mdc = Map.of();
     }
 
     /**
@@ -325,16 +371,42 @@ public final class LoggingAdapter {
     private void publish(LogEvent.Level level, String template, Throwable cause, LogMarker marker,
                          Object... arguments) {
         if (!eventStream.isEnabled(level)) return;
-        FormattingTuple formatted = MessageFormatter.arrayFormat(template, arguments);
-        String message = formatted.getMessage();
-        if (cause == null) cause = formatted.getThrowable();
+        String message = format(template, arguments);
         LogEvent event = switch (level) {
-            case DEBUG -> new Debug(source, sourceClass, message, cause, marker);
-            case INFO -> new Info(source, sourceClass, message, cause, marker);
-            case WARNING -> new Warning(source, sourceClass, message, cause, marker);
-            case ERROR -> new Error(source, sourceClass, message, cause, marker);
+            case DEBUG -> new Debug(source, sourceClass, message, cause, marker, mdc);
+            case INFO -> new Info(source, sourceClass, message, cause, marker, mdc);
+            case WARNING -> new Warning(source, sourceClass, message, cause, marker, mdc);
+            case ERROR -> new Error(source, sourceClass, message, cause, marker, mdc);
+            case OFF -> throw new IllegalArgumentException("OFF is not a log event level");
         };
         eventStream.publish(event);
+    }
+
+    private static String format(String template, Object[] arguments) {
+        if (arguments == null) arguments = new Object[]{null};
+        if (arguments.length == 1 && arguments[0] != null && arguments[0].getClass().isArray()) {
+            Object array = arguments[0];
+            Object[] expanded = new Object[Array.getLength(array)];
+            for (int i = 0; i < expanded.length; i++) expanded[i] = Array.get(array, i);
+            arguments = expanded;
+        }
+        StringBuilder sb = new StringBuilder(64);
+        int p = 0;
+        int startIndex = 0;
+        while (p < arguments.length) {
+            int index = template.indexOf("{}", startIndex);
+            if (index == -1) {
+                sb.append(template.substring(startIndex, template.length()))
+                        .append(" WARNING arguments left: ").append(arguments.length - p);
+                p = arguments.length;
+                startIndex = template.length();
+            } else {
+                sb.append(template, startIndex, index).append(arguments[p]);
+                startIndex = index + 2;
+                p += 1;
+            }
+        }
+        return sb.append(template.substring(startIndex)).toString();
     }
 
 }
