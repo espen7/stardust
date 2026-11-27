@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor.setup;
 
 /**
- * 可放入 {@link ActorSystemSetup} 的编程式配置项基类，对应 Pekko {@code Setup}。
+ * 可放入 {@link ActorSystemSetup} 的编程式配置项基类。
  */
 public abstract class Setup {
     /** 创建 Setup 实例。 */

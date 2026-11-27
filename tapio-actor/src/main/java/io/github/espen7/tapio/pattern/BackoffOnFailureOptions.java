@@ -22,7 +22,7 @@ import java.time.Duration;
 import java.util.Objects;
 
 /**
- * 配置按失败（Restart 指令）触发指数退避的 {@link BackoffSupervisor} 选项，对应 Pekko
+ * 配置按失败（Restart 指令）触发指数退避的 {@link BackoffSupervisor} 选项
  * {@code BackoffOnFailureOptions}。
  */
 public final class BackoffOnFailureOptions {

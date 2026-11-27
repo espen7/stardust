@@ -16,7 +16,7 @@ package io.github.espen7.tapio.actor;
 import java.util.Objects;
 
 /**
- * 标识一个 {@link Extension}，对应 Pekko {@code ExtensionId}。
+ * 标识一个 {@link Extension}。
  *
  * <p>扩展按 {@code ExtensionId} 实例的引用相等性查找，因此调用方通常应使用全局共享的
  * {@link AbstractExtensionId} 单例，避免重复加载同一扩展。</p>

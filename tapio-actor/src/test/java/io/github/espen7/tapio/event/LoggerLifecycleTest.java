@@ -233,7 +233,7 @@ class LoggerLifecycleTest {
                 results, false), ActorRef.noSender);
 
         MdcProbe.Result result = await(results);
-        assertEquals("custom-timestamp", result.mdc().get("pekkoTimestamp"));
+        assertEquals("custom-timestamp", result.mdc().get("tapioTimestamp"));
     }
 
     @Test
@@ -409,12 +409,12 @@ class LoggerLifecycleTest {
 
         MdcProbe.Result result = await(results);
         Map<String, String> mdc = result.mdc();
-        assertEquals("test-source", mdc.get("pekkoSource"));
+        assertEquals("test-source", mdc.get("tapioSource"));
         assertEquals("event-thread", mdc.get("sourceThread"));
-        assertTrue(mdc.get("pekkoTimestamp").matches("\\d{2}:\\d{2}:\\d{2}\\.\\d{3}UTC"));
+        assertTrue(mdc.get("tapioTimestamp").matches("\\d{2}:\\d{2}:\\d{2}\\.\\d{3}UTC"));
         assertEquals("test-system", mdc.get("sourceActorSystem"));
-        assertEquals("tapio://test-system", mdc.get("pekkoAddress"));
-        assertEquals("42", mdc.get("pekkoUid"));
+        assertEquals("tapio://test-system", mdc.get("tapioAddress"));
+        assertEquals("42", mdc.get("tapioUid"));
         assertEquals("r-1", mdc.get("requestId"));
         assertEquals("marker-value", mdc.get("markerField"));
         assertTrue(result.cleared());
@@ -513,7 +513,8 @@ class LoggerLifecycleTest {
 
     private static ActorRef observer(String name, BlockingQueue<Object> events) {
         return new ActorRef() {
-            private final ActorPath path = new ActorPath("tapio://logger-tests/" + name);
+            private final ActorPath path = new io.github.espen7.tapio.actor.RootActorPath(
+                    new io.github.espen7.tapio.actor.Address(ActorPath.Scheme, "logger-tests")).child(name);
 
             @Override
             public ActorPath path() {

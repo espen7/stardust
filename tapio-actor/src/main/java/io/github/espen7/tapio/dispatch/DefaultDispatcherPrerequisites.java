@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.DynamicAccess;
 import io.github.espen7.tapio.actor.Scheduler;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.event.EventStream;
@@ -27,6 +28,7 @@ final record DefaultDispatcherPrerequisites(
         ThreadFactory threadFactory,
         EventStream eventStream,
         Scheduler scheduler,
+        DynamicAccess dynamicAccess,
         ActorSystem.Settings settings,
         Mailboxes mailboxes,
         Optional<ExecutionContext> defaultExecutionContext) implements DispatcherPrerequisites {

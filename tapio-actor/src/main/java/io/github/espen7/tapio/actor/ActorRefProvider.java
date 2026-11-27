@@ -19,7 +19,7 @@ import java.util.concurrent.CompletionStage;
 import io.github.espen7.tapio.serialization.Serialization;
 
 /**
- * ActorRef 和 ActorPath 的创建边界，对应 Pekko ActorRefProvider。
+ * ActorRef 和 ActorPath 的创建边界。
  */
 public abstract class ActorRefProvider {
 

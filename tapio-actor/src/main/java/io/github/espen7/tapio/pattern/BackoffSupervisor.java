@@ -21,7 +21,7 @@ import io.github.espen7.tapio.annotation.InternalApi;
 import java.util.Optional;
 
 /**
- * 指数退避监督者 Actor 工厂与协议消息定义，对应 Pekko {@code BackoffSupervisor}。
+ * 指数退避监督者 Actor 工厂与协议消息定义。
  */
 public final class BackoffSupervisor {
     private BackoffSupervisor() {

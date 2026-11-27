@@ -27,7 +27,8 @@ public final class DispatcherTestSupport {
 
     public static DispatcherPrerequisites prerequisites(ActorSystem system, Scheduler scheduler) {
         return new DefaultDispatcherPrerequisites(((ExtendedActorSystem) system).threadFactory(), system.eventStream(),
-                scheduler, system.settings(), system.mailboxes(), Optional.empty());
+                scheduler, ((ExtendedActorSystem) system).dynamicAccess(), system.settings(), system.mailboxes(),
+                Optional.empty());
     }
 
     public static MessageDispatcherConfigurator configurator(ActorSystem system, Scheduler scheduler) {

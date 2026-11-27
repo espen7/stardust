@@ -1133,7 +1133,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         reserveChild(name);
         InternalActorRef child;
         try {
-            ActorPath path = new ActorPath(self.path(), name, newUid());
+            ActorPath path = new ChildActorPath(self.path(), name, newUid());
             child = system.provider().actorOf(system, props, self, path, systemService, Optional.empty(), true, async);
         } catch (Throwable failure) {
             if (failure instanceof InterruptedException) {

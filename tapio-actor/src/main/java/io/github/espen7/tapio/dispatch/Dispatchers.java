@@ -54,7 +54,8 @@ public class Dispatchers {
     public Dispatchers(ActorSystem.Settings settings, ActorSystem system) {
         this(settings, new DefaultDispatcherPrerequisites(
                 ((io.github.espen7.tapio.actor.ExtendedActorSystem) system).threadFactory(), system.eventStream(),
-                system.scheduler(), settings, system.mailboxes(), Optional.empty()), system.log());
+                system.scheduler(), ((io.github.espen7.tapio.actor.ExtendedActorSystem) system).dynamicAccess(),
+                settings, system.mailboxes(), Optional.empty()), system.log());
     }
 
     /**
@@ -188,11 +189,39 @@ public class Dispatchers {
         return ConfigFactory.parseMap(Map.of("id", id));
     }
 
+    /**
+     * INTERNAL API：从配置直接创建 Dispatcher。
+     *
+     * @param cfg 包含 {@code id} 与 {@code type} 的配置
+     * @return 对应的 {@link MessageDispatcher}
+     */
+    @InternalApi
+    public MessageDispatcher from(Config cfg) {
+        return configuratorFrom(cfg).dispatcher();
+    }
+
     private MessageDispatcherConfigurator configuratorFrom(Config config) {
+        if (!config.hasPath("id")) {
+            throw new ConfigurationException("Missing dispatcher 'id' property in config: " + config.root().render());
+        }
         String type = config.getString("type");
         if ("Dispatcher".equals(type)) return new DispatcherConfigurator(config, prerequisites);
         if ("PinnedDispatcher".equals(type)) return new PinnedDispatcherConfigurator(config, prerequisites);
-        throw new ConfigurationException("Cannot instantiate MessageDispatcherConfigurator type [" + type
-                + "], defined in [" + config.getString("id") + "]");
+        try {
+            return prerequisites.dynamicAccess().createInstanceFor(
+                    type,
+                    MessageDispatcherConfigurator.class,
+                    java.util.List.<Map.Entry<Class<?>, Object>>of(
+                            Map.entry(Config.class, config),
+                            Map.entry(DispatcherPrerequisites.class, prerequisites)));
+        } catch (Throwable failure) {
+            throw new ConfigurationException(
+                    String.format(
+                            "Cannot instantiate MessageDispatcherConfigurator type [%s], defined in [%s], "
+                                    + "make sure it has constructor with [com.typesafe.config.Config] and "
+                                    + "[%s] parameters",
+                            type, config.getString("id"), DispatcherPrerequisites.class.getName()),
+                    failure);
+        }
     }
 }

@@ -172,7 +172,7 @@ class ActorRuntimeTest {
             assertTrue(ran.await(WAIT_SECONDS, TimeUnit.SECONDS));
             assertTrue(threadName.get().startsWith("public-dispatcher-" + Dispatchers.DefaultDispatcherId + "-"));
         } finally {
-            dispatcher.close();
+            dispatcher.shutdown();
         }
     }
 
@@ -344,7 +344,7 @@ class ActorRuntimeTest {
         ActorSystemImpl systemImpl = (ActorSystemImpl) system;
         ActorRefProvider provider = systemImpl.provider();
         LocalActorRef guardian = provider.guardian();
-        ActorPath path = new ActorPath(guardian.path(), "worker", 17);
+        ActorPath path = new ChildActorPath(guardian.path(), "worker", 17);
         Props props = Props.create(EchoActor.class);
         Optional<Deploy> deploy = Optional.of(new Deploy("/worker", Dispatchers.DefaultDispatcherId, ""));
 
@@ -434,19 +434,19 @@ class ActorRuntimeTest {
     }
 
     @Test
-    void actorRefOrderingUsesThePathAndIncarnation() {
-        ActorPath parent = new ActorPath("tapio://ordering/user");
-        ActorRef first = new EmptyLocalActorRef(null, new ActorPath(parent, "worker", -1), null);
-        ActorRef second = new EmptyLocalActorRef(null, new ActorPath(parent, "worker", 1), null);
-        ActorRef same = new EmptyLocalActorRef(null, new ActorPath(parent, "worker", -1), null);
+    void actorRefOrderingUsesThePathAndIncarnation() throws Exception {
+        ActorPath parent = ActorPath.fromString("tapio://ordering/user");
+        ActorRef first = new EmptyLocalActorRef(null, new ChildActorPath(parent, "worker", -1), null);
+        ActorRef second = new EmptyLocalActorRef(null, new ChildActorPath(parent, "worker", 1), null);
+        ActorRef same = new EmptyLocalActorRef(null, new ChildActorPath(parent, "worker", -1), null);
         assertEquals(first.path(), second.path());
         assertTrue(first.compareTo(second) < 0);
         assertTrue(second.compareTo(first) > 0);
         assertEquals(0, first.compareTo(same));
 
-        assertTrue(new ActorPath("tapio://ordering/user/z/first")
-                .compareTo(new ActorPath("tapio://ordering/user/a/last")) < 0);
-        assertTrue(new ActorPath("tapio://ordering/").compareTo(parent) > 0);
+        assertTrue(ActorPath.fromString("tapio://ordering/user/z/first")
+                .compareTo(ActorPath.fromString("tapio://ordering/user/a/last")) < 0);
+        assertTrue(ActorPath.fromString("tapio://ordering/").compareTo(parent) > 0);
     }
 
     @Test
@@ -977,8 +977,8 @@ class ActorRuntimeTest {
     }
 
     @Test
-    void actorPathWithoutAddressReturnsOnlyPathElements() {
-        assertEquals("/user/worker", new ActorPath("tapio://system/user/worker").toStringWithoutAddress());
+    void actorPathWithoutAddressReturnsOnlyPathElements() throws Exception {
+        assertEquals("/user/worker", ActorPath.fromString("tapio://system/user/worker").toStringWithoutAddress());
     }
 
     @Test

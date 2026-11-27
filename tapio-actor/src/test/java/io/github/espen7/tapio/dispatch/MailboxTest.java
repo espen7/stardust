@@ -55,7 +55,7 @@ class MailboxTest {
         try (ActorSystem system = ActorSystem.create("mailbox-system-interrupted")) {
             ExecutorServiceFactory factory = Executors::newSingleThreadExecutor;
             List<Object> processed = new ArrayList<>();
-            try (Dispatcher dispatcher = new Dispatcher(DispatcherTestSupport.configurator(system, system.scheduler()),
+            Dispatcher dispatcher = new Dispatcher(DispatcherTestSupport.configurator(system, system.scheduler()),
                     Dispatchers.DefaultDispatcherId, 2, Duration.ZERO,
                     (id, threadFactory) -> factory, Duration.ofHours(1)) {
                 @Override
@@ -71,7 +71,8 @@ class MailboxTest {
                         Thread.currentThread().interrupt();
                     }
                 }
-            }) {
+            };
+            try {
                 ActorCell cell = new ActorCell((ActorSystemImpl) system, null, null, dispatcher, null) {
                     @Override
                     public void invoke(Envelope message) {
@@ -104,6 +105,7 @@ class MailboxTest {
                 assertFalse(mailbox.hasMessages());
             } finally {
                 Thread.interrupted();
+                dispatcher.shutdown();
             }
         }
     }
@@ -118,14 +120,15 @@ class MailboxTest {
             Duration deadline = system.dispatcher().throughputDeadlineTime();
             assertEquals(Duration.ofMillis(1), deadline);
             ExecutorServiceFactory factory = () -> Executors.newSingleThreadExecutor();
-            try (Dispatcher dispatcher = new Dispatcher(DispatcherTestSupport.configurator(system, system.scheduler()),
+            Dispatcher dispatcher = new Dispatcher(DispatcherTestSupport.configurator(system, system.scheduler()),
                     Dispatchers.DefaultDispatcherId, system.dispatcher().throughput(), deadline,
                     (id, threadFactory) -> factory, Duration.ofHours(1)) {
                 @Override
                 public boolean registerForExecution(Mailbox mailbox, boolean hasMessageHint, boolean hasSystemMessageHint) {
                     return false;
                 }
-            }) {
+            };
+            try {
                 AtomicInteger processed = new AtomicInteger();
                 ActorCell cell = new ActorCell((ActorSystemImpl) system, null, null, dispatcher, null) {
                     @Override
@@ -145,6 +148,8 @@ class MailboxTest {
                 assertEquals(1, processed.get());
                 mailbox.run();
                 assertEquals(2, processed.get());
+            } finally {
+                dispatcher.shutdown();
             }
         }
     }

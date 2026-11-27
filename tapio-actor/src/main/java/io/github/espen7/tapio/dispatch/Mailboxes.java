@@ -34,7 +34,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 按配置、Props 和 requirement 选择 mailbox type，对应上游
+ * 按配置、Props 和 requirement 选择 mailbox type
  * {@code dispatch/Mailboxes.scala} 的 {@code Mailboxes}。
  */
 public final class Mailboxes {
@@ -193,7 +193,7 @@ public final class Mailboxes {
     }
 
     /**
-     * 按配置、Props 和 Actor requirement 选择 mailbox type，对应上游五级选择顺序。
+     * 按配置、Props 和 Actor requirement 选择 mailbox type五级选择顺序。
      *
      * @param props 创建 Actor 用的 Props
      * @param dispatcherConfig 选中的 Dispatcher 的有效配置

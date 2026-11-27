@@ -50,7 +50,7 @@ Tapio is in early development. Public APIs and configuration may change before t
 
 `Available` means the local runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Affinity/custom executors remain incomplete.
 
-The initial scope does not include the complete Akka/Pekko ecosystem: Typed APIs, Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
+The initial scope does not include the complete Akka/Pekko ecosystem: **Typed Actors (Pekko Typed) are explicitly not migrated (non-goal)**, and Streams, Persistence, broad serialization integrations, full remoting compatibility, or unrelated enterprise integrations are also excluded. The scope can expand when a component directly supports the actor platform and its target workloads.
 
 ## Quick Start
 

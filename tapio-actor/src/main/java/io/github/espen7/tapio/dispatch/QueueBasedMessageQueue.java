@@ -18,7 +18,7 @@ import io.github.espen7.tapio.actor.ActorRef;
 import java.util.Queue;
 
 /**
- * 由 {@link Queue} 支持的消息队列基接口，对应上游 {@code QueueBasedMessageQueue}。
+ * 由 {@link Queue} 支持的消息队列基接口。
  */
 public interface QueueBasedMessageQueue extends MessageQueue, MultipleConsumerSemantics {
 

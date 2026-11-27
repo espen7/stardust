@@ -17,7 +17,7 @@ import io.github.espen7.tapio.TapioException;
 import io.github.espen7.tapio.util.NoStackTrace;
 
 /**
- * 当 {@code stash()} 超过配置容量上限时抛出的异常，对应 Pekko {@code StashOverflowException}。
+ * 当 {@code stash()} 超过配置容量上限时抛出的异常。
  */
 public class StashOverflowException extends TapioException implements NoStackTrace {
     /**

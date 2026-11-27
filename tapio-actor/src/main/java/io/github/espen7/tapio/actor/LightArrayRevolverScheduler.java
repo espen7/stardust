@@ -18,6 +18,7 @@ import io.github.espen7.tapio.dispatch.AbstractNodeQueue;
 import io.github.espen7.tapio.dispatch.ExecutionContext;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
+import java.io.Closeable;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.time.Duration;
@@ -39,7 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>单个定时线程推进时间轮，并将到期任务提交给各自的 {@link Executor}。
  */
-public class LightArrayRevolverScheduler extends Scheduler {
+public class LightArrayRevolverScheduler extends Scheduler implements Closeable {
     private static final boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows");
     private static final Runnable CancelledTask = () -> {};
     private static final Runnable ExecutedTask = () -> {};

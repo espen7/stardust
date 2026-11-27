@@ -18,7 +18,7 @@ import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 
 /**
- * 多生产者单消费者无界邮箱类型，对应 Pekko {@code SingleConsumerOnlyUnboundedMailbox}。
+ * 多生产者单消费者无界邮箱类型。
  */
 public final class SingleConsumerOnlyUnboundedMailbox implements MailboxType, ProducesMessageQueue<NodeMessageQueue> {
     /** 创建单消费者无界邮箱类型实例。 */

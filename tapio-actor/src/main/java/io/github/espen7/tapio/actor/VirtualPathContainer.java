@@ -79,7 +79,7 @@ final class VirtualPathContainer extends MinimalActorRef {
         } else if (!selection.wildcardFanOut()) {
             ActorPath emptyPath = path;
             for (SelectionPathElement element : selection.elements()) {
-                emptyPath = new ActorPath(emptyPath, element.toString());
+                emptyPath = emptyPath.child(element.toString());
             }
             new EmptyLocalActorRef(provider, emptyPath, provider.systemGuardian().system().eventStream())
                     .tell(selection.message(), sender);

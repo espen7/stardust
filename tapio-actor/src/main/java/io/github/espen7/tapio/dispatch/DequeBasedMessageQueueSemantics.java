@@ -17,7 +17,7 @@ import io.github.espen7.tapio.actor.ActorRef;
 
 /**
  * 标记支持从队头重新入队的双端消息队列语义，供 {@link io.github.espen7.tapio.actor.AbstractActorWithStash}
- * 等暂存机制使用，对应 Pekko {@code DequeBasedMessageQueueSemantics}。
+ * 等暂存机制使用。
  */
 public interface DequeBasedMessageQueueSemantics extends MessageQueue {
     /**

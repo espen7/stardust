@@ -79,14 +79,14 @@ public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigura
                     ? monitorable.name()
                     : id;
             return () -> VirtualThreadSupport.createVirtualized(namedFactory,
-                    new PekkoForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable),
+                    new TapioForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable),
                     prefix, virtualThreadStartNumber);
         }
-        return () -> new PekkoForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable);
+        return () -> new TapioForkJoinPool(parallelism, workerFactory, maximumPoolSize, asyncMode, minimumRunnable);
     }
 
-    private static final class PekkoForkJoinPool extends ForkJoinPool {
-        private PekkoForkJoinPool(int parallelism, ForkJoinPool.ForkJoinWorkerThreadFactory threadFactory,
+    private static final class TapioForkJoinPool extends ForkJoinPool implements LoadMetrics {
+        private TapioForkJoinPool(int parallelism, ForkJoinPool.ForkJoinWorkerThreadFactory threadFactory,
                                   int maximumPoolSize, boolean asyncMode, int minimumRunnable) {
             super(parallelism, threadFactory, MonitorableThreadFactory.doNothing, asyncMode, 0, maximumPoolSize,
                     minimumRunnable, null, ForkJoinPoolConstants.DefaultKeepAliveMillis, TimeUnit.MILLISECONDS);
@@ -95,14 +95,19 @@ public final class ForkJoinExecutorConfigurator extends ExecutorServiceConfigura
         @Override
         public void execute(Runnable runnable) {
             if (runnable == null) throw new NullPointerException("Runnable was null");
-            super.execute(runnable instanceof ForkJoinTask<?> task ? task : new PekkoForkJoinTask(runnable));
+            super.execute(runnable instanceof ForkJoinTask<?> task ? task : new TapioForkJoinTask(runnable));
+        }
+
+        @Override
+        public boolean atFullThrottle() {
+            return getActiveThreadCount() >= getParallelism();
         }
     }
 
-    private static final class PekkoForkJoinTask extends ForkJoinTask<Void> {
+    private static final class TapioForkJoinTask extends ForkJoinTask<Void> {
         private final Runnable runnable;
 
-        private PekkoForkJoinTask(Runnable runnable) {
+        private TapioForkJoinTask(Runnable runnable) {
             this.runnable = runnable;
         }
 

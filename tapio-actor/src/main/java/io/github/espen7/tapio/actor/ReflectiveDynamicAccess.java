@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 基于反射与 {@link MethodHandle} 的默认 {@link DynamicAccess} 实现，对应 Pekko
+ * 基于反射与 {@link MethodHandle} 的默认 {@link DynamicAccess} 实现
  * {@code ReflectiveDynamicAccess}。
  *
  * <p>该类不供应用代码继承或直接构造。</p>

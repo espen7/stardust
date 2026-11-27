@@ -103,7 +103,7 @@ class DispatcherLifecycleTest {
         ExecutorService secondExecutor = factory.executors.get(1);
         assertNotSame(firstExecutor, secondExecutor);
         assertFalse(secondExecutor.isShutdown());
-        dispatcher.close();
+        dispatcher.shutdown();
         assertTrue(secondExecutor.isShutdown());
     }
 
@@ -130,7 +130,7 @@ class DispatcherLifecycleTest {
         assertSame(TaskInvocation.class, event.sourceClass());
         assertEquals("task failed", event.message());
         assertSame(failure, event.cause());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -174,7 +174,7 @@ class DispatcherLifecycleTest {
         assertSame(Dispatcher.class, event.sourceClass());
         assertEquals("executeTask was rejected twice!", event.message());
         assertEquals("rejected-1", event.cause().getMessage());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -199,7 +199,7 @@ class DispatcherLifecycleTest {
         assertSame(Dispatcher.class, event.sourceClass());
         assertEquals("registerForExecution was rejected twice!", event.message());
         assertEquals("rejected-2", event.cause().getMessage());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -434,7 +434,11 @@ class DispatcherLifecycleTest {
         CaptureActorRef sender = new CaptureActorRef();
         LocalActorRef ref = new LocalActorRef((ActorSystemImpl) system,
                 Props.create(LifecycleActor.class, ready, stopped), dispatcher, new UnboundedMailbox(),
-                new CaptureActorRef(), new ActorPath("tapio://dispatcher-lifecycle/user/" + name), name);
+                new CaptureActorRef(),
+                new io.github.espen7.tapio.actor.RootActorPath(
+                        new io.github.espen7.tapio.actor.Address(ActorPath.Scheme, "dispatcher-lifecycle"))
+                        .child("user").child(name),
+                name);
         return new TestActor(ref, sender, ready, stopped);
     }
 
@@ -551,7 +555,7 @@ class DispatcherLifecycleTest {
         }
     }
 
-    private static final class ManualScheduler extends Scheduler {
+    private static final class ManualScheduler extends Scheduler implements java.io.Closeable {
         private final Deque<Holder> tasks = new ArrayDeque<>();
         private volatile boolean closed;
 
@@ -676,7 +680,8 @@ class DispatcherLifecycleTest {
     }
 
     static final class CaptureActorRef extends MinimalActorRef {
-        private final ActorPath path = new ActorPath("tapio://dispatcher-lifecycle/capture");
+        private final ActorPath path = new io.github.espen7.tapio.actor.RootActorPath(
+                new io.github.espen7.tapio.actor.Address(ActorPath.Scheme, "dispatcher-lifecycle")).child("capture");
         private final BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         private final Consumer<Object> consumer;
 

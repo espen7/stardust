@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 按 ActorPath 元素查找部署配置的索引，对应上游
+ * 按 ActorPath 元素查找部署配置的索引
  * {@code actor/src/main/scala/org/apache/pekko/util/WildcardIndex.scala}。
  *
  * <p>普通通配符 {@code *} 匹配单个路径元素，末尾的 {@code **} 匹配剩余全部元素。
@@ -103,7 +103,7 @@ public final class WildcardIndex<T> {
     }
 
     /**
-     * 单个通配符树节点，对应上游 {@code WildcardTree}。
+     * 单个通配符树节点。
      *
      * @param <T> 索引保存的值类型
      */

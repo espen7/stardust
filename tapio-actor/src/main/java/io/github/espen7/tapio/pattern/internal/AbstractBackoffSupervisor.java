@@ -25,8 +25,7 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * 为 {@link BackoffOnRestartSupervisor} 与 {@link BackoffOnStopSupervisor} 提供公共退避逻辑，
- * 对应 Pekko {@code HandleBackoff}。
+ * 为 {@link BackoffOnRestartSupervisor} 与 {@link BackoffOnStopSupervisor} 提供公共退避逻辑。
  *
  * <p>INTERNAL API。</p>
  */

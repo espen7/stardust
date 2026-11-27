@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 /**
- * 标记需要由 {@link UnboundedControlAwareMailbox} 优先消费的控制消息，对应 Pekko
+ * 标记需要由 {@link UnboundedControlAwareMailbox} 优先消费的控制消息
  * {@code ControlMessage}。
  */
 public interface ControlMessage {

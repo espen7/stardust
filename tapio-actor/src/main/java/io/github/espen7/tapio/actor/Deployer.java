@@ -20,7 +20,7 @@ import io.github.espen7.tapio.util.WildcardIndex;
 import java.util.Optional;
 
 /**
- * 将 ActorPath 映射到部署配置，对应上游
+ * 将 ActorPath 映射到部署配置
  * {@code actor/src/main/scala/org/apache/pekko/actor/Deployer.scala} 的 {@code Deployer}。
  *
  * <p>只解析 {@code tapio.actor.deployment} 下的 {@code dispatcher} 和 {@code mailbox}。

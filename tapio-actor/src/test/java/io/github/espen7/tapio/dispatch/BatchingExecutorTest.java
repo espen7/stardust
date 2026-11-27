@@ -65,7 +65,7 @@ class BatchingExecutorTest {
         assertEquals(List.of("outer", "first", "second"), calls);
         assertEquals(0, executor.size());
         assertEquals(0, dispatcher.inhabitants());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -97,7 +97,7 @@ class BatchingExecutorTest {
         executor.runNext();
         executor.runNext();
         assertEquals(List.of("outer", "plain", "disabled"), calls);
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -127,7 +127,7 @@ class BatchingExecutorTest {
         executor.runNext();
         assertEquals(List.of("first", "remaining"), calls);
         assertSame(BlockContext.DEFAULT, BlockContext.current());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -152,7 +152,7 @@ class BatchingExecutorTest {
         assertTrue(remainingRan.get());
         assertEquals(0, executor.size());
         assertSame(BlockContext.DEFAULT, BlockContext.current());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -173,7 +173,7 @@ class BatchingExecutorTest {
         assertEquals(1, executor.size());
         executor.runNext();
         assertEquals(List.of("outer", "inner"), calls);
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -188,7 +188,7 @@ class BatchingExecutorTest {
         dispatcher.reportFailure(new LogEventException(error, new IllegalStateException("cause")));
 
         assertSame(error, events.poll());
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     @Test
@@ -204,7 +204,7 @@ class BatchingExecutorTest {
         Mailbox mailbox = dispatcher.createMailbox(actor,
                 (owner, actorSystem) -> new UnboundedMailbox.MessageQueue());
         assertInstanceOf(DefaultSystemMessageQueue.class, mailbox);
-        dispatcher.close();
+        dispatcher.shutdown();
     }
 
     private Dispatcher dispatcher(QueueExecutor executor, boolean virtualized) {

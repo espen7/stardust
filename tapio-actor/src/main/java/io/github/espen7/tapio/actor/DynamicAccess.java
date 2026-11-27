@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 用于加载与实例化 {@link ActorSystem} 可配置组件的内部抽象，对应 Pekko {@code DynamicAccess}。
+ * 用于加载与实例化 {@link ActorSystem} 可配置组件的内部抽象。
  *
  * <p>默认实现为 {@link ReflectiveDynamicAccess}。该类不供应用代码继承。</p>
  */

@@ -16,7 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import java.time.Duration;
 
 /**
- * 声明普通消息队列有容量上限，对应上游 {@code BoundedMessageQueueSemantics}。
+ * 声明普通消息队列有容量上限。
  */
 public interface BoundedMessageQueueSemantics {
 

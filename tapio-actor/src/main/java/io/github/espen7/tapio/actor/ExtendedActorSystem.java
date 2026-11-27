@@ -18,7 +18,7 @@ import io.github.espen7.tapio.event.LoggingFilter;
 import java.util.concurrent.ThreadFactory;
 
 /**
- * 暴露给内部组件和扩展使用的 ActorSystem 内部契约，对应 Pekko {@code ExtendedActorSystem}。
+ * 暴露给内部组件和扩展使用的 ActorSystem 内部契约。
  */
 public abstract class ExtendedActorSystem extends ActorSystem {
     /**

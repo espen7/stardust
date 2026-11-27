@@ -18,7 +18,7 @@ import io.github.espen7.tapio.annotation.DoNotInherit;
 import java.time.Duration;
 
 /**
- * 为 Actor 提供绑定其生命周期的定时自发消息能力，对应 Pekko {@code TimerScheduler}。
+ * 为 Actor 提供绑定其生命周期的定时自发消息能力。
  *
  * <p>通过 {@link AbstractActorWithTimers} 或 {@link AbstractLoggingActorWithTimers} 获取。
  * 所有定时器会在 Actor 重启或停止时自动取消；{@code TimerScheduler} 非线程安全，只能在拥有它的

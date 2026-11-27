@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
- * 优雅停止目标 Actor 并异步等待其终止完成，对应 Pekko {@code GracefulStopSupport}。
+ * 优雅停止目标 Actor 并异步等待其终止完成。
  */
 public final class GracefulStopSupport {
     private GracefulStopSupport() {

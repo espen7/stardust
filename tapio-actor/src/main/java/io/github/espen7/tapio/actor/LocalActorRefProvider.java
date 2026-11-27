@@ -17,6 +17,7 @@ import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.actor.SystemGuardian.RegisterTerminationHook;
 import io.github.espen7.tapio.actor.SystemGuardian.TerminationHook;
 import io.github.espen7.tapio.actor.SystemGuardian.TerminationHookDone;
+import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.dispatch.MessageDispatcher;
@@ -79,17 +80,17 @@ public class LocalActorRefProvider extends ActorRefProvider {
     public LocalActorRefProvider(ActorSystemImpl system) {
         this.system = system;
         this.deployer = new Deployer(system.settings());
-        this.rootPath = new ActorPath(new Address(ActorPath.Scheme, system.name()));
+        this.rootPath = new RootActorPath(new Address(ActorPath.Scheme, system.name()));
         this.log = Logging.getLogger(system.eventStream(), LocalActorRefProvider.class.getSimpleName(),
                 LocalActorRefProvider.class);
         this.logDeser = Logging.getLogger(system.eventStream(), getClass().getName() + ".Deserialization",
                 LocalActorRefProvider.class);
-        this.deadLetters = new DeadLetterActorRef(this, new ActorPath(rootPath, "deadLetters"), system.eventStream());
+        this.deadLetters = new DeadLetterActorRef(this, rootPath.child("deadLetters"), system.eventStream());
         this.ignoreRef = new IgnoreActorRef(this);
-        this.tempNode = new ActorPath(rootPath, "temp");
+        this.tempNode = rootPath.child("temp");
         this.theOneWhoWalksTheBubblesOfSpaceTime = new MinimalActorRef() {
             private final CompletableFuture<Terminated> causeOfTermination = new CompletableFuture<>();
-            private final ActorPath path = new ActorPath(rootPath, "bubble-walker");
+            private final ActorPath path = rootPath.child("bubble-walker");
 
             @Override
             public ActorPath path() {
@@ -163,16 +164,29 @@ public class LocalActorRefProvider extends ActorRefProvider {
         MailboxType defaultMailbox = system.mailboxes().lookup(Mailboxes.DefaultMailboxId);
 
         cell.reserveChild("user");
-        guardian = new LocalActorRef(system, Props.create(Guardian.class, guardianSupervisorStrategy(system)),
-                system.dispatchers().internalDispatcher(), defaultMailbox, rootGuardian,
-                new ActorPath(rootPath, "user"), "user", false);
+        Props userProps;
+        MessageDispatcher userDispatcher;
+        MailboxType userMailbox;
+        if (system.guardianProps().isPresent()) {
+            userProps = system.guardianProps().get();
+            String dispatcherId = Deploy.DispatcherSameAsParent.equals(userProps.deploy().dispatcher())
+                    ? Dispatchers.DefaultDispatcherId : userProps.dispatcher();
+            userDispatcher = system.dispatchers().lookup(dispatcherId);
+            userMailbox = system.mailboxes().lookup(userProps.mailbox());
+        } else {
+            userProps = Props.create(Guardian.class, guardianSupervisorStrategy(system));
+            userDispatcher = system.dispatchers().internalDispatcher();
+            userMailbox = defaultMailbox;
+        }
+        guardian = new LocalActorRef(system, userProps, userDispatcher, userMailbox, rootGuardian,
+                rootPath.child("user"), "user", false);
         cell.initChild(guardian);
         guardian.start();
 
         cell.reserveChild("system");
         systemGuardian = new LocalActorRef(system, Props.create(SystemGuardian.class, systemGuardianStrategy(), guardian),
                 system.dispatchers().internalDispatcher(), defaultMailbox, rootGuardian,
-                new ActorPath(rootPath, "system"), "system", false);
+                rootPath.child("system"), "system", false);
         cell.initChild(systemGuardian);
         systemGuardian.start();
 
@@ -350,8 +364,9 @@ public class LocalActorRefProvider extends ActorRefProvider {
         ActorPath path = ref.path();
         for (String element : pathElements) {
             int separator = element.indexOf('#');
-            path = separator < 0 ? new ActorPath(path, element)
-                    : new ActorPath(path, element.substring(0, separator), Integer.parseInt(element.substring(separator + 1)));
+            path = separator < 0 ? new ChildActorPath(path, element, ActorPath.UndefinedUid)
+                    : new ChildActorPath(path, element.substring(0, separator),
+                            Integer.parseInt(element.substring(separator + 1)));
         }
         return new EmptyLocalActorRef(this, path, system.eventStream());
     }
@@ -394,7 +409,7 @@ public class LocalActorRefProvider extends ActorRefProvider {
     @Override
     public ActorPath tempPath(String prefix) {
         StringBuilder name = new StringBuilder(prefix).append('$');
-        return new ActorPath(tempNode, Helpers.base64(tempNumber.getAndIncrement(), name));
+        return tempNode.child(Helpers.base64(tempNumber.getAndIncrement(), name));
     }
 
     @Override

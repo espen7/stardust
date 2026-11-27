@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
- * 为 {@link AbstractActorWithStash} 等基类提供内部暂存队列管理，对应 Pekko {@code StashSupport}。
+ * 为 {@link AbstractActorWithStash} 等基类提供内部暂存队列管理。
  *
  * <p>INTERNAL API。</p>
  */

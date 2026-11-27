@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.event;
 
 /**
- * 在发布日志事件到 {@link EventStream} 前进行过滤的策略接口，对应 Pekko {@code LoggingFilter}。
+ * 在发布日志事件到 {@link EventStream} 前进行过滤的策略接口。
  */
 public interface LoggingFilter {
     /**

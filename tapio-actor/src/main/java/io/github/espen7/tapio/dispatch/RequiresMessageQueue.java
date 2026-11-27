@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 /**
- * 声明 Actor 需要的普通消息队列语义，对应上游
+ * 声明 Actor 需要的普通消息队列语义
  * {@code dispatch.RequiresMessageQueue[T]}。
  *
  * @param <T> 需要的消息队列语义类型

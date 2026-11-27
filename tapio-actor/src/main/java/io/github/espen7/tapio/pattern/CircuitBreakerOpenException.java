@@ -20,7 +20,7 @@ import java.time.Duration;
 
 /**
  * 当 {@link CircuitBreaker} 处于 {@code Open} 状态（或 {@code HalfOpen} 已有探测调用在进行）
- * 时快速失败抛出的异常，对应 Pekko {@code CircuitBreakerOpenException}。
+ * 时快速失败抛出的异常。
  */
 public class CircuitBreakerOpenException extends TapioException implements NoStackTrace {
     private final Duration remainingDuration;

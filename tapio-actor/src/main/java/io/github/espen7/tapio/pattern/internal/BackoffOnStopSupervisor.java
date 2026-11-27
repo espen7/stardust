@@ -27,7 +27,7 @@ import java.time.Duration;
 import java.util.function.Predicate;
 
 /**
- * 在子 Actor 自行停止时按指数退避延迟重启的监督者，对应 Pekko {@code BackoffOnStopSupervisor}。
+ * 在子 Actor 自行停止时按指数退避延迟重启的监督者。
  *
  * <p>INTERNAL API。</p>
  */

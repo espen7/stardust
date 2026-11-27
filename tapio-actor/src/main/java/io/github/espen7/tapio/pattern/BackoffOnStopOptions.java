@@ -24,7 +24,7 @@ import java.util.Objects;
 import java.util.function.Predicate;
 
 /**
- * 配置按子 Actor 停止（Terminated）触发指数退避的 {@link BackoffSupervisor} 选项，对应 Pekko
+ * 配置按子 Actor 停止（Terminated）触发指数退避的 {@link BackoffSupervisor} 选项
  * {@code BackoffOnStopOptions}。
  */
 public final class BackoffOnStopOptions {

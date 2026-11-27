@@ -89,7 +89,8 @@ class EventStreamTest {
         ActorRef subscriber = new ActorRef() {
             @Override
             public ActorPath path() {
-                return new ActorPath("tapio://event-stream/subscriber");
+                return new io.github.espen7.tapio.actor.RootActorPath(
+                        new io.github.espen7.tapio.actor.Address(ActorPath.Scheme, "event-stream")).child("subscriber");
             }
 
             @Override

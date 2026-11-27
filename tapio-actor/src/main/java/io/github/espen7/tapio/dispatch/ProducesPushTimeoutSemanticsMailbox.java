@@ -16,7 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import java.time.Duration;
 
 /**
- * 标记会创建带 push-timeout 语义 mailbox 的 mailbox type，对应上游
+ * 标记会创建带 push-timeout 语义 mailbox 的 mailbox type
  * {@code dispatch/Mailbox.scala} 的 {@code ProducesPushTimeoutSemanticsMailbox}。
  *
  * <p>runtime 用它在创建时校验非零 push-timeout 并发布告警。</p>

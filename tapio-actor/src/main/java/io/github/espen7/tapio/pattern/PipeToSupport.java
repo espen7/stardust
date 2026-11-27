@@ -22,8 +22,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 
 /**
- * 将异步 {@link CompletionStage} 的完成结果转发给目标 Actor 或 ActorSelection，
- * 对应 Pekko {@code PipeToSupport}。
+ * 将异步 {@link CompletionStage} 的完成结果转发给目标 Actor 或 ActorSelection。
  */
 public final class PipeToSupport {
     private PipeToSupport() {

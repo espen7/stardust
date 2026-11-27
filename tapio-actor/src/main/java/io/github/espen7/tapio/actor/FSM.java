@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 有限状态机（FSM）协议类型与状态容器，对应 Pekko {@code FSM}。
+ * 有限状态机（FSM）协议类型与状态容器。
  */
 public final class FSM {
     private FSM() {

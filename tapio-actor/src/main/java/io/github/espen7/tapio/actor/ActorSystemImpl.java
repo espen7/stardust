@@ -32,6 +32,7 @@ import io.github.espen7.tapio.util.NonFatal;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,9 +81,11 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     /** 创建本地 ActorRef、guardian 和临时引用的 Provider。 */
     private final LocalActorRefProvider provider;
     /** 系统级 dead-letter listener；关闭期间可按配置保留或停止。 */
-    private final ActorRef logDeadLetterListener;
+    private volatile ActorRef logDeadLetterListener;
     /** 管理阶段化关闭任务和 JVM shutdown hook。 */
     private final CoordinatedShutdown coordinatedShutdown;
+    /** 自定义 user guardian Props；为空时使用内置 Guardian。 */
+    private final Optional<Props> guardianProps;
     /** ActorSystem 完成终止时完成的通知。 */
     private final CompletableFuture<Terminated> whenTerminated = new CompletableFuture<>();
     /** 按后进先出（LIFO）顺序串联终止回调的头指针；为 null 表示系统已终止。 */
@@ -104,12 +107,17 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     }
 
     ActorSystemImpl(String name, Config applicationConfig, ActorSystemSetup setup) {
+        this(name, applicationConfig, setup, Optional.empty());
+    }
+
+    ActorSystemImpl(String name, Config applicationConfig, ActorSystemSetup setup, Optional<Props> guardianProps) {
         if (name == null || !name.matches(ACTOR_NAME_PATTERN)) {
             throw new IllegalArgumentException(
                     "invalid ActorSystem name [" + name
-                            + "], must contain only word characters (i.e. [a-zA-Z0-9] plus non-leading '-' or '_')");
+                            + "], must contain only word characters (i.e. [a-zA-Z0-9] plus non-leading '-' or '_')") ;
         }
         this.name = name;
+        this.guardianProps = guardianProps == null ? Optional.empty() : guardianProps;
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         if (classLoader == null) classLoader = ActorSystem.class.getClassLoader();
         Config config = applicationConfig == null ? ConfigFactory.load(classLoader)
@@ -134,11 +142,23 @@ public class ActorSystemImpl extends ExtendedActorSystem {
             this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
             this.coordinatedShutdown = startedShutdown = new CoordinatedShutdown(this);
             provider.terminationFuture().whenComplete(this::finishTermination);
+        } catch (RuntimeException | Error error) {
+            abortStartup(error, startedShutdown, startedProvider, startedScheduler, startedDispatcher);
+            throw error;
+        }
+    }
+
+    /**
+     * INTERNAL API：启动 provider、默认 logger、死信监听与扩展加载。
+     *
+     * @return 当前 {@link ActorSystemImpl} 实例
+     */
+    @io.github.espen7.tapio.annotation.InternalApi
+    public ActorSystemImpl start() {
+        try {
             provider.init(this);
             if (settings.LogDeadLetters > 0) {
                 this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class), "deadLetterListener");
-            } else {
-                this.logDeadLetterListener = null;
             }
             eventStream.startUnsubscriber();
             loadExtensions();
@@ -151,38 +171,45 @@ public class ActorSystemImpl extends ExtendedActorSystem {
                     return whenTerminated.thenApply(ignored -> Done.done());
                 });
             }
+            return this;
         } catch (RuntimeException | Error error) {
-            if (error instanceof Error && !NonFatal.apply(error)) throw error;
-            if (startedShutdown != null) startedShutdown.cancelJvmShutdownHook();
-            boolean terminationInitiated = false;
-            if (startedProvider != null) {
-                try {
-                    LocalActorRef guardian = startedProvider.guardian();
-                    if (guardian == null) guardian = startedProvider.rootGuardian();
-                    if (guardian != null) {
-                        guardian.stop();
-                        terminationInitiated = true;
-                    }
-                } catch (RuntimeException | Error closeError) {
-                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
-                    else throw closeError;
-                }
-            }
-            if (!terminationInitiated) {
-                try {
-                    if (startedScheduler != null) startedScheduler.close();
-                } catch (RuntimeException | Error closeError) {
-                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
-                    else throw closeError;
-                }
-                try {
-                    if (startedDispatcher != null) startedDispatcher.close();
-                } catch (RuntimeException | Error closeError) {
-                    if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
-                    else throw closeError;
-                }
-            }
+            abortStartup(error, coordinatedShutdown, provider, scheduler, dispatcher);
             throw error;
+        }
+    }
+
+    private static void abortStartup(Throwable error, CoordinatedShutdown startedShutdown,
+                                     LocalActorRefProvider startedProvider, Scheduler startedScheduler,
+                                     MessageDispatcher startedDispatcher) {
+        if (error instanceof Error && !NonFatal.apply(error)) return;
+        if (startedShutdown != null) startedShutdown.cancelJvmShutdownHook();
+        boolean terminationInitiated = false;
+        if (startedProvider != null) {
+            try {
+                LocalActorRef guardian = startedProvider.guardian();
+                if (guardian == null) guardian = startedProvider.rootGuardian();
+                if (guardian != null) {
+                    guardian.stop();
+                    terminationInitiated = true;
+                }
+            } catch (RuntimeException | Error closeError) {
+                if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                else throw closeError;
+            }
+        }
+        if (!terminationInitiated) {
+            try {
+                if (startedScheduler instanceof java.io.Closeable closeable) closeable.close();
+            } catch (java.io.IOException | RuntimeException | Error closeError) {
+                if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                else if (closeError instanceof Error fatalError) throw fatalError;
+            }
+            try {
+                if (startedDispatcher != null) startedDispatcher.shutdown();
+            } catch (RuntimeException | Error closeError) {
+                if (NonFatal.apply(closeError)) error.addSuppressed(closeError);
+                else throw closeError;
+            }
         }
     }
 
@@ -283,14 +310,22 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         }
     }
 
+    Optional<Props> guardianProps() {
+        return guardianProps;
+    }
+
     @Override
     public ActorRef actorOf(Props props) {
-        return provider.guardian().underlying().attachChild(props, false);
+        if (guardianProps.isEmpty()) return provider.guardian().underlying().attachChild(props, false);
+        throw new UnsupportedOperationException(
+                "cannot create top-level actor from the outside on ActorSystem with custom user guardian");
     }
 
     @Override
     public ActorRef actorOf(Props props, String name) {
-        return provider.guardian().underlying().attachChild(props, name, false);
+        if (guardianProps.isEmpty()) return provider.guardian().underlying().attachChild(props, name, false);
+        throw new UnsupportedOperationException(
+                "cannot create top-level actor [" + name + "] from the outside on ActorSystem with custom user guardian");
     }
 
     @Override
@@ -561,10 +596,12 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     }
 
     private void finishTermination(Terminated terminated, Throwable failure) {
-        try {
-            scheduler.close();
-        } catch (RuntimeException error) {
-            log.error(error, "Error during actor system termination");
+        if (scheduler instanceof java.io.Closeable closeable) {
+            try {
+                closeable.close();
+            } catch (java.io.IOException | RuntimeException error) {
+                log.error(error, "Error during actor system termination");
+            }
         }
         CompletableFuture<Terminated> head = terminationCallbacksRef.getAndSet(null);
         if (head != null) {

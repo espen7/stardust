@@ -18,7 +18,7 @@ import io.github.espen7.tapio.annotation.InternalApi;
 import java.time.Duration;
 
 /**
- * 退避计数重置策略，对应 Pekko {@code BackoffReset}。
+ * 退避计数重置策略。
  *
  * <p>INTERNAL API。</p>
  */

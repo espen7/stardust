@@ -15,7 +15,7 @@ package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.event.LoggingAdapter;
 
-/** 为 Actor 提供基于当前实例的 {@link LoggingAdapter}，对应 Pekko {@code ActorLogging}。 */
+/** 为 Actor 提供基于当前实例的 {@link LoggingAdapter}。 */
 public interface ActorLogging {
     /**
      * 返回当前 Actor 的日志适配器。

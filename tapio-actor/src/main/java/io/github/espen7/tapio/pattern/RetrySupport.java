@@ -28,7 +28,7 @@ import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 /**
- * 异步重试与指数退避延迟计算工具，对应 Pekko {@code RetrySupport}。
+ * 异步重试与指数退避延迟计算工具。
  */
 public final class RetrySupport {
     private RetrySupport() {

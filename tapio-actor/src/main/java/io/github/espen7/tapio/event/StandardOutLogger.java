@@ -16,15 +16,17 @@ package io.github.espen7.tapio.event;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorRefProvider;
+import io.github.espen7.tapio.actor.Address;
 import io.github.espen7.tapio.actor.InvalidMessageException;
 import io.github.espen7.tapio.actor.MinimalActorRef;
+import io.github.espen7.tapio.actor.RootActorPath;
 
 /** 不依赖 ActorSystem、同步输出标准日志的 ActorRef。 */
 public class StandardOutLogger extends MinimalActorRef implements StdOutLogger {
     /** 所有 ActorSystem 共享的标准输出 logger。 */
     public static final StandardOutLogger INSTANCE = new StandardOutLogger();
 
-    private final ActorPath path = new ActorPath("tapio://all-systems/StandardOutLogger");
+    private final ActorPath path = new RootActorPath(new Address(ActorPath.Scheme, "all-systems")).child("StandardOutLogger");
 
     /** 创建同步标准输出 logger。 */
     public StandardOutLogger() {

@@ -39,12 +39,12 @@ public class Slf4jLogger extends AbstractActor
         implements RequiresMessageQueue<LoggerMessageQueueSemantics> {
     public final String mdcThreadAttributeName = "sourceThread";
     public final String mdcActorSystemAttributeName = "sourceActorSystem";
-    public final String mdcPekkoSourceAttributeName = "pekkoSource";
-    public final String mdcPekkoTimestamp = "pekkoTimestamp";
-    public final String mdcPekkoAddressAttributeName = "pekkoAddress";
-    public final String mdcPekkoUidAttributeName = "pekkoUid";
+    public final String mdcTapioSourceAttributeName = "tapioSource";
+    public final String mdcTapioTimestamp = "tapioTimestamp";
+    public final String mdcTapioAddressAttributeName = "tapioAddress";
+    public final String mdcTapioUidAttributeName = "tapioUid";
     private final Logger log = LoggerFactory.getLogger(Slf4jLogger.class);
-    private String _pekkoUid = "";
+    private String _tapioUid = "";
 
     @Override
     public Receive createReceive() {
@@ -71,7 +71,7 @@ public class Slf4jLogger extends AbstractActor
      */
     public final void withMdc(String logSource, LogEvent logEvent, Runnable logStatement) {
         ActorSystemImpl system = (ActorSystemImpl) getContext().system();
-        withMdc(logEvent, logSource, system.name(), pekkoAddress(), pekkoUid(), MDC::put, MDC::clear, logStatement);
+        withMdc(logEvent, logSource, system.name(), tapioAddress(), tapioUid(), MDC::put, MDC::clear, logStatement);
     }
 
     protected final void withMdc(LogEvent event, String logSource, String systemName, String address, String uid,
@@ -79,12 +79,12 @@ public class Slf4jLogger extends AbstractActor
         if (event.marker() != null) {
             event.marker().properties().forEach((key, value) -> put.accept(key, String.valueOf(value)));
         }
-        put.accept(mdcPekkoSourceAttributeName, logSource);
+        put.accept(mdcTapioSourceAttributeName, logSource);
         put.accept(mdcThreadAttributeName, event.threadName());
-        put.accept(mdcPekkoTimestamp, formatTimestamp(event.timestamp()));
+        put.accept(mdcTapioTimestamp, formatTimestamp(event.timestamp()));
         put.accept(mdcActorSystemAttributeName, systemName);
-        put.accept(mdcPekkoAddressAttributeName, address);
-        if (!uid.isEmpty()) put.accept(mdcPekkoUidAttributeName, uid);
+        put.accept(mdcTapioAddressAttributeName, address);
+        if (!uid.isEmpty()) put.accept(mdcTapioUidAttributeName, uid);
         event.mdc().forEach((key, value) -> put.accept(key, String.valueOf(value)));
         try {
             statement.run();
@@ -93,18 +93,18 @@ public class Slf4jLogger extends AbstractActor
         }
     }
 
-    private String pekkoAddress() {
+    private String tapioAddress() {
         return ((ActorSystemImpl) getContext().system()).provider().getDefaultAddress().toString();
     }
 
-    private String pekkoUid() {
-        if (_pekkoUid.isEmpty()) {
+    private String tapioUid() {
+        if (_tapioUid.isEmpty()) {
             try {
-                _pekkoUid = Long.toString(((ActorSystemImpl) getContext().system()).uid());
+                _tapioUid = Long.toString(((ActorSystemImpl) getContext().system()).uid());
             } catch (IllegalStateException ignored) {
             }
         }
-        return _pekkoUid;
+        return _tapioUid;
     }
 
     static Marker markerIfPresent(LogEvent event) {

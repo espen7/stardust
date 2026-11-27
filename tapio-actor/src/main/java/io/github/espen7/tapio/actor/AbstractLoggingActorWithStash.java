@@ -17,7 +17,7 @@ import io.github.espen7.tapio.event.Logging;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
 /**
- * 同时支持消息暂存与日志的 Java Actor 基类，对应 Pekko {@code AbstractLoggingActorWithStash}。
+ * 同时支持消息暂存与日志的 Java Actor 基类。
  */
 public abstract class AbstractLoggingActorWithStash extends AbstractActorWithStash implements ActorLogging {
     private LoggingAdapter log;

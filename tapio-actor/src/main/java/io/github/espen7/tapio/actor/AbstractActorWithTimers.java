@@ -20,7 +20,7 @@ import io.github.espen7.tapio.japi.pf.PartialFunction;
 import java.util.Optional;
 
 /**
- * 支持通过 {@link TimerScheduler} 发送生命周期绑定定时消息的 Java Actor 基类，对应 Pekko
+ * 支持通过 {@link TimerScheduler} 发送生命周期绑定定时消息的 Java Actor 基类
  * {@code AbstractActorWithTimers}。
  *
  * <p>所有定时器在 Actor 重启（{@code preRestart}）或停止（{@code postStop}）时自动取消。</p>

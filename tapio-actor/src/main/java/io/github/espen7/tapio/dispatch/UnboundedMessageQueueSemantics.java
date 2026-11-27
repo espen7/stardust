@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 /**
- * 声明普通消息队列不限制容量，对应上游 {@code UnboundedMessageQueueSemantics}。
+ * 声明普通消息队列不限制容量。
  */
 public interface UnboundedMessageQueueSemantics {
 }

@@ -19,8 +19,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
- * 默认 {@link LoggingFilter} 实现，基于 {@link EventStream#logLevel()} 动态判断日志级别，
- * 对应 Pekko {@code DefaultLoggingFilter}。
+ * 默认 {@link LoggingFilter} 实现，基于 {@link EventStream#logLevel()} 动态判断日志级别。
  */
 public class DefaultLoggingFilter implements LoggingFilter {
     private final Supplier<LogEvent.Level> logLevelSupplier;

@@ -16,13 +16,13 @@ package io.github.espen7.tapio.actor;
 import io.github.espen7.tapio.annotation.InternalApi;
 
 /**
- * 内部单级或路径查找未命中时返回的空占位引用，对应 Pekko {@code Nobody}。
+ * 内部单级或路径查找未命中时返回的空占位引用。
  */
 @InternalApi
 final class Nobody extends MinimalActorRef {
     static final Nobody INSTANCE = new Nobody();
     private static final ActorPath PATH =
-            new ActorPath(new ActorPath(new Address(ActorPath.Scheme, "all-systems")), "Nobody");
+            new RootActorPath(new Address(ActorPath.Scheme, "all-systems")).child("Nobody");
 
     private Nobody() {
     }

@@ -29,13 +29,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 为每个任务创建虚拟线程的执行器，并在关闭时按需级联关闭底层池，对应 Pekko
+ * 为每个任务创建虚拟线程的执行器，并在关闭时按需级联关闭底层池
  * {@code VirtualizedExecutorService}。
  *
  * <p>INTERNAL API。</p>
  */
 @InternalApi
-public final class VirtualizedExecutorService implements ExecutorService {
+public final class VirtualizedExecutorService implements ExecutorService, LoadMetrics {
     private static final int UNDERLYING_RUNNING = 0;
     private static final int UNDERLYING_SHUTDOWN = 1;
     private static final int UNDERLYING_SHUTDOWN_NOW = 2;
@@ -192,5 +192,10 @@ public final class VirtualizedExecutorService implements ExecutorService {
     @Override
     public void execute(Runnable command) {
         executor.execute(command);
+    }
+
+    @Override
+    public boolean atFullThrottle() {
+        return underlying instanceof LoadMetrics metrics && metrics.atFullThrottle();
     }
 }

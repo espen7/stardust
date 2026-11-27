@@ -17,7 +17,7 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
- * 不强制邮箱类型限制的暂存 Actor 基类，对应 Pekko {@code AbstractActorWithUnrestrictedStash}。
+ * 不强制邮箱类型限制的暂存 Actor 基类。
  *
  * <p>调用方须自行确保邮箱实现 {@link io.github.espen7.tapio.dispatch.DequeBasedMessageQueueSemantics}。</p>
  */

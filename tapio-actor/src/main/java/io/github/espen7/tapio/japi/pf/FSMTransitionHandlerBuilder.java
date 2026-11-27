@@ -20,8 +20,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 
 /**
- * 用于构建 {@link io.github.espen7.tapio.actor.AbstractFSM} 状态转换回调的流式构建器，
- * 对应 Pekko {@code FSMTransitionHandlerBuilder}。
+ * 用于构建 {@link io.github.espen7.tapio.actor.AbstractFSM} 状态转换回调的流式构建器。
  *
  * @param <S> 状态类型
  */

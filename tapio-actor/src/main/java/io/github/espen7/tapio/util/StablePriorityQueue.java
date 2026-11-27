@@ -18,7 +18,7 @@ import java.util.Comparator;
 import java.util.PriorityQueue;
 
 /**
- * 对相同优先级元素保持 FIFO 顺序的非阻塞优先级队列，对应 Pekko {@code StablePriorityQueue}。
+ * 对相同优先级元素保持 FIFO 顺序的非阻塞优先级队列。
  *
  * @param <E> 元素类型
  */

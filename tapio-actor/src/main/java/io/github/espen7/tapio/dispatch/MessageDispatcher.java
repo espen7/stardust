@@ -26,7 +26,7 @@ import java.time.Duration;
 /**
  * 所有 MessageDispatcher 共用的 Actor 注册、inhabitants 和延迟 shutdown 生命周期。
  */
-public abstract class MessageDispatcher extends AbstractMessageDispatcher implements ExecutionContext, AutoCloseable {
+public abstract class MessageDispatcher extends AbstractMessageDispatcher implements ExecutionContext {
     public static final int UNSCHEDULED = 0;
     public static final int SCHEDULED = 1;
     public static final int RESCHEDULED = 2;
@@ -359,12 +359,4 @@ public abstract class MessageDispatcher extends AbstractMessageDispatcher implem
      */
     @InternalStableApi
     public abstract void shutdown();
-
-    /**
-     * 关闭当前 executor。
-     */
-    @Override
-    public final void close() {
-        shutdown();
-    }
 }

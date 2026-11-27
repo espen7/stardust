@@ -19,6 +19,7 @@ import io.github.espen7.tapio.japi.function.Creator;
 
 import java.io.Serializable;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 
 /**
  * Actor 创建配置，也是创建 Actor 实例的延迟工厂。
@@ -40,6 +41,22 @@ public final class Props implements Serializable {
         this.creator = creator;
     }
 
+    /**
+     * INTERNAL API：校验 Actor 类型不能为抽象类，且必须实现 {@link Actor}。
+     */
+    static void validate(Class<?> clazz) {
+        if (clazz == null) {
+            throw new IllegalArgumentException("Actor class must not be null");
+        }
+        if (Modifier.isAbstract(clazz.getModifiers())) {
+            throw new IllegalArgumentException("Actor class [" + clazz.getName() + "] must not be abstract");
+        }
+        if (!Actor.class.isAssignableFrom(clazz)) {
+            throw new IllegalArgumentException(
+                    "Actor class [" + clazz.getName() + "] must be subClass of " + Actor.class.getName() + ".");
+        }
+    }
+
     private Props(Class<? extends Actor> clazz, Creator<? extends Actor> creator) {
         this(Deploy.local, clazz, creator);
     }
@@ -51,6 +68,7 @@ public final class Props implements Serializable {
      * @return 保存该 class 的 Props
      */
     public static Props create(Class<? extends Actor> clazz) {
+        validate(clazz);
         return new Props(clazz, () -> {
             Constructor<? extends Actor> constructor = clazz.getDeclaredConstructor();
             constructor.setAccessible(true);
@@ -70,6 +88,7 @@ public final class Props implements Serializable {
      * @throws ActorInitializationException 当反射调用 constructor 失败
      */
     public static Props create(Class<? extends Actor> clazz, Object... args) {
+        validate(clazz);
         Object[] constructorArgs = args.clone();
         return new Props(clazz, () -> {
             Constructor<?> selected = null;

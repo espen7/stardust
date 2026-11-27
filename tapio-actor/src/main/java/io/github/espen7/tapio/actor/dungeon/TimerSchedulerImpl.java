@@ -28,7 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * {@link TimerScheduler} 的内部实现，对应 Pekko {@code TimerSchedulerImpl}。
+ * {@link TimerScheduler} 的内部实现。
  *
  * <p>INTERNAL API。</p>
  */

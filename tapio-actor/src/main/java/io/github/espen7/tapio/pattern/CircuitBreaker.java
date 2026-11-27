@@ -34,10 +34,9 @@ import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
- * 提供 {@code Closed} / {@code Open} / {@code HalfOpen} 三态保护的熔断器实现，对应 Pekko
- * {@code CircuitBreaker}。
+ * 提供 {@code Closed} / {@code Open} / {@code HalfOpen} 三态保护的熔断器实现。
  *
- * <p>状态对象为单例实例（非每次转换创建新实例），与上游 Pekko 对齐。</p>
+ * <p>状态对象为单例实例（非每次转换创建新实例）。</p>
  */
 public class CircuitBreaker {
 

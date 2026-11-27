@@ -50,7 +50,7 @@ Tapio 目前处于早期开发阶段。第一个稳定版本发布前，公开 A
 
 「已提供」表示本地 runtime 契约已有实现并有 Tapio 测试覆盖。这不代表与 Pekko 全量源码一致，也不代表已通过 Pekko 完整测试套件。virtual/affinity/自定义 executor、logger mailbox 之外的高级 mailbox、logging filter 和启动时配置日志仍未完成。
 
-首期范围不包含完整的 Akka/Pekko 生态：Typed API、Streams、Persistence、大范围序列化集成、完整 Remote 兼容，以及无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
+首期范围不包含完整的 Akka/Pekko 生态：**Typed Actor（Pekko Typed）明确不迁移**，同时不包含 Streams、Persistence、大范围序列化集成、完整 Remote 兼容，以及无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
 
 ## 快速开始
 

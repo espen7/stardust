@@ -17,8 +17,7 @@ import io.github.espen7.tapio.dispatch.DequeBasedMessageQueueSemantics;
 import io.github.espen7.tapio.dispatch.RequiresMessageQueue;
 
 /**
- * 支持 {@code stash()} / {@code unstashAll()} 并默认要求双端邮箱的 Java Actor 基类，对应 Pekko
- * {@code AbstractActorWithStash}。
+ * 支持 {@code stash()} / {@code unstashAll()} 并默认要求双端邮箱的 Java Actor 基类。
  */
 public abstract class AbstractActorWithStash extends AbstractActorWithUnrestrictedStash
         implements RequiresMessageQueue<DequeBasedMessageQueueSemantics> {

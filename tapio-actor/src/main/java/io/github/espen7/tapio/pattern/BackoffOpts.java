@@ -20,7 +20,7 @@ import io.github.espen7.tapio.actor.SupervisorStrategy;
 import java.time.Duration;
 
 /**
- * 构造 {@link BackoffSupervisor} 退避选项的工厂入口，对应 Pekko {@code BackoffOpts}。
+ * 构造 {@link BackoffSupervisor} 退避选项的工厂入口。
  */
 public final class BackoffOpts {
     private BackoffOpts() {

@@ -14,8 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 /**
- * {@link ExtensionId} 的 Java 基类，固定使用引用相等性与 {@link System#identityHashCode}，
- * 对应 Pekko {@code AbstractExtensionId}。
+ * {@link ExtensionId} 的 Java 基类，固定使用引用相等性与 {@link System#identityHashCode}。
  *
  * @param <T> 扩展实例类型
  */

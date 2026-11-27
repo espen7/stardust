@@ -18,8 +18,12 @@ import io.github.espen7.tapio.annotation.InternalApi;
 /** 丢弃收到的普通消息和系统消息的内部引用。 */
 @InternalApi
 final class IgnoreActorRef extends MinimalActorRef {
-    private static final ActorPath path = new ActorPath(new Address(ActorPath.Scheme, "local") + "/ignore");
+    private static final ActorPath path = new RootActorPath(new Address(ActorPath.Scheme, "local")).child("ignore");
     private final ActorRefProvider provider;
+
+    static boolean isIgnoreRefPath(ActorPath p) {
+        return path.equals(p);
+    }
 
     IgnoreActorRef(ActorRefProvider provider) {
         this.provider = provider;

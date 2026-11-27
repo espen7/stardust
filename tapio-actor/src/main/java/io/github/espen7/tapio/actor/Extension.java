@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 /**
- * 标记一个可注册到 {@link ActorSystem} 的扩展组件，对应 Pekko {@code Extension}。
+ * 标记一个可注册到 {@link ActorSystem} 的扩展组件。
  *
  * <p>扩展实例由对应的 {@link ExtensionId#createExtension(ExtendedActorSystem)} 创建，并在
  * 同一个 {@link ActorSystem} 内按 {@link ExtensionId} 的对象标识保持单例。</p>

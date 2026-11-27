@@ -18,7 +18,7 @@ import java.util.Comparator;
 import java.util.concurrent.PriorityBlockingQueue;
 
 /**
- * 对相同优先级元素保持 FIFO 顺序的并发安全优先级队列，对应 Pekko {@code StablePriorityBlockingQueue}。
+ * 对相同优先级元素保持 FIFO 顺序的并发安全优先级队列。
  *
  * @param <E> 元素类型
  */

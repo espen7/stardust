@@ -16,7 +16,7 @@ package io.github.espen7.tapio.japi.function;
 import java.io.Serializable;
 
 /**
- * Actor 实例的延迟创建函数，对应 Pekko japi.function.Creator。
+ * Actor 实例的延迟创建函数。
  *
  * @param <T> 创建结果类型
  */

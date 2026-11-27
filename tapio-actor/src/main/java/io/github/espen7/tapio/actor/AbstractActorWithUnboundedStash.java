@@ -17,7 +17,7 @@ import io.github.espen7.tapio.dispatch.RequiresMessageQueue;
 import io.github.espen7.tapio.dispatch.UnboundedDequeBasedMessageQueueSemantics;
 
 /**
- * 强制使用无界双端邮箱的暂存 Actor 基类，对应 Pekko {@code AbstractActorWithUnboundedStash}。
+ * 强制使用无界双端邮箱的暂存 Actor 基类。
  */
 public abstract class AbstractActorWithUnboundedStash extends AbstractActorWithUnrestrictedStash
         implements RequiresMessageQueue<UnboundedDequeBasedMessageQueueSemantics> {

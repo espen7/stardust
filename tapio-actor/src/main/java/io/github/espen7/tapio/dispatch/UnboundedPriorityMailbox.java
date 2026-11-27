@@ -21,8 +21,7 @@ import java.util.Comparator;
 import java.util.Objects;
 
 /**
- * 基于 {@link StablePriorityBlockingQueue} 的无界优先级邮箱基类（同优先级保持 FIFO），
- * 对应 Pekko {@code UnboundedPriorityMailbox}。
+ * 基于 {@link StablePriorityBlockingQueue} 的无界优先级邮箱基类（同优先级保持 FIFO）。
  */
 public class UnboundedPriorityMailbox implements MailboxType,
         ProducesMessageQueue<UnboundedPriorityMailbox.MessageQueue> {

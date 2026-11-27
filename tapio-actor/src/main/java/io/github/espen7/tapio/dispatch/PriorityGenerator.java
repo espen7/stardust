@@ -17,7 +17,7 @@ import java.util.Comparator;
 import java.util.function.ToIntFunction;
 
 /**
- * 为优先级邮箱生成消息优先级数值（数值越小优先级越高），对应 Pekko {@code PriorityGenerator}。
+ * 为优先级邮箱生成消息优先级数值（数值越小优先级越高）。
  */
 public abstract class PriorityGenerator implements Comparator<Envelope> {
     /** 创建 PriorityGenerator 实例。 */

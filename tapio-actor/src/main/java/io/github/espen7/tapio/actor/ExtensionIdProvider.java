@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 /**
- * 用于通过配置加载 {@link ExtensionId} 的提供者接口，对应 Pekko {@code ExtensionIdProvider}。
+ * 用于通过配置加载 {@link ExtensionId} 的提供者接口。
  *
  * <p>当通过 {@code tapio.extensions} 或 {@code tapio.library-extensions} 配置加载扩展时，
  * 配置类可实现此接口并在 {@link #lookup()} 中返回规范的 {@link ExtensionId} 单例。</p>

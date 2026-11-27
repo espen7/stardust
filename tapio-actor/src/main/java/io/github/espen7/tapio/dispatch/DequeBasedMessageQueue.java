@@ -16,7 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import java.util.Deque;
 
 /**
- * 由 {@link Deque} 支持的双端消息队列基接口，对应上游 {@code DequeBasedMessageQueue}。
+ * 由 {@link Deque} 支持的双端消息队列基接口。
  */
 public interface DequeBasedMessageQueue extends QueueBasedMessageQueue, DequeBasedMessageQueueSemantics {
 

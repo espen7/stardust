@@ -16,7 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import io.github.espen7.tapio.actor.ActorRef;
 
 /**
- * 基于 {@link AbstractNodeQueue} 的多生产者单消费者无界消息队列，对应 Pekko {@code NodeMessageQueue}。
+ * 基于 {@link AbstractNodeQueue} 的多生产者单消费者无界消息队列。
  */
 public class NodeMessageQueue extends AbstractNodeQueue<Envelope>
         implements UnboundedMessageQueueSemantics, MessageQueue {

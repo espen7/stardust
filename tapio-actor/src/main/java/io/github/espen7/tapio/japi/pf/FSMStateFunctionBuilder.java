@@ -22,8 +22,7 @@ import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
 /**
- * 用于构建 {@link io.github.espen7.tapio.actor.AbstractFSM} 状态处理函数的流式构建器，
- * 对应 Pekko {@code FSMStateFunctionBuilder}。
+ * 用于构建 {@link io.github.espen7.tapio.actor.AbstractFSM} 状态处理函数的流式构建器。
  *
  * @param <S> 状态类型
  * @param <D> 状态数据类型

@@ -17,7 +17,7 @@ import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.annotation.InternalApi;
 
 /**
- * 子 Actor 处于退避停止期间收到消息时的处理方式，对应 Pekko {@code HandlingWhileStopped}。
+ * 子 Actor 处于退避停止期间收到消息时的处理方式。
  *
  * <p>INTERNAL API。</p>
  */

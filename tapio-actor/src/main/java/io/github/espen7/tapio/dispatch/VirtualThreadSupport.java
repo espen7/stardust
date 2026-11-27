@@ -24,7 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
 /**
- * 封装 Java 虚拟线程的创建与执行器支持，对应 Pekko {@code VirtualThreadSupport}。
+ * 封装 Java 虚拟线程的创建与执行器支持。
  */
 @InternalApi
 public final class VirtualThreadSupport {

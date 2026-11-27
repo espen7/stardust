@@ -13,101 +13,242 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+import io.github.espen7.tapio.annotation.InternalApi;
+
 import java.io.Serializable;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * Actor 的逻辑地址。路径相等只比较地址文本，ActorRef identity 还会比较 UID。
+ * Actor 的逻辑地址。路径相等只比较地址和路径元素，ActorRef identity 还会比较 UID。
  */
-public final class ActorPath implements Comparable<ActorPath>, Serializable {
+@DoNotInherit
+public sealed interface ActorPath extends Comparable<ActorPath>, Serializable permits RootActorPath, ChildActorPath {
 
     /** Tapio ActorPath 使用的 scheme，同时也是 runtime 配置命名空间。 */
-    public static final String Scheme = "tapio";
+    String Scheme = "tapio";
     /** 未定义 Actor incarnation UID。 */
-    public static final int UndefinedUid = 0;
-    private static final String ValidSymbols = "-_.*$+:@&=,!~';";
-    private final String value;
-    private final int uid;
-    private final ActorPath parent;
-    private final Address address;
+    int UndefinedUid = 0;
 
     /**
-     * 从文本创建不带 UID 的 ActorPath。
-     *
-     * @param value 路径文本
-     */
-    public ActorPath(String value) {
-        this(value, UndefinedUid);
-    }
-
-    /**
-     * 从文本和 UID 创建 ActorPath。
-     *
-     * @param value 路径文本
-     * @param uid Actor incarnation UID
-     */
-    public ActorPath(String value, int uid) {
-        this.value = value;
-        this.uid = uid;
-        this.parent = null;
-        this.address = null;
-    }
-
-    ActorPath(Address address) {
-        this.value = address + "/";
-        this.uid = UndefinedUid;
-        this.parent = null;
-        this.address = address;
-    }
-
-    /**
-     * 在已有路径下创建未定义 UID 的子路径。
-     *
-     * @param parent 父级路径
-     * @param name 子路径的最后一段
-     */
-    ActorPath(ActorPath parent, String name) {
-        this(parent, name, UndefinedUid);
-    }
-
-    ActorPath(ActorPath parent, String name, int uid) {
-        this.value = parent + (parent.isRoot() ? "" : "/") + name;
-        this.uid = uid;
-        this.parent = parent;
-        this.address = parent.address;
-    }
-
-    private boolean isRoot() {
-        return parent == null && value.endsWith("/") && toStringWithoutAddress().equals("/");
-    }
-
-    /**
-     * 返回构造时关联的父级路径。
-     *
-     * @return 根路径返回自身，运行时子路径返回其父级，其他直接从文本构造的路径返回 {@code null}
-     */
-    ActorPath parent() {
-        return isRoot() ? this : parent;
-    }
-
-    /**
-     * 返回此路径的 ActorSystem 地址。
+     * 返回此路径所属的 ActorSystem 地址。
      *
      * @return 路径中的地址
-     * @throws IllegalArgumentException 路径文本缺少有效地址
      */
-    public Address address() {
-        if (address != null) return address;
-        try {
-            Address parsed = address(new URI(value));
-            if (parsed != null) return parsed;
-        } catch (URISyntaxException error) {
-            throw new IllegalArgumentException("cannot parse as ActorPath: " + value, error);
+    Address address();
+
+    /**
+     * 返回此路径指向的 Actor 名称。
+     *
+     * @return 最后一个路径元素；根路径为 {@code "/"}
+     */
+    String name();
+
+    /**
+     * 返回父级路径。
+     *
+     * @return 根路径返回自身，子路径返回其父级
+     */
+    ActorPath parent();
+
+    /**
+     * 在当前路径下创建子路径（支持 {@code name#uid} 片段以及多级 {@code a/b} 路径）。
+     *
+     * @param child 子路径名称或相对路径
+     * @return 新的子路径
+     */
+    ActorPath child(String child);
+
+    /**
+     * 递归追加多个子路径名称。
+     *
+     * @param names 子路径名称序列
+     * @return 目标后代路径
+     */
+    default ActorPath descendant(Iterable<String> names) {
+        ActorPath path = this;
+        for (String elem : names) {
+            if (elem != null && !elem.isEmpty()) {
+                path = path.child(elem);
+            }
         }
-        throw new IllegalArgumentException("cannot parse as ActorPath: " + value);
+        return path;
+    }
+
+    /**
+     * 返回从根路径到当前路径的名称序列。
+     *
+     * @return 路径元素列表
+     */
+    List<String> elements();
+
+    /**
+     * 向上遍历并返回根路径 {@link RootActorPath}。
+     *
+     * @return 根路径
+     */
+    RootActorPath root();
+
+    /**
+     * 返回不包含 scheme 和 address 的路径文本，例如 {@code /user/a/b}。
+     *
+     * @return 不含地址的路径文本
+     */
+    default String toStringWithoutAddress() {
+        List<String> elems = elements();
+        return elems.isEmpty() ? "/" : "/" + String.join("/", elems);
+    }
+
+    /**
+     * 生成将本地无 host/port 地址替换为指定地址的字符串表示。
+     *
+     * @param address 目标地址
+     * @return 替换后的路径字符串
+     */
+    String toStringWithAddress(Address address);
+
+    /**
+     * 生成包含 UID 片段（若已定义）的序列化格式字符串。
+     *
+     * @return 序列化格式路径
+     */
+    String toSerializationFormat();
+
+    /**
+     * 生成包含 UID 片段并按需替换地址的序列化格式字符串。
+     *
+     * @param address 目标地址
+     * @return 替换地址后的序列化格式路径
+     */
+    String toSerializationFormatWithAddress(Address address);
+
+    /**
+     * INTERNAL API：返回 Actor incarnation UID。
+     *
+     * @return UID，未定义时为 {@link #UndefinedUid}
+     */
+    @InternalApi
+    int uid();
+
+    /**
+     * INTERNAL API：返回具有相同路径元素和指定 {@code uid} 的 ActorPath。
+     *
+     * @param uid 新的 UID
+     * @return 带有指定 UID 的路径
+     */
+    @InternalApi
+    ActorPath withUid(int uid);
+
+    /**
+     * 将字符串解析为 {@link ActorPath}。
+     *
+     * @param s 路径字符串
+     * @return 解析后的 ActorPath
+     * @throws MalformedURLException 当字符串无法解析为合法 ActorPath 时
+     */
+    static ActorPath fromString(String s) throws MalformedURLException {
+        if (s == null) {
+            throw new MalformedURLException("cannot parse as ActorPath: null");
+        }
+        try {
+            URI uri = new URI(s);
+            Address addr = address(uri);
+            if (addr == null) {
+                throw new MalformedURLException("cannot parse as ActorPath: " + s);
+            }
+            String rawPath = uri.getRawPath();
+            String fragment = uri.getRawFragment();
+            if (rawPath == null || rawPath.isEmpty() || "/".equals(rawPath)) {
+                return new RootActorPath(addr);
+            }
+            String relative = rawPath.startsWith("/") ? rawPath.substring(1) : rawPath;
+            if (fragment != null && !fragment.isEmpty()) {
+                relative = relative + "#" + fragment;
+            }
+            ActorPath current = new RootActorPath(addr);
+            String[] parts = relative.split("/", -1);
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
+                if (part.isEmpty()) {
+                    throw new MalformedURLException("cannot parse as ActorPath: " + s);
+                }
+                current = current.child(part);
+            }
+            return current;
+        } catch (URISyntaxException | IllegalArgumentException error) {
+            MalformedURLException malformed = new MalformedURLException("cannot parse as ActorPath: " + s);
+            malformed.initCause(error);
+            throw malformed;
+        }
+    }
+
+    /**
+     * 判断给定字符串是否为合法的 ActorPath 路径元素。
+     *
+     * @param s 路径元素
+     * @return 合法返回 {@code true}
+     */
+    static boolean isValidPathElement(String s) {
+        return findInvalidPathElementCharPosition(s) == PathValidation.VALID_PATH_CODE;
+    }
+
+    /**
+     * 校验给定路径元素，不合法时抛出 {@link InvalidActorNameException}。
+     *
+     * @param element 路径元素
+     */
+    static void validatePathElement(String element) {
+        validatePathElement(element, null);
+    }
+
+    /**
+     * 校验给定路径元素，并在错误消息中附带可选完整路径。
+     *
+     * @param element 路径元素
+     * @param fullPath 可选完整路径
+     */
+    static void validatePathElement(String element, String fullPath) {
+        int pos = findInvalidPathElementCharPosition(element);
+        if (pos == PathValidation.VALID_PATH_CODE) {
+            return;
+        }
+        String fullPathMsg = fullPath != null ? " (in path [" + fullPath + "])" : "";
+        if (pos == PathValidation.EMPTY_PATH_CODE) {
+            throw new InvalidActorNameException("Actor path element must not be empty" + fullPathMsg);
+        }
+        throw new InvalidActorNameException("Invalid actor path element [" + element + "], illegal character ["
+                + element.charAt(pos) + "] at position: " + pos + ". Actor paths MUST: not start with `$`, "
+                + "include only ASCII letters and can only contain these special characters: "
+                + PathValidation.VALID_SYMBOLS + "." + fullPathMsg);
+    }
+
+    private static int findInvalidPathElementCharPosition(String s) {
+        if (s == null || s.isEmpty()) {
+            return PathValidation.EMPTY_PATH_CODE;
+        }
+        byte[] bytes = s.getBytes(StandardCharsets.ISO_8859_1);
+        int len = bytes.length;
+        if (bytes[0] == '$') {
+            return 0;
+        }
+        for (int pos = 0; pos < len; ) {
+            byte b = bytes[pos];
+            int flags = b >= 0 ? PathValidation.PATH_CHAR_FLAGS[b] : 0;
+            if ((flags & PathValidation.VALID_CHAR_FLAG) != 0) {
+                pos++;
+            } else if (b == '%' && pos + 2 < len
+                    && bytes[pos + 1] >= 0 && (PathValidation.PATH_CHAR_FLAGS[bytes[pos + 1]] & PathValidation.HEX_CHAR_FLAG) != 0
+                    && bytes[pos + 2] >= 0 && (PathValidation.PATH_CHAR_FLAGS[bytes[pos + 2]] & PathValidation.HEX_CHAR_FLAG) != 0) {
+                pos += 3;
+            } else {
+                return pos;
+            }
+        }
+        return PathValidation.VALID_PATH_CODE;
     }
 
     static Address address(URI uri) {
@@ -124,102 +265,28 @@ public final class ActorPath implements Comparable<ActorPath>, Serializable {
         return null;
     }
 
-    List<String> elements() {
-        return Arrays.asList(toStringWithoutAddress().substring(1).split("/", -1));
-    }
+    /** 路径字符校验常量与查找表。 */
+    final class PathValidation {
+        static final String VALID_SYMBOLS = "-_.*$+:@&=,!~';";
+        static final int VALID_PATH_CODE = -1;
+        static final int EMPTY_PATH_CODE = -2;
+        static final byte VALID_CHAR_FLAG = 1;
+        static final byte HEX_CHAR_FLAG = 2;
+        static final byte[] PATH_CHAR_FLAGS = new byte[128];
 
-    static void validatePathElement(String element) {
-        if (element.isEmpty()) {
-            throw new InvalidActorNameException("Actor path element must not be empty");
-        }
-        for (int index = 0; index < element.length(); index++) {
-            char character = element.charAt(index);
-            if (index == 0 && character == '$') {
-                throw invalidPathElement(element, index);
+        static {
+            for (char c = 'a'; c <= 'z'; c++) PATH_CHAR_FLAGS[c] |= VALID_CHAR_FLAG;
+            for (char c = 'A'; c <= 'Z'; c++) PATH_CHAR_FLAGS[c] |= VALID_CHAR_FLAG;
+            for (char c = '0'; c <= '9'; c++) PATH_CHAR_FLAGS[c] |= VALID_CHAR_FLAG;
+            for (int i = 0; i < VALID_SYMBOLS.length(); i++) {
+                PATH_CHAR_FLAGS[VALID_SYMBOLS.charAt(i)] |= VALID_CHAR_FLAG;
             }
-            if (character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
-                    || character >= '0' && character <= '9' || ValidSymbols.indexOf(character) >= 0) {
-                continue;
-            }
-            if (character == '%' && index + 2 < element.length()
-                    && isHexDigit(element.charAt(index + 1)) && isHexDigit(element.charAt(index + 2))) {
-                index += 2;
-            } else {
-                throw invalidPathElement(element, index);
-            }
+            for (char c = 'a'; c <= 'f'; c++) PATH_CHAR_FLAGS[c] |= HEX_CHAR_FLAG;
+            for (char c = 'A'; c <= 'F'; c++) PATH_CHAR_FLAGS[c] |= HEX_CHAR_FLAG;
+            for (char c = '0'; c <= '9'; c++) PATH_CHAR_FLAGS[c] |= HEX_CHAR_FLAG;
         }
-    }
 
-    private static boolean isHexDigit(char character) {
-        return character >= '0' && character <= '9' || character >= 'a' && character <= 'f'
-                || character >= 'A' && character <= 'F';
-    }
-
-    private static InvalidActorNameException invalidPathElement(String element, int index) {
-        return new InvalidActorNameException("Invalid actor path element [" + element + "], illegal character ["
-                + element.charAt(index) + "] at position: " + index + ". Actor paths MUST: not start with `$`, "
-                + "include only ASCII letters and can only contain these special characters: " + ValidSymbols + ".");
-    }
-
-    /**
-     * 返回 Actor incarnation UID。
-     *
-     * @return UID，未定义时为 {@link #UndefinedUid}
-     */
-    public int uid() {
-        return uid;
-    }
-
-    /**
-     * 返回路径最后一个元素，对应 Pekko ActorPath.name。
-     *
-     * @return 最后一个路径元素
-     */
-    public String name() {
-        if (isRoot()) return "/";
-        int separator = value.lastIndexOf('/');
-        return value.substring(separator + 1);
-    }
-
-    /**
-     * 返回不包含 scheme 和 address 的路径文本。
-     *
-     * @return path elements 文本
-     */
-    public String toStringWithoutAddress() {
-        int scheme = value.indexOf("://");
-        if (scheme < 0) return value;
-        int firstElement = value.indexOf('/', scheme + 3);
-        return firstElement < 0 ? "/" : value.substring(firstElement);
-    }
-
-    @Override
-    public String toString() {
-        return value;
-    }
-
-    @Override
-    public int compareTo(ActorPath other) {
-        List<String> left = isRoot() ? List.of() : elements();
-        List<String> right = other.isRoot() ? List.of() : other.elements();
-        int leftIndex = left.size() - 1;
-        int rightIndex = right.size() - 1;
-        while (leftIndex >= 0 && rightIndex >= 0) {
-            int order = left.get(leftIndex--).compareTo(right.get(rightIndex--));
-            if (order != 0) return order;
+        private PathValidation() {
         }
-        if (leftIndex != rightIndex) return Integer.compare(rightIndex, leftIndex);
-        return value.substring(0, value.length() - toStringWithoutAddress().length())
-                .compareTo(other.value.substring(0, other.value.length() - other.toStringWithoutAddress().length()));
-    }
-
-    @Override
-    public boolean equals(Object other) {
-        return other instanceof ActorPath path && value.equals(path.value);
-    }
-
-    @Override
-    public int hashCode() {
-        return value.hashCode();
     }
 }

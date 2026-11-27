@@ -67,7 +67,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @throws IllegalArgumentException 当名称无效时
      */
     public static ActorSystem create(String name) {
-        return new ActorSystemImpl(name);
+        return create(name, null, null);
     }
 
     /**
@@ -81,7 +81,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @throws com.typesafe.config.ConfigException 当配置缺失、类型错误或无法解析时
      */
     public static ActorSystem create(String name, Config config) {
-        return new ActorSystemImpl(name, config);
+        return create(name, config, null);
     }
 
     /**
@@ -92,7 +92,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @return 新建的 ActorSystem
      */
     public static ActorSystem create(String name, ActorSystemSetup setups) {
-        return new ActorSystemImpl(name, null, setups);
+        return create(name, null, setups);
     }
 
     /**
@@ -104,7 +104,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
      * @return 新建的 ActorSystem
      */
     public static ActorSystem create(String name, Config config, ActorSystemSetup setups) {
-        return new ActorSystemImpl(name, config, setups);
+        return new ActorSystemImpl(name, config, setups).start();
     }
 
     /**
@@ -137,7 +137,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         public final int LogDeadLetters;
         /** 系统终止期间是否继续记录 dead letters，默认关闭。 */
         public final boolean LogDeadLettersDuringShutdown;
-        /** 达到日志上限后的暂停时间。{@code null} 对应 Pekko 的无限期暂停。 */
+        /** 达到日志上限后的暂停时间；{@code null} 表示无限期暂停。 */
         public final Duration LogDeadLettersSuspendDuration;
         /** 是否记录 Actor 生命周期的 DEBUG 日志，默认关闭。 */
         public final boolean DebugLifecycle;

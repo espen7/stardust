@@ -38,8 +38,7 @@ Java 继续使用现有 `ActorPath` 类表示根路径与子路径，并用 `nul
 内置 root、user 和 system guardian 均使用 `tapio.actor.internal-dispatcher`，应用 Actor 仍按
 Props、部署配置或默认配置选择 Dispatcher。对应上游 `actor/ActorPath.scala`、`actor/ActorRef.scala`、
 `actor/dungeon/Children.scala`、`actor/dungeon/Dispatch.scala` 和 `actor/ActorRefProvider.scala`。
-当前只移植内置 guardian；上游 `system.guardianProps` 的自定义 user guardian 及其独立
-Dispatcher/Mailbox 选择尚未提供。额外顶级名称注册和 Remote 仍待移植。
+额外顶级名称注册和 Remote 仍待移植。`ActorSystemImpl` 已支持内部 `guardianProps` 自定义 user guardian，按上游在自定义 guardian 下拒绝外部 `actorOf` 并为 `/user` 选择独立 Dispatcher 与 Mailbox。
 
 Provider 的 `rootGuardianAt`、`getDefaultAddress` 和 `getExternalAddressFor` 按本地
 `Address` 匹配。两个 `resolveActorRef` 重载从 root guardian 查询。本地有效路径未命中时返回保留
@@ -434,9 +433,9 @@ Java 的自定义非 `InternalActorRef` 无法参与本地 DeathWatch，因此 u
 
 SLF4J bridge 由系统内 logger Actor 消费 `LogEvent`，不创建专用事件分发线程。
 `Slf4jLogger` 与 `DefaultLogger` 一样声明 `LoggerMessageQueueSemantics`，使用 `LoggerMailbox`。
-标准 MDC 字段为 `sourceThread`、`sourceActorSystem`、`pekkoSource`、`pekkoTimestamp`、
-`pekkoAddress` 和 `pekkoUid`；marker properties 先写入，再写标准字段，最后写入事件 MDC，
-因此同名键由后者覆盖。`pekkoUid` 惰性解析，只在非空时写入；MDC 写入无论日志调用是否成功都会清空。
+标准 MDC 字段为 `sourceThread`、`sourceActorSystem`、`tapioSource`、`tapioTimestamp`、
+`tapioAddress` 和 `tapioUid`；marker properties 先写入，再写标准字段，最后写入事件 MDC，
+因此同名键由后者覆盖。`tapioUid` 惰性解析，只在非空时写入；MDC 写入无论日志调用是否成功都会清空。
 `Slf4jLogger.formatTimestamp` 为 protected 实例扩展点，默认时间格式为 `HH:mm:ss.SSSUTC`；
 `StdOutLogger.timestamp` 同样可由子类覆盖。日志参数保持原始 `event.message()`，
 不添加 `[source]` 前缀。`Slf4jLogMarker` 保留原始 SLF4J Marker，bridge 优先透传该 Marker，
@@ -522,8 +521,10 @@ Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.
   - `DeadLetterMailbox` 已内聚为 `Mailboxes` 内部创建逻辑；移除非上游的 `ActorRef.tell(Object)` 1 参数重载、`ActorSystem.INTERNAL_DISPATCHER_ID`、`ActorCell.cancelReceiveTimeout()` 覆写及 `BackoffOnFailureOptions.withDefaultStoppingStrategy()`。
   - `AbstractNodeQueue` 补齐 `peekNode()` / `peek()` 及 `Node` 的公开构造与访问器；`LoggingReceive.create` 对齐 `(Receive, ActorContext)` 参数顺序并按 `EventStream.logLevel()` 判定。
   - `Props` 补齐 `Props.empty` 与 `Serializable`；`Deploy` 实现 `Serializable`；`DeadLetterListener` 改为无参构造从 `Settings` 读取配置，并补齐 `CoordinatedShutdown` 期间（`!LogDeadLettersDuringShutdown` 且 `terminatingShutdownInProgress`）的死信日志抑制与 `receiveWhenSuspended` 计数偏移（`count - maxCount - 1`）；`AbstractFSM` 补齐 `makeTransition` 目标状态存在性校验与 `logTermination`。
+  - `ActorPath` 拆分为 `@DoNotInherit` 密封接口 `ActorPath`、`RootActorPath` 与 `ChildActorPath`（含 `fromString`、`isValidPathElement`、`toSerializationFormat` 与 MurmurHash `hashCode`）；`ActorSystemImpl` 分离 `start()` 启动阶段；`Dispatchers` 补齐 `from(Config)` 与基于 `DynamicAccess` 的 FQCN 动态实例化；新增 `LoadMetrics` 并接入 `ForkJoinExecutorConfigurator`、`ThreadPoolExecutorConfigurator` 与 `VirtualizedExecutorService`。
+  - `Props.validate` 补齐抽象类与非 `Actor` 类型的构造期即时校验；`ActorSystemImpl` 与 `LocalActorRefProvider` 补齐内部 `guardianProps` 支持；`Scheduler` 与 `MessageDispatcher` 移除非上游的 `AutoCloseable` 继承（仅 `LightArrayRevolverScheduler` 实现 `java.io.Closeable`）。
 - **Java 边界保留适配**：
   - `dispatch/{BlockContext,CanAwait,ExecutionContext}` 与 `util/{NonFatal,NoStackTrace}` 为 Scala 标准库接口/工具在 Java 侧的最小等价替代。
   - `SubchannelClassification extends LoggingBus`：Java 不支持多继承且 `SubchannelClassification` 持有订阅索引状态，故以抽象类单继承承载（上游为 `EventStream extends LoggingBus with SubchannelClassification`）。
   - `ActorCell.makeChild`：`LocalActorRefProvider.actorOf` 不声明受检 `InterruptedException`，故在 `catch (Throwable)` 中以 `instanceof InterruptedException` 分支对齐上游处理。
-- **待后续对齐项**：`ActorPath` 拆分 `RootActorPath`/`ChildActorPath` 与 MurmurHash、`Deploy` 其余字段与 `writeReplace()`、`ActorSystemImpl` 延迟 `start()`、`Dispatchers` 动态实例化及 `LoadMetrics` 契约。
+- **范围外/未移植项**：`Deploy` 其余远端/router 字段、Java 序列化 `writeReplace()`、Remote/Cluster/Sharding/Typed/Routing/I/O 均不在首版范围内。

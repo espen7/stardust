@@ -98,7 +98,7 @@ class DispatcherExecutorConfigTest {
         try {
             DispatcherPrerequisites prerequisites = new DefaultDispatcherPrerequisites(
                     new MonitorableThreadFactory("executor-test", false, getClass().getClassLoader(), null),
-                    new EventStream(null), null, null, null, Optional.of(executionContext));
+                    new EventStream(null), null, null, null, null, Optional.of(executionContext));
             ExecutorService adapter = factory(config, prerequisites).createExecutorService();
             CountDownLatch done = new CountDownLatch(1);
 
@@ -401,7 +401,7 @@ class DispatcherExecutorConfigTest {
 
     private static ExecutorServiceFactory factory(Config config, ThreadFactory threadFactory) {
         DispatcherPrerequisites prerequisites = new DefaultDispatcherPrerequisites(
-                threadFactory, null, null, null, null, Optional.empty());
+                threadFactory, null, null, null, null, null, Optional.empty());
         return factory(config, prerequisites);
     }
 

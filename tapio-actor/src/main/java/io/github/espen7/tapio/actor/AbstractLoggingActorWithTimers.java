@@ -17,7 +17,7 @@ import io.github.espen7.tapio.event.Logging;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
 /**
- * 同时提供 {@link TimerScheduler} 与 {@link ActorLogging} 的 Java Actor 基类，对应 Pekko
+ * 同时提供 {@link TimerScheduler} 与 {@link ActorLogging} 的 Java Actor 基类
  * {@code AbstractLoggingActorWithTimers}。
  */
 public abstract class AbstractLoggingActorWithTimers extends AbstractActorWithTimers implements ActorLogging {

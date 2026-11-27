@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 /**
- * 声明 MailboxType 创建的消息队列语义，对应上游
+ * 声明 MailboxType 创建的消息队列语义
  * {@code dispatch.ProducesMessageQueue[T]}。
  *
  * @param <T> 创建的消息队列语义类型

@@ -105,7 +105,7 @@ public class LocalActorRef extends ActorRefWithCell implements LocalRef {
     }
 
     /**
-     * 可覆写的 ActorCell factory，对应 Pekko LocalActorRef.newActorCell。
+     * 可覆写的 ActorCell factory。
      *
      * @param system 所属 ActorSystem
      * @param ref 待绑定的 LocalActorRef

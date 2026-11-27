@@ -43,7 +43,8 @@ public final class DefaultExecutorServiceConfigurator extends ExecutorServiceCon
                     "DefaultExecutorServiceConfigurator", getClass(),
                     "Using passed in ExecutionContext as default executor for this ActorSystem. "
                             + "If you want to use a different executor, please specify one in "
-                            + "pekko.actor.default-dispatcher.default-executor."));
+                            + io.github.espen7.tapio.actor.ActorPath.Scheme
+                            + ".actor.default-dispatcher.default-executor."));
             this.provider = new ExecutionContextExecutorService(defaultExecutionContext.get());
         } else {
             this.provider = fallback;

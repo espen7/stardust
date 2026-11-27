@@ -21,7 +21,7 @@ import java.util.Deque;
 import java.util.concurrent.LinkedBlockingDeque;
 
 /**
- * 基于 {@link LinkedBlockingDeque} 的无界双端邮箱类型，对应 Pekko {@code UnboundedDequeBasedMailbox}。
+ * 基于 {@link LinkedBlockingDeque} 的无界双端邮箱类型。
  */
 public final class UnboundedDequeBasedMailbox implements MailboxType,
         ProducesMessageQueue<UnboundedDequeBasedMailbox.MessageQueue> {

@@ -187,7 +187,7 @@ public final class ActorSelection implements Serializable {
         if (!selection.wildcardFanOut()) {
             ActorPath path = anchor.path();
             for (SelectionPathElement element : selection.elements()) {
-                path = new ActorPath(path, element.toString());
+                path = path.child(element.toString());
             }
             new EmptyLocalActorRef(owner.provider(), path, owner.system().eventStream()).tell(selection, sender);
         }

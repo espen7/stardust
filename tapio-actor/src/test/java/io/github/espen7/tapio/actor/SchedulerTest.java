@@ -399,7 +399,7 @@ class SchedulerTest {
     }
 
     private static final class CaptureActorRef extends MinimalActorRef {
-        private final ActorPath path = new ActorPath("tapio://periodic-scheduler/capture");
+        private final ActorPath path = new RootActorPath(new Address(ActorPath.Scheme, "periodic-scheduler")).child("capture");
         private final List<Object> messages = new ArrayList<>();
         private final List<ActorRef> senders = new ArrayList<>();
         private volatile boolean terminateAfterTell;
@@ -512,7 +512,13 @@ class SchedulerTest {
             if (closed) return;
             closed = true;
             advances.offer(0L);
-            scheduler.close();
+            if (scheduler instanceof java.io.Closeable closeable) {
+                try {
+                    closeable.close();
+                } catch (java.io.IOException error) {
+                    throw new AssertionError(error);
+                }
+            }
         }
     }
 }

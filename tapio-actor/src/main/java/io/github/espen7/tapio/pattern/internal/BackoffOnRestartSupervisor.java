@@ -27,8 +27,7 @@ import io.github.espen7.tapio.pattern.RetrySupport;
 import java.time.Duration;
 
 /**
- * 在子 Actor 发生需要 {@code Restart} 的失败时将其停止并按指数退避延迟重建的监督者，
- * 对应 Pekko {@code BackoffOnRestartSupervisor}。
+ * 在子 Actor 发生需要 {@code Restart} 的失败时将其停止并按指数退避延迟重建的监督者。
  *
  * <p>INTERNAL API。</p>
  */

@@ -21,7 +21,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * 优先处理 {@link ControlMessage} 的无界邮箱类型，对应 Pekko {@code UnboundedControlAwareMailbox}。
+ * 优先处理 {@link ControlMessage} 的无界邮箱类型。
  */
 public final class UnboundedControlAwareMailbox implements MailboxType,
         ProducesMessageQueue<UnboundedControlAwareMailbox.MessageQueue> {

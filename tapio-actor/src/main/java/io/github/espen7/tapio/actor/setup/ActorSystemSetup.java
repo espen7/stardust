@@ -20,8 +20,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * 用于以编程方式向 {@link io.github.espen7.tapio.actor.ActorSystem} 传递可选配置对象的不可变容器，
- * 对应 Pekko {@code ActorSystemSetup}。
+ * 用于以编程方式向 {@link io.github.espen7.tapio.actor.ActorSystem} 传递可选配置对象的不可变容器。
  */
 public final class ActorSystemSetup {
     private static final ActorSystemSetup EMPTY = new ActorSystemSetup(Map.of());

@@ -162,7 +162,11 @@ class PinnedDispatcherTest {
                                         CountDownLatch stopped) {
         LocalActorRef actor = new LocalActorRef((ActorSystemImpl) system,
                 Props.create(LifecycleActor.class, ready, stopped), dispatcher, new UnboundedMailbox(),
-                (InternalActorRef) system.deadLetters(), new ActorPath("tapio://" + ((ActorSystemImpl) system).name() + "/user/" + name), name);
+                (InternalActorRef) system.deadLetters(),
+                new io.github.espen7.tapio.actor.RootActorPath(
+                        new io.github.espen7.tapio.actor.Address(ActorPath.Scheme, ((ActorSystemImpl) system).name()))
+                        .child("user").child(name),
+                name);
         detachedActors.add(actor);
         return actor;
     }

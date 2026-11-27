@@ -20,7 +20,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * 使用 ConcurrentLinkedQueue 的默认 unbounded mailbox type，对应上游
+ * 使用 ConcurrentLinkedQueue 的默认 unbounded mailbox type
  * {@code dispatch.UnboundedMailbox}。
  */
 public final class UnboundedMailbox implements MailboxType, ProducesMessageQueue<UnboundedMailbox.MessageQueue> {

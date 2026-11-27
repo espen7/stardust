@@ -26,7 +26,7 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 基于 {@link LinkedBlockingDeque} 的有界双端邮箱类型，对应 Pekko {@code BoundedDequeBasedMailbox}。
+ * 基于 {@link LinkedBlockingDeque} 的有界双端邮箱类型。
  */
 public final class BoundedDequeBasedMailbox implements MailboxType,
         ProducesMessageQueue<BoundedDequeBasedMailbox.MessageQueue>,

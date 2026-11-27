@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * {@link ActorSystem} 的一次性与周期调度入口。
  */
-public abstract class Scheduler implements AutoCloseable {
+public abstract class Scheduler {
     /**
      * 在初次延迟后重复执行任务，后续延迟从上次执行完成时开始计算。
      *
@@ -211,8 +211,6 @@ public abstract class Scheduler implements AutoCloseable {
      *
      * <p>仍待执行的 {@link TaskRunOnClose} 任务会在关闭时运行。
      */
-    @Override
-    public abstract void close();
 
     /**
      * 关闭调度器时仍需执行的 runtime 内部任务。

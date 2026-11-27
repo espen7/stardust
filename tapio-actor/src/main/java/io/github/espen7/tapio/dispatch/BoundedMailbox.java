@@ -25,7 +25,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 默认有界 mailbox type，对应上游 {@code dispatch.BoundedMailbox}。
+ * 默认有界 mailbox type。
  */
 public final class BoundedMailbox implements MailboxType,
         ProducesMessageQueue<BoundedMailbox.MessageQueue>, ProducesPushTimeoutSemanticsMailbox {

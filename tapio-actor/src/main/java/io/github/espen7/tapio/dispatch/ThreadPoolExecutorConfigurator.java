@@ -97,12 +97,26 @@ public final class ThreadPoolExecutorConfigurator extends ExecutorServiceConfigu
                 ? monitorable.withName(monitorable.name() + "-" + id)
                 : threadFactory;
         return () -> {
-            ThreadPoolExecutor pool = new ThreadPoolExecutor(config.corePoolSize(),
+            ThreadPoolExecutor pool = new ThreadPoolExecutorWithMetrics(config.corePoolSize(),
                     config.maxPoolSize(), config.threadTimeout().toNanos(),
                     java.util.concurrent.TimeUnit.NANOSECONDS, config.queueFactory().get(), namedFactory,
                     config.rejectionPolicy());
             pool.allowCoreThreadTimeOut(config.allowCorePoolTimeout());
             return pool;
         };
+    }
+
+    private static final class ThreadPoolExecutorWithMetrics extends ThreadPoolExecutor implements LoadMetrics {
+        private ThreadPoolExecutorWithMetrics(int corePoolSize, int maximumPoolSize, long keepAliveTime,
+                                              java.util.concurrent.TimeUnit unit, BlockingQueue<Runnable> workQueue,
+                                              ThreadFactory threadFactory,
+                                              java.util.concurrent.RejectedExecutionHandler handler) {
+            super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
+        }
+
+        @Override
+        public boolean atFullThrottle() {
+            return getActiveCount() >= getPoolSize();
+        }
     }
 }

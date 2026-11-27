@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 /**
- * 无界双端消息队列语义标记接口，对应 Pekko {@code UnboundedDequeBasedMessageQueueSemantics}。
+ * 无界双端消息队列语义标记接口。
  */
 public interface UnboundedDequeBasedMessageQueueSemantics
         extends DequeBasedMessageQueueSemantics, UnboundedMessageQueueSemantics {

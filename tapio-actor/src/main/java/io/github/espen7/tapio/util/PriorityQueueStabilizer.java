@@ -20,7 +20,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 包装底层优先级队列以保证相同优先级元素按 FIFO 顺序出队，对应 Pekko {@code PriorityQueueStabilizer}。
+ * 包装底层优先级队列以保证相同优先级元素按 FIFO 顺序出队。
  *
  * @param <E> 队列元素类型
  */

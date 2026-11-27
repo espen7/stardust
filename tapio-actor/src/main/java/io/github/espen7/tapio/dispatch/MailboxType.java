@@ -17,7 +17,7 @@ import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 
 /**
- * 为 ActorCell 创建普通消息队列的工厂，对应上游 {@code dispatch.MailboxType}。
+ * 为 ActorCell 创建普通消息队列的工厂。
  */
 public interface MailboxType {
 

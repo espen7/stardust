@@ -16,7 +16,7 @@ package io.github.espen7.tapio.actor;
 import java.io.Serializable;
 
 /**
- * 按 ActorPath 描述部署配置，对应上游
+ * 按 ActorPath 描述部署配置
  * {@code actor/src/main/scala/org/apache/pekko/actor/Deployer.scala} 的 {@code Deploy}。
  *
  * <p>当前只移植本地 runtime 使用的 {@code dispatcher} 和 {@code mailbox} 字段；

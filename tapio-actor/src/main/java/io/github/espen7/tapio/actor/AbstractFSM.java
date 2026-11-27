@@ -27,7 +27,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
- * 有限状态机（FSM）Actor 抽象基类，对应 Pekko {@code AbstractFSM}。
+ * 有限状态机（FSM）Actor 抽象基类。
  *
  * @param <S> 状态类型
  * @param <D> 状态数据类型

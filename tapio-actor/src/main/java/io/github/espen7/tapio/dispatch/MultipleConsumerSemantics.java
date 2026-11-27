@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 /**
- * 标记支持多消费者并发出队的消息队列语义，对应上游 {@code MultipleConsumerSemantics}。
+ * 标记支持多消费者并发出队的消息队列语义。
  */
 public interface MultipleConsumerSemantics {
 }

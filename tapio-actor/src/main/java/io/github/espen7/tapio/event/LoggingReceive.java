@@ -21,8 +21,7 @@ import io.github.espen7.tapio.japi.pf.PartialFunction;
 import java.util.Objects;
 
 /**
- * 在 {@code tapio.actor.debug.receive = on} 时记录 Actor 收到消息（已处理/未处理）的 DEBUG 日志装饰器，
- * 对应 Pekko {@code LoggingReceive}。
+ * 在 {@code tapio.actor.debug.receive = on} 时记录 Actor 收到消息（已处理/未处理）的 DEBUG 日志装饰器。
  */
 public final class LoggingReceive implements PartialFunction<Object, Void> {
     private final PartialFunction<Object, Void> receive;

@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.DynamicAccess;
 import io.github.espen7.tapio.actor.Scheduler;
 import io.github.espen7.tapio.event.EventStream;
 
@@ -42,6 +43,13 @@ public interface DispatcherPrerequisites {
      * @return Scheduler
      */
     Scheduler scheduler();
+
+    /**
+     * 返回系统 DynamicAccess。
+     *
+     * @return DynamicAccess
+     */
+    DynamicAccess dynamicAccess();
 
     /**
      * 返回系统设置。
