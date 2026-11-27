@@ -16,7 +16,7 @@ package io.github.espen7.tapio.actor;
 import io.github.espen7.tapio.TapioException;
 
 /** Actor 内部状态违反 runtime 约束时抛出。 */
-final class IllegalActorStateException extends TapioException {
+public final class IllegalActorStateException extends TapioException {
     IllegalActorStateException(String message) {
         super(message);
     }

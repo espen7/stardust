@@ -13,10 +13,13 @@
  */
 package io.github.espen7.tapio.event;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.util.Map;
 import java.util.Objects;
 
 /** 结构化日志事件使用的 marker 名称和属性。 */
+@DoNotInherit
 public class LogMarker {
     /** marker 属性中保存消息 class 的键。 */
     public static final String MESSAGE_CLASS = "tapioMessageClass";

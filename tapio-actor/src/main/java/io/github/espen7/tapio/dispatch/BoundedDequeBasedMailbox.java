@@ -128,10 +128,8 @@ public final class BoundedDequeBasedMailbox implements MailboxType,
         }
 
         private static void publishDeadLetter(ActorRef receiver, Envelope handle) {
-            if (receiver instanceof InternalActorRef internal) {
-                internal.provider().deadLetters().tell(
-                        new DeadLetter(handle.message(), handle.sender(), receiver), handle.sender());
-            }
+            ((InternalActorRef) receiver).provider().deadLetters().tell(
+                    new DeadLetter(handle.message(), handle.sender(), receiver), handle.sender());
         }
 
         @Override

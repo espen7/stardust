@@ -17,7 +17,7 @@ import io.github.espen7.tapio.TapioException;
 import io.github.espen7.tapio.util.NoStackTrace;
 
 /** Scheduler 关闭后仍尝试调度或执行任务时抛出的内部异常。 */
-final class SchedulerException extends TapioException implements NoStackTrace {
+public final class SchedulerException extends TapioException implements NoStackTrace {
     SchedulerException(String msg) {
         super(msg);
     }

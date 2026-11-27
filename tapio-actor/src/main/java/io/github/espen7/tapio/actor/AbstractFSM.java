@@ -221,6 +221,7 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
         if (!stateFunctions.containsKey(next.stateName())) {
             terminate(stay().withStopReason(
                     new FSM.Failure("Next state " + next.stateName() + " does not exist")));
+            getContext().stop(getSelf());
             return;
         }
         cancelTimeout();
@@ -237,7 +238,7 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
             this.nextState = null;
         }
         Duration timeout = next.timeout() != null ? next.timeout() : stateTimeouts.get(next.stateName());
-        if (timeout != null && !timeout.isNegative() && !timeout.isZero()) {
+        if (timeout != null && !timeout.isNegative()) {
             long gen = ++timeoutGeneration;
             timeoutTask = getContext().system().scheduler().scheduleOnce(
                     timeout, getSelf(), new TimeoutMarker(gen), getContext().dispatcher(), getSelf());

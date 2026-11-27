@@ -44,6 +44,7 @@ public abstract class AbstractActor extends Actor {
     public static final Receive emptyBehavior = new Receive(PartialFunction.empty());
 
     /** ActorContext 的 Java API，应在所属 Actor 的回调中使用。 */
+    @io.github.espen7.tapio.annotation.DoNotInherit
     public interface ActorContext extends io.github.espen7.tapio.actor.ActorContext {
         default ActorRef getSelf() {
             return self();

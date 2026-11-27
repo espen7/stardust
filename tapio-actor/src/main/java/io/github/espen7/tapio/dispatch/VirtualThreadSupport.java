@@ -129,6 +129,12 @@ public final class VirtualThreadSupport {
         } else {
             factory = newVirtualThreadFactory(prefixName, startNumber, pool);
         }
-        return new VirtualizedExecutorService(factory, pool, true);
+        java.util.function.Predicate<Executor> loadMetricsProvider = switch (pool) {
+            case LoadMetrics metrics -> ignored -> metrics.atFullThrottle();
+            case java.util.concurrent.ForkJoinPool fjPool ->
+                    ignored -> fjPool.getActiveThreadCount() >= fjPool.getParallelism();
+            case null, default -> ignored -> true;
+        };
+        return new VirtualizedExecutorService(factory, pool, loadMetricsProvider, pool != null);
     }
 }

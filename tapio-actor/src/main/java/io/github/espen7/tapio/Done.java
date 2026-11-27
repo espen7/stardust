@@ -13,9 +13,12 @@
  */
 package io.github.espen7.tapio;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.io.Serializable;
 
 /** CoordinatedShutdown 成功完成时的结果。 */
+@DoNotInherit
 public final class Done implements Serializable {
     private static final Done INSTANCE = new Done();
 

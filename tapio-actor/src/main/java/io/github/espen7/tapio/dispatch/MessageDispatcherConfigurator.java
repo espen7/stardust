@@ -82,9 +82,22 @@ public abstract class MessageDispatcherConfigurator {
                     config.getConfig("thread-pool-executor"), prerequisites);
             case "virtual-thread-executor" -> new VirtualThreadExecutorConfigurator(
                     config.getConfig("virtual-thread-executor"), prerequisites);
-            default -> throw new ConfigurationException("Cannot instantiate ExecutorServiceConfigurator type [" + executor
-                    + "], defined in [" + config.getString("id")
-                    + "]. Supported built-ins are default-executor, fork-join-executor, thread-pool-executor and virtual-thread-executor.");
+            default -> {
+                Config execConfig = config.hasPath(executor) ? config.getConfig(executor) : com.typesafe.config.ConfigFactory.empty();
+                try {
+                    yield prerequisites.dynamicAccess().createInstanceFor(
+                            executor,
+                            ExecutorServiceConfigurator.class,
+                            java.util.List.<java.util.Map.Entry<Class<?>, Object>>of(
+                                    java.util.Map.entry(Config.class, execConfig),
+                                    java.util.Map.entry(DispatcherPrerequisites.class, prerequisites)));
+                } catch (Throwable failure) {
+                    throw new ConfigurationException("Cannot instantiate ExecutorServiceConfigurator type [" + executor
+                            + "], defined in [" + config.getString("id")
+                            + "], make sure it has constructor with [com.typesafe.config.Config] and ["
+                            + DispatcherPrerequisites.class.getName() + "] parameters", failure);
+                }
+            }
         };
     }
 }

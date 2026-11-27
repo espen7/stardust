@@ -81,7 +81,12 @@ public final class BackoffOnStopOptions {
 
     /** 设置使用默认停止监督策略。 */
     public BackoffOnStopOptions withDefaultStoppingStrategy() {
-        return withSupervisorStrategy(SupervisorStrategy.stoppingStrategy);
+        io.github.espen7.tapio.actor.SupervisorStrategy defaultStopping = SupervisorStrategy.stoppingStrategy;
+        if (supervisorStrategy instanceof io.github.espen7.tapio.actor.OneForOneStrategy oneForOne
+                && defaultStopping instanceof io.github.espen7.tapio.actor.OneForOneStrategy stoppingOneForOne) {
+            defaultStopping = stoppingOneForOne.withMaxNrOfRetries(oneForOne.maxNrOfRetries());
+        }
+        return withSupervisorStrategy(defaultStopping);
     }
 
     /** 设置子 Actor 退避停止期间向发送者回复的固定消息。 */
@@ -103,6 +108,12 @@ public final class BackoffOnStopOptions {
     }
 
     Props props() {
+        if (reset instanceof BackoffReset.AutoReset(Duration resetBackoff)) {
+            if (minBackoff.compareTo(resetBackoff) > 0 || resetBackoff.compareTo(maxBackoff) > 0) {
+                throw new IllegalArgumentException(
+                        "minBackoff must be <= resetBackoff <= maxBackoff");
+            }
+        }
         return Props.create(BackoffOnStopSupervisor.class, childProps, childName, minBackoff, maxBackoff,
                 reset, randomFactor, supervisorStrategy, handlingWhileStopped, finalStopMessage);
     }

@@ -50,8 +50,9 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
         this.receive = Objects.requireNonNull(receive, "receive must not be null");
         this.context = Objects.requireNonNull(context, "context must not be null");
         this.label = label;
-        this.log = Logging.getLogger(context.system().eventStream(), context.self().path().toString(),
-                LoggingReceive.class);
+        Class<?> sourceClass = context instanceof io.github.espen7.tapio.actor.ActorCell cell && cell.actor() != null
+                ? cell.actor().getClass() : context.getClass();
+        this.log = Logging.getLogger(context.system().eventStream(), context.self().path().toString(), sourceClass);
     }
 
     /**
@@ -62,6 +63,9 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
      * @return Receive 实例
      */
     public static AbstractActor.Receive create(AbstractActor.Receive receive, AbstractActor.ActorContext context) {
+        if (receive.onMessage() instanceof LoggingReceive) {
+            return receive;
+        }
         if (context.system().settings().config().getBoolean(ActorPath.Scheme + ".actor.debug.receive")) {
             return new AbstractActor.Receive(new LoggingReceive(receive.onMessage(), context));
         }
@@ -73,10 +77,11 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
         boolean handled = receive.isDefinedAt(message);
         LogEvent.Level currentLevel = context.system().eventStream().logLevel();
         if (currentLevel != LogEvent.Level.OFF && LogEvent.Level.DEBUG.ordinal() >= currentLevel.ordinal()) {
-            log.debug("received {} message {}{}",
+            log.debug("received {} message {} from {}{}",
                     handled ? "handled" : "unhandled",
                     message,
-                    label == null ? "" : " in " + label);
+                    context.sender(),
+                    label == null ? "" : " in state " + label);
         }
         return handled;
     }

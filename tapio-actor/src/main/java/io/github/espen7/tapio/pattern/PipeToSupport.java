@@ -60,11 +60,7 @@ public final class PipeToSupport {
          * @return 当前构建器
          */
         public PipeableCompletionStage<T> to(ActorRef recipient, ActorRef sender) {
-            if (executor != null) {
-                future.whenCompleteAsync((value, failure) -> deliver(recipient, sender, value, failure), executor);
-            } else {
-                future.whenComplete((value, failure) -> deliver(recipient, sender, value, failure));
-            }
+            future.whenComplete((value, failure) -> deliver(recipient, sender, value, failure));
             return this;
         }
 
@@ -86,11 +82,7 @@ public final class PipeToSupport {
          * @return 当前构建器
          */
         public PipeableCompletionStage<T> to(ActorSelection recipient, ActorRef sender) {
-            if (executor != null) {
-                future.whenCompleteAsync((value, failure) -> deliver(recipient, sender, value, failure), executor);
-            } else {
-                future.whenComplete((value, failure) -> deliver(recipient, sender, value, failure));
-            }
+            future.whenComplete((value, failure) -> deliver(recipient, sender, value, failure));
             return this;
         }
 

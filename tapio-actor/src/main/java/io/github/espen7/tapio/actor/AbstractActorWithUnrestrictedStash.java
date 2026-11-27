@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalStableApi;
+
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -53,6 +55,7 @@ public abstract class AbstractActorWithUnrestrictedStash extends AbstractActor {
      *
      * @param filterPredicate 消息过滤谓词
      */
+    @InternalStableApi
     public void unstashAll(Predicate<Object> filterPredicate) {
         stash.unstashAll(filterPredicate);
     }

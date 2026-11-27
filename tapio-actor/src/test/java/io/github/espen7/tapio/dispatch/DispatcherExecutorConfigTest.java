@@ -360,7 +360,7 @@ class DispatcherExecutorConfigTest {
     void unsupportedExecutorFailsExplicitly() {
         ConfigurationException executorError = assertThrows(ConfigurationException.class,
                 () -> factory(config(Map.of("tapio.actor.default-dispatcher.executor", "affinity-pool-executor"))));
-        assertTrue(executorError.getMessage().contains("Supported built-ins"));
+        assertTrue(executorError.getMessage().contains("Cannot instantiate ExecutorServiceConfigurator type"));
     }
 
     @Test

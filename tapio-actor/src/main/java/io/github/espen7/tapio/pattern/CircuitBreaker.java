@@ -85,6 +85,9 @@ public class CircuitBreaker {
         if (exponentialBackoffFactor < 1.0) {
             throw new IllegalArgumentException("factor must be >= 1.0");
         }
+        if (randomFactor < 0.0 || randomFactor > 1.0) {
+            throw new IllegalArgumentException("randomFactor must be between 0.0 and 1.0");
+        }
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler must not be null");
         this.maxFailures = maxFailures;
         this.callTimeout = callTimeout;
@@ -223,7 +226,7 @@ public class CircuitBreaker {
         }
         if (callTimeout.isZero()) {
             return stage.whenComplete((value, error) -> {
-                if (Boolean.TRUE.equals(defineFailure.apply(value, error))) {
+                if (error != null) {
                     currentState.get().callFails();
                 } else {
                     currentState.get().callSucceeds();

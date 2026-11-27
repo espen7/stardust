@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.io.Serializable;
 
 /**
@@ -20,6 +22,7 @@ import java.io.Serializable;
  *
  * @see io.github.espen7.tapio.pattern.Patterns#ask
  */
+@DoNotInherit
 public sealed interface Status extends Serializable permits Status.Success, Status.Failure {
     /**
      * 表示操作成功。ask 解包此消息并以结果值完成。

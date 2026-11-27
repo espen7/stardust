@@ -155,7 +155,7 @@ class PinnedDispatcherTest {
 
         ConfigurationException error = assertThrows(ConfigurationException.class,
                 () -> system.dispatchers().lookup("dispatchers.pinned"));
-        assertTrue(error.getMessage().contains("Supported built-ins"));
+        assertTrue(error.getMessage().contains("Cannot instantiate ExecutorServiceConfigurator type"));
     }
 
     private LocalActorRef detachedActor(MessageDispatcher dispatcher, String name, CountDownLatch ready,

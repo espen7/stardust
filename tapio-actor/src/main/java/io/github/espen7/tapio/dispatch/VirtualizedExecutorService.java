@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 /**
  * 为每个任务创建虚拟线程的执行器，并在关闭时按需级联关闭底层池
@@ -41,6 +43,7 @@ public final class VirtualizedExecutorService implements ExecutorService, LoadMe
     private static final int UNDERLYING_SHUTDOWN_NOW = 2;
 
     private final ExecutorService underlying;
+    private final Predicate<Executor> loadMetricsProvider;
     private final boolean cascadeShutdown;
     private final ExecutorService executor;
     private final AtomicBoolean underlyingShutdownScheduled = new AtomicBoolean(false);
@@ -52,14 +55,21 @@ public final class VirtualizedExecutorService implements ExecutorService, LoadMe
      *
      * @param vtFactory 虚拟线程工厂
      * @param underlying 底层池（可为 {@code null}）
+     * @param loadMetricsProvider 负载指标判断函数
      * @param cascadeShutdown 关闭后是否级联关闭底层池
      */
-    public VirtualizedExecutorService(ThreadFactory vtFactory, ExecutorService underlying, boolean cascadeShutdown) {
+    public VirtualizedExecutorService(
+            ThreadFactory vtFactory,
+            ExecutorService underlying,
+            Predicate<Executor> loadMetricsProvider,
+            boolean cascadeShutdown) {
         if (!VirtualThreadSupport.isSupported) {
             throw new IllegalArgumentException("Virtual thread is not supported.");
         }
         Objects.requireNonNull(vtFactory, "Virtual thread factory must not be null");
+        Objects.requireNonNull(loadMetricsProvider, "Load metrics provider must not be null");
         this.underlying = underlying;
+        this.loadMetricsProvider = loadMetricsProvider;
         this.cascadeShutdown = cascadeShutdown;
         this.executor = VirtualThreadSupport.newThreadPerTaskExecutor(vtFactory);
     }
@@ -196,6 +206,6 @@ public final class VirtualizedExecutorService implements ExecutorService, LoadMe
 
     @Override
     public boolean atFullThrottle() {
-        return underlying instanceof LoadMetrics metrics && metrics.atFullThrottle();
+        return loadMetricsProvider.test(this);
     }
 }

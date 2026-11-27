@@ -30,27 +30,27 @@ public interface StdOutLogger {
 
     /** 输出 ERROR 事件。 */
     default void error(Error event) {
-        String marker = event.marker() == null ? "" : "[" + event.marker().name() + "]";
+        String marker = marker(event);
         String trace = Logging.stackTraceFor(event.cause());
-        System.out.printf("[ERROR] [%s]%s [%s] [%s]%s %s%s%n", timestamp(event), marker,
+        System.out.printf("[ERROR] %s[%s] [%s] [%s]%s %s%s%n", marker, timestamp(event),
                 event.threadName(), event.source(), formatMDC(event), event.message(), trace);
     }
 
     /** 输出 WARNING 事件。 */
     default void warning(Warning event) {
-        System.out.printf("[WARN] [%s]%s [%s] [%s]%s %s%n", timestamp(event), marker(event),
+        System.out.printf("[WARN] %s[%s] [%s] [%s]%s %s%n", marker(event), timestamp(event),
                 event.threadName(), event.source(), formatMDC(event), event.message());
     }
 
     /** 输出 INFO 事件。 */
     default void info(Info event) {
-        System.out.printf("[INFO] [%s]%s [%s] [%s]%s %s%n", timestamp(event), marker(event),
+        System.out.printf("[INFO] %s[%s] [%s] [%s]%s %s%n", marker(event), timestamp(event),
                 event.threadName(), event.source(), formatMDC(event), event.message());
     }
 
     /** 输出 DEBUG 事件。 */
     default void debug(Debug event) {
-        System.out.printf("[DEBUG] [%s]%s [%s] [%s]%s %s%n", timestamp(event), marker(event),
+        System.out.printf("[DEBUG] %s[%s] [%s] [%s]%s %s%n", marker(event), timestamp(event),
                 event.threadName(), event.source(), formatMDC(event), event.message());
     }
 

@@ -77,6 +77,15 @@ public final class RetrySupport {
             double randomFactor,
             Executor executor,
             Scheduler scheduler) {
+        if (minBackoff == null || minBackoff.isZero() || minBackoff.isNegative()) {
+            throw new IllegalArgumentException("minBackoff must be > 0");
+        }
+        if (maxBackoff == null || maxBackoff.compareTo(minBackoff) < 0) {
+            throw new IllegalArgumentException("maxBackoff must be >= minBackoff");
+        }
+        if (randomFactor < 0.0 || randomFactor > 1.0) {
+            throw new IllegalArgumentException("randomFactor must be between 0.0 and 1.0");
+        }
         return retry(attempt, (value, error) -> error != null, attempts,
                 n -> Optional.of(calculateDelay(n, minBackoff, maxBackoff, randomFactor)),
                 executor, Objects.requireNonNull(scheduler, "scheduler must not be null"));
@@ -113,6 +122,9 @@ public final class RetrySupport {
         CompletionStage<T> current;
         try {
             current = attempt.get();
+            if (current == null) {
+                current = CompletableFuture.completedFuture(null);
+            }
         } catch (Throwable error) {
             if (!NonFatal.apply(error)) {
                 throw error;

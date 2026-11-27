@@ -16,11 +16,14 @@ package io.github.espen7.tapio.actor;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.serialization.Serialization;
 
 /**
  * ActorRef 和 ActorPath 的创建边界。
  */
+@DoNotInherit
 public abstract class ActorRefProvider {
 
     /** 创建 Provider 抽象实例。 */
@@ -63,6 +66,7 @@ public abstract class ActorRefProvider {
      */
     public abstract ActorRef deadLetters();
 
+    @InternalApi
     abstract ActorRef ignoreRef();
 
     /**

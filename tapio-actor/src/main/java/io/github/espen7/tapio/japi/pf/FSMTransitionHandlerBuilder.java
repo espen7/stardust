@@ -61,6 +61,7 @@ public final class FSMTransitionHandlerBuilder<S> {
             for (TransitionRule<S> rule : snapshot) {
                 if (rule.matcher().test(fromState, toState)) {
                     rule.action().accept(fromState, toState);
+                    return;
                 }
             }
         };

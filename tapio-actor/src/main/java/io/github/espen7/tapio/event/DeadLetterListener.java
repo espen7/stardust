@@ -108,7 +108,7 @@ public final class DeadLetterListener extends Actor {
                 logDeadLetter(event, ", no more dead letters will be logged");
                 context.stop(self);
             } else logDeadLetter(event, "");
-        } else if (count <= maxCount) {
+        } else {
             if (count == maxCount) {
                 logDeadLetter(event, ", no more dead letters will be logged in next [" + suspendDescription + "]");
                 suspendDeadline = System.nanoTime() + suspendDuration.toNanos();

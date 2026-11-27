@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.util;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -27,6 +29,7 @@ import java.util.Optional;
  *
  * @param <T> 索引保存的值类型
  */
+@InternalApi
 public final class WildcardIndex<T> {
     private final WildcardTree<T> wildcardTree;
     private final WildcardTree<T> doubleWildcardTree;

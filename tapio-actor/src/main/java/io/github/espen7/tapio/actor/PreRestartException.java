@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 /** preRestart 失败时发布到 EventStream 的包装异常。 */
-final class PreRestartException extends ActorInitializationException {
+public final class PreRestartException extends ActorInitializationException {
     PreRestartException(ActorRef actor, Throwable cause, Throwable originalCause, Object message) {
         super(actor,
                 "exception in preRestart(" + (originalCause == null ? "null" : originalCause.getClass()) + ", "

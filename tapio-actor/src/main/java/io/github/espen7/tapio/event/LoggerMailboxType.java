@@ -16,10 +16,12 @@ package io.github.espen7.tapio.event;
 import com.typesafe.config.Config;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.ProducesMessageQueue;
 
 /** 创建 logger mailbox 的配置类型。 */
+@InternalApi
 public final class LoggerMailboxType implements MailboxType, ProducesMessageQueue<LoggerMailbox> {
     /** 供 mailbox 配置反射构造使用。 */
     public LoggerMailboxType(ActorSystem.Settings settings, Config config) {

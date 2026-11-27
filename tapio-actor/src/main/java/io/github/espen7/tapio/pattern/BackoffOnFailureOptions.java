@@ -88,6 +88,12 @@ public final class BackoffOnFailureOptions {
     }
 
     Props props() {
+        if (reset instanceof BackoffReset.AutoReset(Duration resetBackoff)) {
+            if (minBackoff.compareTo(resetBackoff) > 0 || resetBackoff.compareTo(maxBackoff) > 0) {
+                throw new IllegalArgumentException(
+                        "minBackoff must be <= resetBackoff <= maxBackoff");
+            }
+        }
         return Props.create(BackoffOnRestartSupervisor.class, childProps, childName, minBackoff, maxBackoff,
                 reset, randomFactor, supervisorStrategy, handlingWhileStopped);
     }

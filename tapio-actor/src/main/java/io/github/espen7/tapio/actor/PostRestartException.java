@@ -14,7 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 /** constructor 或 postRestart 失败时交给 supervisor 的包装异常。 */
-final class PostRestartException extends ActorInitializationException {
+public final class PostRestartException extends ActorInitializationException {
     PostRestartException(ActorRef actor, Throwable cause, Throwable originalCause) {
         super(actor,
                 "exception post restart (" + (originalCause == null ? "null" : originalCause.getClass()) + ")",

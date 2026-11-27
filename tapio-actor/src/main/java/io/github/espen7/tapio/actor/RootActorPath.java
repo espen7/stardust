@@ -25,7 +25,7 @@ import java.util.Objects;
 public final class RootActorPath implements ActorPath {
     @Serial
     private static final long serialVersionUID = 1L;
-    private static final List<String> EMPTY_ELEMENTS = List.of("");
+    private static final List<String> EMPTY_ELEMENTS = List.of();
 
     private final Address address;
     private final String name;

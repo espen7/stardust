@@ -16,6 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
+import io.github.espen7.tapio.annotation.DoNotInherit;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorSystem;
@@ -29,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 按配置 ID 查找或创建 MessageDispatcher。普通 Dispatcher 及其别名共享同一个实例，
  * PinnedDispatcher 及其别名则在每次查找时创建新实例。
  */
+@DoNotInherit
 public class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
     public static final String DefaultDispatcherId = ActorPath.Scheme + ".actor.default-dispatcher";

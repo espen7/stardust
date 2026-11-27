@@ -295,9 +295,11 @@ public final class PromiseActorRef extends MinimalActorRef {
         }
     }
 
+    @InternalStableApi
     void onComplete(Object message, boolean alreadyCompleted) {
     }
 
+    @InternalStableApi
     void onTimeout(Duration timeout) {
     }
 }
