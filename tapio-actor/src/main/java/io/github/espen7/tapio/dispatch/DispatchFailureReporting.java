@@ -32,7 +32,7 @@ public final class DispatchFailureReporting {
     public static void report(EventStream eventStream, LogEvent event) {
         Thread thread = Thread.currentThread();
         if (!REPORTING.add(thread)) {
-            StandardOutLogger.INSTANCE.tell(event);
+            StandardOutLogger.INSTANCE.tell(event, io.github.espen7.tapio.actor.ActorRef.noSender);
             return;
         }
         try {

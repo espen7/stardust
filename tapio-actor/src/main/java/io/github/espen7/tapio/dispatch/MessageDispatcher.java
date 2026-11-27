@@ -15,6 +15,7 @@ package io.github.espen7.tapio.dispatch;
 
 import io.github.espen7.tapio.actor.ActorCell;
 import io.github.espen7.tapio.actor.Scheduler;
+import io.github.espen7.tapio.annotation.InternalStableApi;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 import io.github.espen7.tapio.event.Error;
 import io.github.espen7.tapio.event.EventStream;
@@ -356,6 +357,7 @@ public abstract class MessageDispatcher extends AbstractMessageDispatcher implem
     /**
      * 关闭当前 executor；后续任务会延迟创建新的 executor。
      */
+    @InternalStableApi
     public abstract void shutdown();
 
     /**

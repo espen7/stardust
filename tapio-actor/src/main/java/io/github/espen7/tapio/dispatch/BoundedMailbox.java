@@ -20,6 +20,7 @@ import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.InternalActorRef;
 
 import java.time.Duration;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -69,7 +70,7 @@ public final class BoundedMailbox implements MailboxType,
      * 容量固定的普通消息队列，队列满时按超时策略入队或发布 dead letter。
      */
     public static final class MessageQueue extends LinkedBlockingQueue<Envelope>
-            implements io.github.espen7.tapio.dispatch.MessageQueue, BoundedMessageQueueSemantics {
+            implements BoundedQueueBasedMessageQueue {
         private final Duration pushTimeOut;
 
         /**
@@ -81,6 +82,11 @@ public final class BoundedMailbox implements MailboxType,
         public MessageQueue(int capacity, Duration pushTimeOut) {
             super(capacity);
             this.pushTimeOut = pushTimeOut;
+        }
+
+        @Override
+        public BlockingQueue<Envelope> queue() {
+            return this;
         }
 
         @Override

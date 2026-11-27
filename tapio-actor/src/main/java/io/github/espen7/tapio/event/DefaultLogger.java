@@ -22,7 +22,7 @@ public class DefaultLogger extends AbstractActor implements StdOutLogger,
     @Override
     public Receive createReceive() {
         return receiveBuilder()
-                .match(InitializeLogger.class, ignored -> getSender().tell(LoggerInitialized.getInstance()))
+                .match(InitializeLogger.class, ignored -> getSender().tell(LoggerInitialized.getInstance(), getSelf()))
                 .match(LogEvent.class, this::print)
                 .build();
     }

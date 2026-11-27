@@ -256,6 +256,24 @@ public final class CoordinatedShutdown {
     }
 
     /**
+     * INTERNAL API：按当前关闭原因合并 {@code reason-overrides} 配置。
+     *
+     * @param conf   基础 {@code coordinated-shutdown} 配置
+     * @param reason 当前关闭原因
+     * @return 合并后的有效配置
+     */
+    @io.github.espen7.tapio.annotation.InternalApi
+    public static Config confWithOverrides(Config conf, Optional<Reason> reason) {
+        if (reason != null && reason.isPresent()) {
+            String basePath = "reason-overrides.\"" + reason.get().getClass().getName() + "\"";
+            if (conf.hasPath(basePath)) {
+                return conf.getConfig(basePath).withFallback(conf);
+            }
+        }
+        return conf;
+    }
+
+    /**
      * 注册在 JVM 退出阶段运行的 hook。
      *
      * @param hook JVM 退出时执行的回调

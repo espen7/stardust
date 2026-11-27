@@ -17,6 +17,7 @@ import com.typesafe.config.Config;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 
+import java.util.Deque;
 import java.util.concurrent.LinkedBlockingDeque;
 
 /**
@@ -44,9 +45,14 @@ public final class UnboundedDequeBasedMailbox implements MailboxType,
 
     /** 基于 {@link LinkedBlockingDeque} 的无界双端消息队列实现。 */
     public static final class MessageQueue extends LinkedBlockingDeque<Envelope>
-            implements UnboundedDequeBasedMessageQueueSemantics {
+            implements DequeBasedMessageQueue, UnboundedDequeBasedMessageQueueSemantics {
         /** 创建无界双端消息队列。 */
         public MessageQueue() {
+        }
+
+        @Override
+        public Deque<Envelope> queue() {
+            return this;
         }
 
         @Override

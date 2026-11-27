@@ -11,17 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.espen7.tapio.event;
+package io.github.espen7.tapio.event.slf4j;
 
 import io.github.espen7.tapio.actor.AbstractActor;
 import io.github.espen7.tapio.actor.ActorSystemImpl;
 import io.github.espen7.tapio.dispatch.RequiresMessageQueue;
+import io.github.espen7.tapio.event.InitializeLogger;
+import io.github.espen7.tapio.event.LogEvent;
+import io.github.espen7.tapio.event.LoggerInitialized;
+import io.github.espen7.tapio.event.LoggerMessageQueueSemantics;
 import io.github.espen7.tapio.util.Helpers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.slf4j.Marker;
 import org.slf4j.MarkerFactory;
-import org.slf4j.MDC;
 
 import java.util.function.BiConsumer;
 
@@ -47,7 +51,7 @@ public class Slf4jLogger extends AbstractActor
         return receiveBuilder()
                 .match(InitializeLogger.class, ignored -> {
                     log.info("Slf4jLogger started");
-                    getSender().tell(LoggerInitialized.getInstance());
+                    getSender().tell(LoggerInitialized.getInstance(), getSelf());
                 })
                 .match(LogEvent.class, this::publish)
                 .build();
@@ -70,8 +74,8 @@ public class Slf4jLogger extends AbstractActor
         withMdc(logEvent, logSource, system.name(), pekkoAddress(), pekkoUid(), MDC::put, MDC::clear, logStatement);
     }
 
-    final void withMdc(LogEvent event, String logSource, String systemName, String address, String uid,
-                      BiConsumer<String, String> put, Runnable clear, Runnable statement) {
+    protected final void withMdc(LogEvent event, String logSource, String systemName, String address, String uid,
+                                 BiConsumer<String, String> put, Runnable clear, Runnable statement) {
         if (event.marker() != null) {
             event.marker().properties().forEach((key, value) -> put.accept(key, String.valueOf(value)));
         }

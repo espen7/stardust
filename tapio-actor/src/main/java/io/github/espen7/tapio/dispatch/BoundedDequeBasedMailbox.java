@@ -21,6 +21,7 @@ import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.InternalActorRef;
 
 import java.time.Duration;
+import java.util.Deque;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 
@@ -72,7 +73,7 @@ public final class BoundedDequeBasedMailbox implements MailboxType,
 
     /** 基于 {@link LinkedBlockingDeque} 的有界双端消息队列实现。 */
     public static final class MessageQueue extends LinkedBlockingDeque<Envelope>
-            implements BoundedDequeBasedMessageQueueSemantics {
+            implements DequeBasedMessageQueue, BoundedDequeBasedMessageQueueSemantics {
         private final Duration pushTimeOut;
 
         /**
@@ -84,6 +85,11 @@ public final class BoundedDequeBasedMailbox implements MailboxType,
         public MessageQueue(int capacity, Duration pushTimeOut) {
             super(capacity);
             this.pushTimeOut = pushTimeOut;
+        }
+
+        @Override
+        public Deque<Envelope> queue() {
+            return this;
         }
 
         @Override

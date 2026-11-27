@@ -38,4 +38,9 @@ public class LogEventException extends RuntimeException implements NoStackTrace 
     public LogEvent event() {
         return event;
     }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
+    }
 }

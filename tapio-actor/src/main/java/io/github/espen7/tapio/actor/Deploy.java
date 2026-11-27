@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import java.io.Serializable;
+
 /**
  * 按 ActorPath 描述部署配置，对应上游
  * {@code actor/src/main/scala/org/apache/pekko/actor/Deployer.scala} 的 {@code Deploy}。
@@ -20,7 +22,7 @@ package io.github.espen7.tapio.actor;
  * <p>当前只移植本地 runtime 使用的 {@code dispatcher} 和 {@code mailbox} 字段；
  * router 与 scope 不在首版范围内。</p>
  */
-public record Deploy(String path, String dispatcher, String mailbox) {
+public record Deploy(String path, String dispatcher, String mailbox) implements Serializable {
     /** 未显式指定 dispatcher 时的哨兵值。 */
     public static final String NoDispatcherGiven = "";
     /** 未显式指定 mailbox 时的哨兵值。 */

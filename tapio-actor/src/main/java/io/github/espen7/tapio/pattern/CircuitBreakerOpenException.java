@@ -53,4 +53,9 @@ public class CircuitBreakerOpenException extends TapioException implements NoSta
     public Duration remainingDuration() {
         return remainingDuration;
     }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
+    }
 }

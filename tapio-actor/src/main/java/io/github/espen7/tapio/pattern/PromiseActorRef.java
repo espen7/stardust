@@ -26,6 +26,7 @@ import io.github.espen7.tapio.actor.MinimalActorRef;
 import io.github.espen7.tapio.actor.Status;
 import io.github.espen7.tapio.actor.Terminated;
 import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.annotation.InternalStableApi;
 import io.github.espen7.tapio.dispatch.sysmsg.DeathWatchNotification;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 import io.github.espen7.tapio.dispatch.sysmsg.Terminate;
@@ -103,11 +104,13 @@ public final class PromiseActorRef extends MinimalActorRef {
         return result.minimalCompletionStage();
     }
 
+    @InternalStableApi
     CompletionStage<Object> ask(ActorRef actorRef, Object message) {
         actorRef.tell(message, this);
         return result.minimalCompletionStage();
     }
 
+    @InternalStableApi
     CompletionStage<Object> ask(ActorSelection selection, Object message) {
         selection.tell(message, this);
         return result.minimalCompletionStage();
@@ -172,7 +175,8 @@ public final class PromiseActorRef extends MinimalActorRef {
     public void tell(Object message, ActorRef sender) {
         Object current = state;
         if (current == Stopped || current instanceof StoppedWithPath) {
-            provider.deadLetters().tell(new DeadLetter(message, sender == noSender ? provider.deadLetters() : sender, this));
+            provider.deadLetters().tell(
+                    new DeadLetter(message, sender == noSender ? provider.deadLetters() : sender, this), sender);
             onComplete(message, true);
         } else {
             if (message == null) throw new InvalidMessageException("Message is null");
@@ -181,7 +185,7 @@ public final class PromiseActorRef extends MinimalActorRef {
                 case Status.Failure failure -> result.completeExceptionally(failure.cause());
                 default -> result.complete(message);
             };
-            if (!completed) provider.deadLetters().tell(message);
+            if (!completed) provider.deadLetters().tell(message, ActorRef.noSender);
             onComplete(message, !completed);
         }
     }
@@ -191,7 +195,8 @@ public final class PromiseActorRef extends MinimalActorRef {
         switch (message) {
             case Terminate ignored -> stop();
             case DeathWatchNotification notification ->
-                    tell(new Terminated(notification.actor, notification.existenceConfirmed, notification.addressTerminated));
+                    tell(new Terminated(notification.actor, notification.existenceConfirmed, notification.addressTerminated),
+                            noSender);
             case Watch watch -> {
                 if (watch.watchee.equals(this) && !watch.watcher.equals(this)) {
                     if (!addWatcher(watch.watcher)) {

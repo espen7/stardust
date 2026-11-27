@@ -170,7 +170,8 @@ public class EventStream extends SubchannelClassification {
                 }
                 return;
             }
-            ((ActiveUnsubscriber) current).unsubscriber().tell(new EventStreamUnsubscriber.Register(subscriber));
+            ((ActiveUnsubscriber) current).unsubscriber()
+                    .tell(new EventStreamUnsubscriber.Register(subscriber), ActorRef.noSender);
             return;
         }
     }
@@ -189,7 +190,7 @@ public class EventStream extends SubchannelClassification {
                 return;
             }
             ((ActiveUnsubscriber) current).unsubscriber()
-                    .tell(new EventStreamUnsubscriber.UnregisterIfNoMoreSubscribedChannels(subscriber));
+                    .tell(new EventStreamUnsubscriber.UnregisterIfNoMoreSubscribedChannels(subscriber), ActorRef.noSender);
             return;
         }
     }
@@ -202,6 +203,6 @@ public class EventStream extends SubchannelClassification {
     @Override
     protected void publish(Object event, ActorRef subscriber) {
         if (system == null && subscriber instanceof InternalActorRef internal && internal.isTerminated()) unsubscribe(subscriber);
-        else subscriber.tell(event);
+        else subscriber.tell(event, ActorRef.noSender);
     }
 }

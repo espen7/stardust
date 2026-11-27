@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +23,7 @@ import java.util.Map;
  *
  * <p>默认实现为 {@link ReflectiveDynamicAccess}。该类不供应用代码继承。</p>
  */
+@DoNotInherit
 public abstract class DynamicAccess {
     /** 创建 DynamicAccess 实例。 */
     protected DynamicAccess() {

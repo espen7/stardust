@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.dispatch.MailboxType;
 import io.github.espen7.tapio.dispatch.MessageDispatcher;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
@@ -26,6 +27,7 @@ import java.util.List;
  * <p>LocalActorRef 是公开引用和内部执行状态之间的桥梁。它不直接调用 Actor，
  * tell 和 stop 都转成 ActorCell 的消息或系统消息。</p>
  */
+@InternalApi
 public class LocalActorRef extends ActorRefWithCell implements LocalRef {
     private final ActorSystemImpl system;
     private final ActorPath path;

@@ -16,6 +16,7 @@ package io.github.espen7.tapio.dispatch;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 
+import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -47,11 +48,16 @@ public final class UnboundedMailbox implements MailboxType, ProducesMessageQueue
      * 不限制容量的普通消息队列。
      */
     public static class MessageQueue
-            implements io.github.espen7.tapio.dispatch.MessageQueue, UnboundedMessageQueueSemantics {
+            implements UnboundedQueueBasedMessageQueue {
         private final ConcurrentLinkedQueue<Envelope> queue = new ConcurrentLinkedQueue<>();
 
         /** 创建空队列。 */
         public MessageQueue() {
+        }
+
+        @Override
+        public Queue<Envelope> queue() {
+            return queue;
         }
 
         @Override

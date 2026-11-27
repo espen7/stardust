@@ -38,7 +38,7 @@ public final class LoggerMailbox extends UnboundedMailbox.MessageQueue implement
                 if (loggingEnabled && envelope.message() instanceof LogEvent event
                         && event.level() != LogEvent.Level.OFF
                         && event.level().ordinal() >= logLevel.ordinal()) {
-                    StandardOutLogger.INSTANCE.tell(envelope.message());
+                    StandardOutLogger.INSTANCE.tell(envelope.message(), ActorRef.noSender);
                 }
                 envelope = dequeue();
             }

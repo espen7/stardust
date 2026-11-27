@@ -447,7 +447,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
             SystemMessage message = messages;
             messages = message.next();
             message.unlink();
-            system.deadLetters().tell(message);
+            system.deadLetters().tell(message, ActorRef.noSender);
         }
     }
 
@@ -492,6 +492,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
         }
     }
 
+    @InternalStableApi
     private void clearActorFields() {
         currentMessage = null;
         behaviorStack.clear();
@@ -595,14 +596,6 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     @Override
     public final void setReceiveTimeout(Duration timeout) {
         setReceiveTimeoutInternal(timeout);
-    }
-
-    /**
-     * 取消 receive timeout。
-     */
-    @Override
-    public void cancelReceiveTimeout() {
-        setReceiveTimeoutInternal(null);
     }
 
     private void setReceiveTimeoutInternal(Duration timeout) {
@@ -802,7 +795,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     }
 
     private void faultCreate() {
-        cancelReceiveTimeout();
+        setReceiveTimeout(null);
         cancelReceiveTimeoutTask();
         for (ActorRef child : childrenRefs().children()) stop(child);
         if (!setChildrenTerminationReason(new ChildrenContainer.Creation())) finishCreate();
@@ -892,7 +885,7 @@ public class ActorCell extends Dispatch implements AbstractActor.ActorContext,
     }
 
     private void terminate() {
-        cancelReceiveTimeout();
+        setReceiveTimeout(null);
         cancelReceiveTimeoutTask();
         unwatchWatchedActors();
         for (ActorRef child : childrenRefs().children()) stop(child);

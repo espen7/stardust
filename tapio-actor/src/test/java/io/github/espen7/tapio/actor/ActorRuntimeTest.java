@@ -332,7 +332,7 @@ class ActorRuntimeTest {
 
         ActorRef ignore = provider.ignoreRef();
         assertEquals("tapio://local/ignore", ignore.path().toString());
-        ignore.tell("ignored");
+        ignore.tell("ignored", ActorRef.noSender);
         assertFalse(((InternalActorRef) ignore).isTerminated());
     }
 
@@ -598,14 +598,17 @@ class ActorRuntimeTest {
 
     @Test
     void deadLetterListenerPublishesInfoWithRecipientSource() throws Exception {
-        system = ActorSystem.create("dead-letter-info");
+        system = ActorSystem.create("dead-letter-info", ConfigFactory.parseString("""
+                tapio.log-dead-letters = 1
+                tapio.log-dead-letters-suspend-duration = infinite
+                """));
         BlockingQueue<Object> logs = new LinkedBlockingQueue<>();
         ActorRef probe = system.actorOf(Props.create(EventSubscriberActor.class, logs), "log-probe");
         system.eventStream().subscribe(probe, Info.class);
         ActorRef recipient = system.actorOf(Props.create(SilentActor.class), "recipient");
-        ActorRef listener = system.actorOf(Props.create(io.github.espen7.tapio.event.DeadLetterListener.class,
-                1, null, "infinite"), "test-listener");
-        listener.tell(new DeadLetter("missing", system.deadLetters(), recipient));
+        ActorRef listener = system.actorOf(Props.create(io.github.espen7.tapio.event.DeadLetterListener.class),
+                "test-listener");
+        listener.tell(new DeadLetter("missing", system.deadLetters(), recipient), ActorRef.noSender);
 
         Info info = (Info) logs.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(info);
@@ -813,11 +816,11 @@ class ActorRuntimeTest {
         assertEquals(1, (int) ask(children.get(0), "instance"));
         assertEquals(1, (int) ask(children.get(1), "instance"));
 
-        parent.tell("fail-first");
+        parent.tell("fail-first", ActorRef.noSender);
         awaitInstance(children.get(0), 2);
         awaitInstance(children.get(1), 2);
 
-        parent.tell("fail-first");
+        parent.tell("fail-first", ActorRef.noSender);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
         while (children.stream().anyMatch(child -> !((InternalActorRef) child).isTerminated()) && System.nanoTime() < deadline) {
             Thread.yield();
@@ -835,11 +838,11 @@ class ActorRuntimeTest {
                 firstInstances, secondInstances), "parent");
 
         java.util.List<ActorRef> children = awaitChildren(parent);
-        parent.tell("fail-first");
+        parent.tell("fail-first", ActorRef.noSender);
         awaitInstance(children.get(0), 2);
         assertEquals(1, (int) ask(children.get(1), "instance"));
 
-        parent.tell("fail-first");
+        parent.tell("fail-first", ActorRef.noSender);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
         while (!((InternalActorRef) children.get(0)).isTerminated() && System.nanoTime() < deadline) Thread.yield();
         assertTrue(((InternalActorRef) children.get(0)).isTerminated());
@@ -856,7 +859,7 @@ class ActorRuntimeTest {
                 firstInstances, new AtomicInteger()), "parent");
 
         java.util.List<ActorRef> children = awaitChildren(parent);
-        children.get(0).tell("fail");
+        children.get(0).tell("fail", ActorRef.noSender);
         assertEquals(1, (int) ask(children.get(0), "instance"));
         assertEquals(1, firstInstances.get());
     }
@@ -869,7 +872,7 @@ class ActorRuntimeTest {
                 new AtomicInteger(), new AtomicInteger()), "parent");
 
         java.util.List<ActorRef> children = awaitChildren(parent);
-        children.get(0).tell("fail");
+        children.get(0).tell("fail", ActorRef.noSender);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
         java.util.List<ActorRef> restartedChildren = children;
         while (System.nanoTime() < deadline) {
@@ -896,7 +899,7 @@ class ActorRuntimeTest {
                 new AtomicInteger(), new AtomicInteger()), "parent");
 
         java.util.List<ActorRef> children = awaitChildren(parent);
-        children.get(0).tell("fail");
+        children.get(0).tell("fail", ActorRef.noSender);
         assertEquals(1, (int) ask(children.get(0), "instance"));
         assertNull(events.poll(100, TimeUnit.MILLISECONDS));
     }
@@ -912,7 +915,7 @@ class ActorRuntimeTest {
                 new AtomicInteger(), new AtomicInteger()), "parent");
 
         java.util.List<ActorRef> children = awaitChildren(parent);
-        children.get(0).tell("fail");
+        children.get(0).tell("fail", ActorRef.noSender);
         Object event = events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertInstanceOf(io.github.espen7.tapio.event.Warning.class, event);
         assertEquals(LogEvent.Level.WARNING, ((LogEvent) event).level());
@@ -949,7 +952,7 @@ class ActorRuntimeTest {
         ActorRef parent = system.actorOf(Props.create(ParentWithSurvivor.class, instances, restarted), "parent");
 
         assertEquals("spawned", ask(parent, "spawn"));
-        parent.tell("fail");
+        parent.tell("fail", ActorRef.noSender);
 
         assertTrue(restarted.await(WAIT_SECONDS, TimeUnit.SECONDS));
     }
@@ -1015,7 +1018,7 @@ class ActorRuntimeTest {
             CompletionException error = assertThrows(CompletionException.class, () -> result.toCompletableFuture().join());
             assertInstanceOf(IllegalArgumentException.class, error.getCause());
         }
-        actor.tell("barrier");
+        actor.tell("barrier", ActorRef.noSender);
         assertEquals("barrier", requests.poll(WAIT_SECONDS, TimeUnit.SECONDS));
     }
 
@@ -1179,7 +1182,7 @@ class ActorRuntimeTest {
                 () -> new RestartingActor(instances.incrementAndGet())), "restartable");
 
         assertEquals(1, ask(child, "instance"));
-        child.tell("fail");
+        child.tell("fail", ActorRef.noSender);
         assertEquals(2, ask(child, "instance"));
         assertEquals(2, instances.get());
     }
@@ -1198,7 +1201,7 @@ class ActorRuntimeTest {
                 () -> new RestartingActor(instances.incrementAndGet())), "actor");
 
         assertEquals(1, ask(actor, "instance"));
-        actor.tell("fail");
+        actor.tell("fail", ActorRef.noSender);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
         while (!((InternalActorRef) actor).isTerminated() && System.nanoTime() < deadline) Thread.yield();
         assertTrue(((InternalActorRef) actor).isTerminated());
@@ -1611,7 +1614,7 @@ class ActorRuntimeTest {
                         } else if (message.equals("fail-first")) {
                             StreamSupport.stream(getContext().getChildren().spliterator(), false)
                                     .filter(child -> child.path().name().equals("first"))
-                                    .findFirst().orElseThrow().tell("fail");
+                                    .findFirst().orElseThrow().tell("fail", getSelf());
                         }
                     })
                     .build();

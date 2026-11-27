@@ -442,7 +442,7 @@ SLF4J bridge 由系统内 logger Actor 消费 `LogEvent`，不创建专用事件
 不添加 `[source]` 前缀。`Slf4jLogMarker` 保留原始 SLF4J Marker，bridge 优先透传该 Marker，
 普通 `LogMarker` 才按名称创建 Marker；初始化握手前通过 SLF4J 输出 `Slf4jLogger started`。
 库只依赖 `slf4j-api`，不捆绑 provider；必须显式设置
-`tapio.loggers = ["io.github.espen7.tapio.event.Slf4jLogger"]` 才会启用。对应上游
+`tapio.loggers = ["io.github.espen7.tapio.event.slf4j.Slf4jLogger"]` 才会启用。对应上游
 `event/Logging.scala` 和 `slf4j/src/main/scala/org/apache/pekko/event/slf4j/Slf4jLogger.scala`。
 
 Java 边界：`Timeout(...)` 日志按上游文本保留，数字由配置毫秒值构造；`UnboundedMailbox.MessageQueue`
@@ -496,7 +496,7 @@ Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.
 ## Timers、PipeTo、GracefulStop、Stash 与扩展邮箱
 
 - `TimerScheduler`、`TimerSchedulerImpl`、`AbstractActorWithTimers` 和 `AbstractLoggingActorWithTimers` 对应上游 `actor/Timers.scala` 和 `actor/dungeon/TimerSchedulerImpl.scala`。支持 `startSingleTimer`、`startTimerWithFixedDelay`、`startTimerAtFixedRate`、`isTimerActive`、`cancel` 和 `cancelAll`，并在 `aroundPreRestart` / `aroundPostStop` 自动取消；通过 `owner` 引用与 `generation` 令牌丢弃已取消或旧重启实例的过期定时消息。
-- `Patterns.pipe` 和 `Patterns.gracefulStop` 对应上游 `pattern/PipeToSupport.scala`、`pattern/GracefulStopSupport.scala` 和 `pattern/Patterns.scala`。`pipe` 支持将 `CompletionStage` 成功值或 `Status.Failure` 转发至 `ActorRef` 或 `ActorSelection`；`gracefulStop` 通过 `PromiseActorRef` 监听目标 `Terminated` 并发送 `PoisonPill` 或自定义停止消息。`ActorSystem.registerOnTermination` 通过 `whenTerminated.thenRun` 注册终止回调。
+- `Patterns.pipe` 和 `Patterns.gracefulStop` 对应上游 `pattern/PipeToSupport.scala`、`pattern/GracefulStopSupport.scala` 和 `pattern/Patterns.scala`。`pipe` 支持将 `CompletionStage` 成功值或 `Status.Failure` 转发至 `ActorRef` 或 `ActorSelection`；`gracefulStop` 通过 `PromiseActorRef` 监听目标 `Terminated` 并发送 `PoisonPill` 或自定义停止消息。`ActorSystem.registerOnTermination` 通过原子链式 `CompletableFuture` 节点按后进先出（LIFO）顺序执行终止回调，对齐上游 `TerminationCallbacks`，并在系统已终止后抛出 `RejectedExecutionException`。
 - `DequeBasedMessageQueueSemantics`、`UnboundedDequeBasedMailbox`、`BoundedDequeBasedMailbox`、`AbstractActorWithStash`、`AbstractActorWithUnboundedStash`、`AbstractActorWithUnrestrictedStash` 和 `StashOverflowException` 对应上游 `actor/Stash.scala`、`actor/AbstractActor.scala` 和 `dispatch/Mailbox.scala`，并支持 `stash-capacity` 配置与 `preRestart`/`postStop` 自动释放到 `deadLetters`。
 - `PriorityGenerator`、`UnboundedPriorityMailbox`、`ControlMessage` 和 `UnboundedControlAwareMailbox` 对应上游 `dispatch/Mailbox.scala` 中的优先级与控制感知邮箱。
 - `LoggingReceive` 对应上游 `event/LoggingReceive.scala`，在 `tapio.actor.debug.receive = on` 时发布已处理/未处理消息的 `DEBUG` 日志。
@@ -512,3 +512,18 @@ Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.
 - `NodeMessageQueue` 和 `SingleConsumerOnlyUnboundedMailbox` 对应上游 `dispatch/Mailbox.scala`，复用 `AbstractNodeQueue<Envelope>` 实现多生产者单消费者无界邮箱。
 - `RetrySupport.retry` 对应上游 `pattern/RetrySupport.scala`，支持立即重试、固定延迟、指数退避及自定义重试条件与延迟函数。
 - `Dispatchers.registerConfigurator` 对应上游 `dispatch/Dispatchers.scala`；`Setup` 与 `ActorSystemSetup` 对应上游 `actor/setup/ActorSystemSetup.scala`。
+
+## 源码对齐与 Java 边界记录
+
+- **已对齐项**：
+  - `Slf4jLogger` 与 `Slf4jLogMarker` 已移至 `io.github.espen7.tapio.event.slf4j`（对应 `org.apache.pekko.event.slf4j`）；`TimerSchedulerImpl` 保留在 `actor.dungeon`（与 Pekko `actor/dungeon/TimerSchedulerImpl.scala` 一致）。
+  - 补齐 `MultipleConsumerSemantics`、`QueueBasedMessageQueue`、`UnboundedQueueBasedMessageQueue`、`BoundedQueueBasedMessageQueue`、`DequeBasedMessageQueue` 队列语义层级。
+  - 补齐 `@DoNotInherit`、`@InternalApi`、`@InternalStableApi` 注解与 `NoSerializationVerificationNeeded`、`NoStackTrace`（含 `fillInStackTrace()` 返回 `this`）契约。
+  - `DeadLetterMailbox` 已内聚为 `Mailboxes` 内部创建逻辑；移除非上游的 `ActorRef.tell(Object)` 1 参数重载、`ActorSystem.INTERNAL_DISPATCHER_ID`、`ActorCell.cancelReceiveTimeout()` 覆写及 `BackoffOnFailureOptions.withDefaultStoppingStrategy()`。
+  - `AbstractNodeQueue` 补齐 `peekNode()` / `peek()` 及 `Node` 的公开构造与访问器；`LoggingReceive.create` 对齐 `(Receive, ActorContext)` 参数顺序并按 `EventStream.logLevel()` 判定。
+  - `Props` 补齐 `Props.empty` 与 `Serializable`；`Deploy` 实现 `Serializable`；`DeadLetterListener` 改为无参构造从 `Settings` 读取配置，并补齐 `CoordinatedShutdown` 期间（`!LogDeadLettersDuringShutdown` 且 `terminatingShutdownInProgress`）的死信日志抑制与 `receiveWhenSuspended` 计数偏移（`count - maxCount - 1`）；`AbstractFSM` 补齐 `makeTransition` 目标状态存在性校验与 `logTermination`。
+- **Java 边界保留适配**：
+  - `dispatch/{BlockContext,CanAwait,ExecutionContext}` 与 `util/{NonFatal,NoStackTrace}` 为 Scala 标准库接口/工具在 Java 侧的最小等价替代。
+  - `SubchannelClassification extends LoggingBus`：Java 不支持多继承且 `SubchannelClassification` 持有订阅索引状态，故以抽象类单继承承载（上游为 `EventStream extends LoggingBus with SubchannelClassification`）。
+  - `ActorCell.makeChild`：`LocalActorRefProvider.actorOf` 不声明受检 `InterruptedException`，故在 `catch (Throwable)` 中以 `instanceof InterruptedException` 分支对齐上游处理。
+- **待后续对齐项**：`ActorPath` 拆分 `RootActorPath`/`ChildActorPath` 与 MurmurHash、`Deploy` 其余字段与 `writeReplace()`、`ActorSystemImpl` 延迟 `start()`、`Dispatchers` 动态实例化及 `LoadMetrics` 契约。

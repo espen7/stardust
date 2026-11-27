@@ -85,6 +85,9 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     private final CoordinatedShutdown coordinatedShutdown;
     /** ActorSystem 完成终止时完成的通知。 */
     private final CompletableFuture<Terminated> whenTerminated = new CompletableFuture<>();
+    /** 按后进先出（LIFO）顺序串联终止回调的头指针；为 null 表示系统已终止。 */
+    private final java.util.concurrent.atomic.AtomicReference<CompletableFuture<Terminated>> terminationCallbacksRef =
+            new java.util.concurrent.atomic.AtomicReference<>(whenTerminated);
 
     /**
      * 创建本地 ActorSystem。
@@ -133,9 +136,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
             provider.terminationFuture().whenComplete(this::finishTermination);
             provider.init(this);
             if (settings.LogDeadLetters > 0) {
-                this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class,
-                        settings.LogDeadLetters, settings.LogDeadLettersSuspendDuration,
-                        settings.logDeadLettersSuspendDurationDescription), "deadLetterListener");
+                this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class), "deadLetterListener");
             } else {
                 this.logDeadLetterListener = null;
             }
@@ -313,9 +314,9 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         LocalActorRef guardian = provider.guardian();
         LocalActorRef systemGuardian = provider.systemGuardian();
         if (guardian.path().equals(parent)) {
-            guardian.tell(new StopChild(actor));
+            guardian.tell(new StopChild(actor), ActorRef.noSender);
         } else if (systemGuardian.path().equals(parent)) {
-            systemGuardian.tell(new StopChild(actor));
+            systemGuardian.tell(new StopChild(actor), ActorRef.noSender);
         } else {
             ((InternalActorRef) actor).stop();
         }
@@ -539,7 +540,24 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     @Override
     public void registerOnTermination(Runnable code) {
         java.util.Objects.requireNonNull(code, "code must not be null");
-        whenTerminated.thenRun(code);
+        for (; ; ) {
+            CompletableFuture<Terminated> current = terminationCallbacksRef.get();
+            if (current == null) {
+                throw new java.util.concurrent.RejectedExecutionException("ActorSystem already terminated.");
+            }
+            CompletableFuture<Terminated> next = new CompletableFuture<>();
+            if (terminationCallbacksRef.compareAndSet(current, next)) {
+                next.whenComplete((terminated, error) -> {
+                    try {
+                        code.run();
+                    } finally {
+                        if (error != null) current.completeExceptionally(error);
+                        else current.complete(terminated);
+                    }
+                });
+                return;
+            }
+        }
     }
 
     private void finishTermination(Terminated terminated, Throwable failure) {
@@ -548,8 +566,11 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         } catch (RuntimeException error) {
             log.error(error, "Error during actor system termination");
         }
-        if (failure == null) whenTerminated.complete(terminated);
-        else whenTerminated.completeExceptionally(failure);
+        CompletableFuture<Terminated> head = terminationCallbacksRef.getAndSet(null);
+        if (head != null) {
+            if (failure == null) head.complete(terminated);
+            else head.completeExceptionally(failure);
+        }
     }
 
     void finalTerminate() {

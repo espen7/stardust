@@ -29,6 +29,34 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
     }
 
     /**
+     * 读取队首节点但不出队。仅由消费者线程调用。
+     *
+     * @return 队首节点，队列为空时为 {@code null}
+     */
+    @SuppressWarnings("unchecked")
+    protected final Node<T> peekNode() {
+        Node<T> current = (Node<T>) tailHandle.getAcquire(this);
+        Node<T> next = current.next();
+        if (next == null && get() != current) {
+            do {
+                Thread.onSpinWait();
+                next = current.next();
+            } while (next == null);
+        }
+        return next;
+    }
+
+    /**
+     * 读取队首元素但不出队。仅由消费者线程调用。
+     *
+     * @return 队首元素，队列为空时为 {@code null}
+     */
+    public final T peek() {
+        Node<T> next = peekNode();
+        return next == null ? null : next.value;
+    }
+
+    /**
      * 将元素加入队尾。允许多个生产者并发调用。
      *
      * @param value 非 {@code null} 的待入队元素
@@ -129,7 +157,7 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
      *
      * @param <T> 节点存放的元素类型
      */
-    public static final class Node<T> {
+    public static class Node<T> {
         private static final VarHandle nextHandle = findHandle(Node.class, "next");
         /**
          * 节点存放的元素。持有脱离队列的节点时可以读取或替换此值。
@@ -137,16 +165,36 @@ public abstract class AbstractNodeQueue<T> extends AtomicReference<AbstractNodeQ
         public T value;
         private volatile Node<T> next;
 
-        private Node(T value) {
+        /** 创建空节点。 */
+        public Node() {
+            this(null);
+        }
+
+        /**
+         * 创建携带指定元素的节点。
+         *
+         * @param value 元素值
+         */
+        public Node(T value) {
             this.value = value;
         }
 
+        /**
+         * 读取后继节点。
+         *
+         * @return 后继节点
+         */
         @SuppressWarnings("unchecked")
-        private Node<T> next() {
+        public final Node<T> next() {
             return (Node<T>) nextHandle.getAcquire(this);
         }
 
-        private void setNext(Node<T> next) {
+        /**
+         * 设置后继节点。
+         *
+         * @param next 后继节点
+         */
+        protected final void setNext(Node<T> next) {
             nextHandle.setRelease(this, next);
         }
     }

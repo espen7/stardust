@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +44,7 @@ public final class FSM {
     }
 
     /** FSM 停止原因。 */
+    @DoNotInherit
     public sealed interface Reason permits Normal, Shutdown, Failure {
     }
 

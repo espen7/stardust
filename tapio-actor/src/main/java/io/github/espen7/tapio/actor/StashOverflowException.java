@@ -38,4 +38,9 @@ public class StashOverflowException extends TapioException implements NoStackTra
     public StashOverflowException(String message, Throwable cause) {
         super(message, cause);
     }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
+    }
 }

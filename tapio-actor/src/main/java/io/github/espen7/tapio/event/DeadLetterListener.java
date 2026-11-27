@@ -13,10 +13,14 @@
  */
 package io.github.espen7.tapio.event;
 
+import com.typesafe.config.Config;
 import io.github.espen7.tapio.actor.Actor;
 import io.github.espen7.tapio.actor.ActorLogMarker;
+import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.AllDeadLetters;
+import io.github.espen7.tapio.actor.CoordinatedShutdown;
 import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.DeadLetterActorRef;
 import io.github.espen7.tapio.actor.DeadLetterSuppression;
@@ -31,23 +35,31 @@ import java.util.Optional;
 
 /** 订阅 dead-letter 事件，并按照系统设置限制日志数量。 */
 public final class DeadLetterListener extends Actor {
+    private final EventStream eventStream;
     private final int maxCount;
+    private final boolean isAlwaysLoggingDeadLetters;
+    private final boolean logDeadLettersDuringShutdown;
+    private final Config coordinatedShutdownConfig;
     private final Duration suspendDuration;
     private final String suspendDescription;
+    private CoordinatedShutdown coordinatedShutdown;
+    private Boolean shutdownTerminatesSystem;
     private int count;
     private long suspendDeadline;
 
     /**
      * 创建默认 dead-letter 日志订阅者。
-     *
-     * @param maxCount 一轮内最多记录的事件数
-     * @param suspendDuration 达到上限后的暂停时间；为 {@code null} 时停止订阅者
-     * @param suspendDescription 暂停时间的文本表示
      */
-    public DeadLetterListener(int maxCount, Duration suspendDuration, String suspendDescription) {
-        this.maxCount = maxCount;
-        this.suspendDuration = suspendDuration;
-        this.suspendDescription = suspendDescription;
+    public DeadLetterListener() {
+        ActorSystem.Settings settings = context.system().settings();
+        this.eventStream = context.system().eventStream();
+        this.maxCount = settings.LogDeadLetters;
+        this.isAlwaysLoggingDeadLetters = maxCount == Integer.MAX_VALUE;
+        this.logDeadLettersDuringShutdown = settings.LogDeadLettersDuringShutdown;
+        this.coordinatedShutdownConfig = settings.config().getConfig(ActorPath.Scheme + ".coordinated-shutdown");
+        this.suspendDuration = settings.LogDeadLettersSuspendDuration;
+        this.suspendDescription = settings.LogDeadLettersSuspendDuration == null
+                ? "infinite" : settings.LogDeadLettersSuspendDuration.toString();
     }
 
     @Override
@@ -76,14 +88,20 @@ public final class DeadLetterListener extends Actor {
         return ReceiveBuilder.create().match(AllDeadLetters.class, this::receiveDeadLetter).build().onMessage();
     }
 
-    private void receiveDeadLetter(AllDeadLetters event) {
-        if (event.message() instanceof WrappedMessage wrapped && wrapped.message() instanceof DeadLetterSuppression) return;
+    private void incrementCount() {
         if (count == Integer.MAX_VALUE) {
-            Logging.getLogger(context.system().eventStream(), self.path().toString(), getClass())
+            Logging.getLogger(eventStream, self.path().toString(), getClass())
                     .info("Resetting DeadLetterListener counter after reaching Int.MaxValue.");
             count = 1;
-        } else count++;
-        if (maxCount == Integer.MAX_VALUE) {
+        } else {
+            count++;
+        }
+    }
+
+    private void receiveDeadLetter(AllDeadLetters event) {
+        if (isSuppressed(event)) return;
+        incrementCount();
+        if (isAlwaysLoggingDeadLetters) {
             logDeadLetter(event, "");
         } else if (suspendDuration == null) {
             if (count == maxCount) {
@@ -102,17 +120,43 @@ public final class DeadLetterListener extends Actor {
     private PartialFunction<Object, Void> receiveWhenSuspended() {
         return ReceiveBuilder.create()
                 .match(AllDeadLetters.class, event -> {
-                    if (event.message() instanceof WrappedMessage wrapped
-                            && wrapped.message() instanceof DeadLetterSuppression) return;
+                    if (isSuppressed(event)) return;
+                    incrementCount();
                     if (System.nanoTime() - suspendDeadline > 0) {
-                        logDeadLetter(event, ", of which " + (count - maxCount) + " were not logged. The counter will be reset now");
+                        logDeadLetter(event, ", of which " + (count - maxCount - 1)
+                                + " were not logged. The counter will be reset now");
                         count = 0;
                         context.become(receive());
-                    } else {
-                        count++;
                     }
                 })
                 .build().onMessage();
+    }
+
+    private boolean isSuppressed(AllDeadLetters event) {
+        return isWrappedSuppressed(event) || suppressedDuringShutdown();
+    }
+
+    private boolean isWrappedSuppressed(AllDeadLetters event) {
+        return event.message() instanceof WrappedMessage wrapped
+                && wrapped.message() instanceof DeadLetterSuppression;
+    }
+
+    private boolean suppressedDuringShutdown() {
+        return !logDeadLettersDuringShutdown && terminatingShutdownInProgress();
+    }
+
+    private boolean terminatingShutdownInProgress() {
+        if (coordinatedShutdown == null) {
+            coordinatedShutdown = CoordinatedShutdown.get(context.system());
+        }
+        Optional<CoordinatedShutdown.Reason> reason = coordinatedShutdown.shutdownReason();
+        if (reason.isEmpty()) return false;
+        if (shutdownTerminatesSystem == null) {
+            shutdownTerminatesSystem = CoordinatedShutdown
+                    .confWithOverrides(coordinatedShutdownConfig, reason)
+                    .getBoolean("terminate-actor-system");
+        }
+        return shutdownTerminatesSystem;
     }
 
     private void logDeadLetter(AllDeadLetters event, String doneMsg) {

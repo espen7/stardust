@@ -35,7 +35,7 @@ public final class AskableActorRef {
     CompletionStage<Object> internalAsk(Object message, Duration timeout, ActorRef sender) {
         if (actorRef instanceof InternalActorRef ref) {
             if (ref.isTerminated()) {
-                actorRef.tell(message);
+                actorRef.tell(message, sender);
                 return CompletableFuture.failedStage(recipientTerminatedException(actorRef, message, sender));
             }
             if (timeout.isZero() || timeout.isNegative()) {

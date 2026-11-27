@@ -218,6 +218,11 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
     }
 
     private void makeTransition(FSM.State<S, D> next) {
+        if (!stateFunctions.containsKey(next.stateName())) {
+            terminate(stay().withStopReason(
+                    new FSM.Failure("Next state " + next.stateName() + " does not exist")));
+            return;
+        }
         cancelTimeout();
         S oldStateName = currentState.stateName();
         this.nextState = next;
@@ -250,8 +255,26 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
     private void terminate(FSM.State<S, D> next) {
         cancelTimeout();
         if (currentState.stopReason() == null) {
+            logTermination(next.stopReason());
             currentState = next;
             terminateEvent.accept(new FSM.StopEvent<>(next.stopReason(), next.stateName(), next.stateData()));
+        }
+    }
+
+    /**
+     * 默认仅以 ERROR 级别记录 {@link FSM.Failure} 停止原因，子类可覆写。
+     *
+     * @param reason 停止原因
+     */
+    protected void logTermination(FSM.Reason reason) {
+        if (reason instanceof FSM.Failure(Object cause)) {
+            io.github.espen7.tapio.event.LoggingAdapter adapter = io.github.espen7.tapio.event.Logging.getLogger(
+                    getContext().system().eventStream(), getSelf().path().toString(), getClass());
+            if (cause instanceof Throwable throwable) {
+                adapter.error(throwable, "terminating due to Failure");
+            } else {
+                adapter.error(String.valueOf(cause));
+            }
         }
     }
 

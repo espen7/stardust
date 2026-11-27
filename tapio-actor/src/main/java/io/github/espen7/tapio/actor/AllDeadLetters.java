@@ -13,9 +13,12 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 /**
  * EventStream 上 dead-letter 事件的共同订阅类型。
  */
+@DoNotInherit
 public interface AllDeadLetters extends WrappedMessage {
     /**
      * 返回未投递消息的发送者。

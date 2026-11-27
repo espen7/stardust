@@ -13,6 +13,9 @@
  */
 package io.github.espen7.tapio.event;
 
+import io.github.espen7.tapio.actor.NoSerializationVerificationNeeded;
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,7 +27,8 @@ import java.util.Objects;
  * <p>source、sourceClass 和 message 分开保存，日志后端可以决定如何展示 source 元数据，
  * 同时订阅者也能在不解析格式化文本的情况下检查事件。</p>
  */
-public abstract class LogEvent implements LogEventWithMarker {
+@DoNotInherit
+public abstract class LogEvent implements LogEventWithMarker, NoSerializationVerificationNeeded {
     /** 日志级别，顺序同时表示过滤优先级。 */
     public enum Level {
         /** 关闭日志。 */

@@ -18,6 +18,7 @@ import io.github.espen7.tapio.actor.ChildNameReserved;
 import io.github.espen7.tapio.actor.ChildRestartStats;
 import io.github.espen7.tapio.actor.ChildStats;
 import io.github.espen7.tapio.actor.InvalidActorNameException;
+import io.github.espen7.tapio.annotation.InternalApi;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -30,6 +31,7 @@ import java.util.TreeMap;
  *
  * <p>实现通过不可变状态转换表达 child 注册、停止等待、重建等待和终止状态。</p>
  */
+@InternalApi
 public interface ChildrenContainer {
     /** 表示 children 状态转换期间 ActorCell 的暂停原因。 */
     interface SuspendReason {

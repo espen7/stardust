@@ -49,7 +49,7 @@ class ClassicControlMessageTest {
         ActorRef target = system.actorOf(Props.create(NoopActor.class), "target");
 
         assertEquals("watching", ask(watcher, new WatchCommand(target, null, false)));
-        target.tell(PoisonPill.getInstance());
+        target.tell(PoisonPill.getInstance(), ActorRef.noSender);
 
         ObservedMessage observed = events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(observed);
@@ -67,7 +67,7 @@ class ClassicControlMessageTest {
         ActorRef target = system.actorOf(Props.create(NoopActor.class), "target");
 
         assertEquals("watching", ask(watcher, new WatchCommand(target, null, false)));
-        target.tell(Kill.getInstance());
+        target.tell(Kill.getInstance(), ActorRef.noSender);
 
         ObservedMessage observed = events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(observed);
@@ -88,7 +88,7 @@ class ClassicControlMessageTest {
 
         assertEquals(1, ask(child, "instance"));
         assertEquals("pre-start:1", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
-        child.tell(Kill.getInstance());
+        child.tell(Kill.getInstance(), ActorRef.noSender);
         assertEquals("pre-start:2", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals("post-restart:2", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals(2, ask(child, "instance"));
@@ -145,7 +145,7 @@ class ClassicControlMessageTest {
                 timeouts, lifecycle, instances), "timeout");
 
         assertNotNull(timeouts.poll(WAIT_SECONDS, TimeUnit.SECONDS));
-        actor.tell(new Fail());
+        actor.tell(new Fail(), ActorRef.noSender);
         assertEquals("post-restart:2", lifecycle.poll(WAIT_SECONDS, TimeUnit.SECONDS));
         assertEquals(2, ask(actor, "instance"));
         assertNotNull(timeouts.poll(WAIT_SECONDS, TimeUnit.SECONDS));
@@ -163,7 +163,7 @@ class ClassicControlMessageTest {
         assertEquals("watching", ask(watcher, new WatchCommand(first, "first-stopped", true)));
         assertEquals("watching", ask(watcher, new WatchCommand(first, "first-stopped", true)));
         assertEquals(IllegalStateException.class.getName(), ask(watcher, new MixWatchCommand(first, "other")));
-        first.tell(PoisonPill.getInstance());
+        first.tell(PoisonPill.getInstance(), ActorRef.noSender);
 
         ObservedMessage observed = events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(observed);
@@ -173,11 +173,11 @@ class ClassicControlMessageTest {
         assertEquals("watching", ask(watcher, new WatchCommand(second, null, false)));
         assertEquals(IllegalStateException.class.getName(), ask(watcher, new MixWatchCommand(second, "custom")));
         assertEquals("unwatched", ask(watcher, new UnwatchCommand(second)));
-        second.tell(PoisonPill.getInstance());
+        second.tell(PoisonPill.getInstance(), ActorRef.noSender);
         assertNull(events.poll(Duration.ofMillis(150).toNanos(), TimeUnit.NANOSECONDS));
 
         assertEquals("watching", ask(watcher, new WatchCommand(third, null, true)));
-        third.tell(PoisonPill.getInstance());
+        third.tell(PoisonPill.getInstance(), ActorRef.noSender);
         ObservedMessage nullMessage = events.poll(WAIT_SECONDS, TimeUnit.SECONDS);
         assertNotNull(nullMessage);
         assertNull(nullMessage.message());
@@ -192,7 +192,7 @@ class ClassicControlMessageTest {
                 () -> new ConstructorBecomeActor(instances.incrementAndGet())), "actor");
 
         assertEquals("constructor:1", ask(actor, "state"));
-        actor.tell(new Fail());
+        actor.tell(new Fail(), ActorRef.noSender);
         assertEquals("constructor:2", ask(actor, "state"));
         assertEquals(2, instances.get());
     }
@@ -248,7 +248,7 @@ class ClassicControlMessageTest {
         ActorRef actor = system.actorOf(Props.create(RestartLifecycleFailureActor.class,
                 "pre", new AtomicInteger(), new AtomicInteger()), "actor");
 
-        actor.tell(new Fail());
+        actor.tell(new Fail(), ActorRef.noSender);
 
         Error error = awaitErrorCause(events, PreRestartException.class);
         PreRestartException exception = (PreRestartException) error.cause();
@@ -270,7 +270,7 @@ class ClassicControlMessageTest {
                 "post", new AtomicInteger(), postStops), "actor");
         assertEquals("watching", ask(watcher, new WatchCommand(actor, null, false)));
 
-        actor.tell(new Fail());
+        actor.tell(new Fail(), ActorRef.noSender);
 
         Error error = awaitErrorCause(events, PostRestartException.class);
         PostRestartException exception = (PostRestartException) error.cause();
@@ -291,7 +291,7 @@ class ClassicControlMessageTest {
                 childStopping, allowChildStop, lifecycle, new AtomicInteger()), "parent");
         assertEquals(1, ask(parent, "instance"));
 
-        parent.tell(new Fail());
+        parent.tell(new Fail(), ActorRef.noSender);
         assertTrue(childStopping.await(WAIT_SECONDS, TimeUnit.SECONDS));
         InternalActorRef internalParent = (InternalActorRef) parent;
         internalParent.sendSystemMessage(new Suspend());

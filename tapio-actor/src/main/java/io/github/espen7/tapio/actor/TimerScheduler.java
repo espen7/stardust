@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.DoNotInherit;
+
 import java.time.Duration;
 
 /**
@@ -22,6 +24,7 @@ import java.time.Duration;
  * 所有定时器会在 Actor 重启或停止时自动取消；{@code TimerScheduler} 非线程安全，只能在拥有它的
  * Actor 内部使用。</p>
  */
+@DoNotInherit
 public abstract class TimerScheduler {
     /** 创建 TimerScheduler 实例。 */
     protected TimerScheduler() {

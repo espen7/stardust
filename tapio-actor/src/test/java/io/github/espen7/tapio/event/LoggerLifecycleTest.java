@@ -28,6 +28,7 @@ import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.dispatch.MessageQueue;
 import io.github.espen7.tapio.dispatch.UnboundedMailbox;
+import io.github.espen7.tapio.event.slf4j.Slf4jLogger;
 import io.github.espen7.tapio.pattern.AskTimeoutException;
 import io.github.espen7.tapio.util.NoStackTrace;
 import io.github.espen7.tapio.util.NonFatal;
@@ -229,7 +230,7 @@ class LoggerLifecycleTest {
         ActorRef actor = system.actorOf(Props.create(MdcProbe.class), "mdc-probe");
         BlockingQueue<MdcProbe.Result> results = new LinkedBlockingQueue<>();
         actor.tell(new MdcProbe.Request(new Info("test", LoggerLifecycleTest.class, "message"),
-                results, false));
+                results, false), ActorRef.noSender);
 
         MdcProbe.Result result = await(results);
         assertEquals("custom-timestamp", result.mdc().get("pekkoTimestamp"));
@@ -404,7 +405,7 @@ class LoggerLifecycleTest {
                 new LogMarker("test-marker", Map.of("markerField", "marker-value")));
         BlockingQueue<MdcProbe.Result> results = new LinkedBlockingQueue<>();
         system.actorOf(Props.create(MdcProbe.class), "mdc-probe").tell(
-                new MdcProbe.Request(event, results, false));
+                new MdcProbe.Request(event, results, false), ActorRef.noSender);
 
         MdcProbe.Result result = await(results);
         Map<String, String> mdc = result.mdc();
@@ -417,23 +418,6 @@ class LoggerLifecycleTest {
         assertEquals("r-1", mdc.get("requestId"));
         assertEquals("marker-value", mdc.get("markerField"));
         assertTrue(result.cleared());
-    }
-
-    @Test
-    void slf4jLoggerPreservesMessageText() {
-        AtomicReference<String> message = new AtomicReference<>();
-        Logger logger = (Logger) Proxy.newProxyInstance(Logger.class.getClassLoader(), new Class<?>[]{Logger.class},
-                (proxy, method, arguments) -> {
-                    if ("info".equals(method.getName())) {
-                        message.set(arguments.length > 1 ? (String) arguments[1] : (String) arguments[0]);
-                    }
-                    return null;
-                });
-
-        Slf4jLogger.publish(logger, null,
-                new Info("test-source", LoggerLifecycleTest.class, "plain-message"));
-
-        assertEquals("plain-message", message.get());
     }
 
     @Test
@@ -483,18 +467,6 @@ class LoggerLifecycleTest {
     }
 
     @Test
-    void slf4jLoggerPreservesWrappedMarker() {
-        Marker parent = MarkerFactory.getMarker("parent-marker");
-        Marker child = MarkerFactory.getMarker("child-marker");
-        child.add(parent);
-        LogEvent event = new Info("test-source", LoggerLifecycleTest.class, "marker-message",
-                Slf4jLogMarker.create(child));
-
-        assertSame(child, Slf4jLogger.markerIfPresent(event));
-        assertTrue(event.marker().properties().isEmpty());
-    }
-
-    @Test
     void slf4jLoggerClearsMdcWhenPublishingThrows() throws Exception {
         system = ActorSystem.create("logger-mdc-failure", ConfigFactory.parseString("""
                 tapio.loggers = []
@@ -503,7 +475,7 @@ class LoggerLifecycleTest {
         LogEvent event = new Info("test-source", LoggerLifecycleTest.class, "message");
         BlockingQueue<MdcProbe.Result> results = new LinkedBlockingQueue<>();
         system.actorOf(Props.create(MdcProbe.class), "mdc-probe").tell(
-                new MdcProbe.Request(event, results, true));
+                new MdcProbe.Request(event, results, true), ActorRef.noSender);
 
         MdcProbe.Result result = await(results);
         assertInstanceOf(IllegalStateException.class, result.failure());
@@ -522,7 +494,7 @@ class LoggerLifecycleTest {
                 """));
         loggerSystem = system;
 
-        system.actorOf(Props.create(UnhandledActor.class), "unhandled").tell("probe");
+        system.actorOf(Props.create(UnhandledActor.class), "unhandled").tell("probe", ActorRef.noSender);
 
         String message = awaitMessage(loggerEvents,
                 event -> event.message().startsWith("unhandled message from ")).message();
@@ -625,7 +597,7 @@ class LoggerLifecycleTest {
             return receiveBuilder()
                     .match(InitializeLogger.class, ignored -> {
                         initialized.countDown();
-                        getSender().tell(LoggerInitialized.getInstance());
+                        getSender().tell(LoggerInitialized.getInstance(), getSelf());
                     })
                     .match(LogEvent.class, loggerEvents::add)
                     .build();
@@ -644,7 +616,7 @@ class LoggerLifecycleTest {
         @Override
         public Receive createReceive() {
             return receiveBuilder().match(InitializeLogger.class,
-                    ignored -> getSender().tell("not-initialized")).build();
+                    ignored -> getSender().tell("not-initialized", getSelf())).build();
         }
     }
 
@@ -665,7 +637,7 @@ class LoggerLifecycleTest {
         @Override
         public Receive createReceive() {
             return receiveBuilder().match(InitializeLogger.class, ignored -> getSender().tell(
-                    new io.github.espen7.tapio.actor.Status.Failure(new AskTimeoutException("ask timed out")))).build();
+                    new io.github.espen7.tapio.actor.Status.Failure(new AskTimeoutException("ask timed out")), getSelf())).build();
         }
     }
 

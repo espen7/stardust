@@ -15,6 +15,7 @@ package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.actor.dungeon.ChildrenContainer;
 import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.annotation.InternalStableApi;
 import io.github.espen7.tapio.dispatch.Envelope;
 import io.github.espen7.tapio.dispatch.sysmsg.SystemMessage;
 
@@ -65,6 +66,7 @@ public interface Cell {
      *
      * @param message 已包含 sender 的 Envelope
      */
+    @InternalStableApi
     void sendMessage(Envelope message);
 
     /**

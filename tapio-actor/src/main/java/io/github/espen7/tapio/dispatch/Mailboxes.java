@@ -47,7 +47,7 @@ public final class Mailboxes {
 
     private final ActorSystem.Settings settings;
     private final EventStream eventStream;
-    private final DeadLetterMailbox deadLetterMailbox;
+    private final Mailbox deadLetterMailbox;
     private final Map<Class<?>, String> mailboxBindings;
     private final ConcurrentHashMap<String, MailboxType> mailboxTypeConfigurators = new ConcurrentHashMap<>();
     private final Config defaultMailboxConfig;
@@ -63,9 +63,60 @@ public final class Mailboxes {
     public Mailboxes(ActorSystem.Settings settings, EventStream eventStream, ActorRef deadLetters) {
         this.settings = settings;
         this.eventStream = eventStream;
-        this.deadLetterMailbox = new DeadLetterMailbox(deadLetters);
+        this.deadLetterMailbox = createDeadLetterMailbox(deadLetters);
         this.defaultMailboxConfig = settings.config().getConfig(DefaultMailboxId);
         this.mailboxBindings = loadMailboxBindings();
+    }
+
+    private static Mailbox createDeadLetterMailbox(ActorRef deadLetters) {
+        Mailbox mailbox = new Mailbox(new MessageQueue() {
+            @Override
+            public void enqueue(ActorRef receiver, Envelope envelope) {
+                if (!(envelope.message() instanceof io.github.espen7.tapio.actor.DeadLetter)) {
+                    deadLetters.tell(new io.github.espen7.tapio.actor.DeadLetter(
+                            envelope.message(), envelope.sender(), receiver), envelope.sender());
+                }
+            }
+
+            @Override
+            public Envelope dequeue() {
+                return null;
+            }
+
+            @Override
+            public int numberOfMessages() {
+                return 0;
+            }
+
+            @Override
+            public boolean hasMessages() {
+                return false;
+            }
+
+            @Override
+            public void cleanUp(ActorRef owner, MessageQueue deadLettersQueue) {
+            }
+        }) {
+            @Override
+            public boolean hasSystemMessages() {
+                return false;
+            }
+
+            @Override
+            public io.github.espen7.tapio.dispatch.sysmsg.SystemMessage systemDrain(
+                    io.github.espen7.tapio.dispatch.sysmsg.SystemMessage newContents) {
+                return null;
+            }
+
+            @Override
+            public void systemEnqueue(ActorRef receiver,
+                                      io.github.espen7.tapio.dispatch.sysmsg.SystemMessage message) {
+                deadLetters.tell(new io.github.espen7.tapio.actor.DeadLetter(message, receiver, receiver),
+                        ActorRef.noSender);
+            }
+        };
+        mailbox.becomeClosed();
+        return mailbox;
     }
 
     /**

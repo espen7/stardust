@@ -17,6 +17,7 @@ import io.github.espen7.tapio.dispatch.Dispatchers;
 import io.github.espen7.tapio.dispatch.Mailboxes;
 import io.github.espen7.tapio.japi.function.Creator;
 
+import java.io.Serializable;
 import java.lang.reflect.Constructor;
 
 /**
@@ -25,7 +26,10 @@ import java.lang.reflect.Constructor;
  * <p>Props 是 immutable、可共享的描述对象。它保存 Actor class 或 Creator，
  * ActorCell 每次 create/recreate 都通过 newActor() 获取新的实例。</p>
  */
-public final class Props {
+public final class Props implements Serializable {
+    /** 创建不响应任何消息的空 Actor 的 Props。 */
+    public static final Props empty = create(EmptyActor.class);
+
     private final Deploy deploy;
     private final Class<? extends Actor> clazz;
     private final Creator<? extends Actor> creator;
@@ -200,5 +204,12 @@ public final class Props {
             return new Props(new Deploy(deploy.path(), deploy.dispatcher(), m), clazz, creator);
         }
         return this;
+    }
+
+    private static final class EmptyActor extends AbstractActor {
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder().build();
+        }
     }
 }

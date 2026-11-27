@@ -47,15 +47,6 @@ public abstract class ActorRef implements Comparable<ActorRef>, Serializable {
     public abstract void tell(Object message, ActorRef sender);
 
     /**
-     * 使用空 sender 投递消息。
-     *
-     * @param message 待投递的消息
-     */
-    public final void tell(Object message) {
-        tell(message, noSender);
-    }
-
-    /**
      * 保留原 sender 的 forward 操作。
      *
      * @param message 待转发的消息

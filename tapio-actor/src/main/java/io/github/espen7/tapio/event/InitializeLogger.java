@@ -13,10 +13,12 @@
  */
 package io.github.espen7.tapio.event;
 
+import io.github.espen7.tapio.actor.NoSerializationVerificationNeeded;
+
 /**
  * 默认 logger 创建后、订阅日志 channel 前收到的初始化请求。
  *
  * @param bus logger 可选的额外订阅目标 LoggingBus
  */
-public record InitializeLogger(LoggingBus bus) {
+public record InitializeLogger(LoggingBus bus) implements NoSerializationVerificationNeeded {
 }

@@ -43,7 +43,6 @@ import java.util.concurrent.ThreadFactory;
  * {@link CompletionStage}。</p>
  */
 public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
-    private static final String INTERNAL_DISPATCHER_ID = ActorPath.Scheme + ".actor.internal-dispatcher";
     /** 创建 ActorSystem 抽象实例。 */
     protected ActorSystem() {
     }
@@ -168,7 +167,7 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
 
         Settings(ClassLoader classLoader, Config cfg, String name, ActorSystemSetup setup) {
             cfg.checkValid(ConfigFactory.defaultReference(classLoader)
-                    .withoutPath(INTERNAL_DISPATCHER_ID), ActorPath.Scheme);
+                    .withoutPath(io.github.espen7.tapio.dispatch.Dispatchers.InternalDispatcherId), ActorPath.Scheme);
             this.config = cfg;
             this.classLoader = classLoader;
             this.name = name;

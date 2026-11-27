@@ -75,11 +75,6 @@ public final class BackoffOnFailureOptions {
                 reset, Objects.requireNonNull(supervisorStrategy), handlingWhileStopped);
     }
 
-    /** 设置子 Actor 退避停止期间向发送者返回的默认回复消息。 */
-    public BackoffOnFailureOptions withDefaultStoppingStrategy() {
-        return withSupervisorStrategy((OneForOneStrategy) SupervisorStrategy.stoppingStrategy);
-    }
-
     /** 设置子 Actor 退避停止期间向发送者回复的固定消息。 */
     public BackoffOnFailureOptions withReplyWhileStopped(Object replyWhileStopped) {
         return new BackoffOnFailureOptions(childProps, childName, minBackoff, maxBackoff, randomFactor,

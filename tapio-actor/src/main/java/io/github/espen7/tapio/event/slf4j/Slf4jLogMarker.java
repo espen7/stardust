@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.github.espen7.tapio.event;
+package io.github.espen7.tapio.event.slf4j;
 
+import io.github.espen7.tapio.event.LogMarker;
 import org.slf4j.Marker;
 
 import java.util.Map;

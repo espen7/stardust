@@ -58,11 +58,11 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
     /**
      * 当启用 {@code tapio.actor.debug.receive} 时返回包装后的 {@link AbstractActor.Receive}，否则原样返回。
      *
-     * @param context 所属 ActorContext
      * @param receive 原始 Receive
+     * @param context 所属 ActorContext
      * @return Receive 实例
      */
-    public static AbstractActor.Receive create(ActorContext context, AbstractActor.Receive receive) {
+    public static AbstractActor.Receive create(AbstractActor.Receive receive, AbstractActor.ActorContext context) {
         if (context.system().settings().config().getBoolean(ActorPath.Scheme + ".actor.debug.receive")) {
             return new AbstractActor.Receive(new LoggingReceive(receive.onMessage(), context));
         }
@@ -72,7 +72,8 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
     @Override
     public boolean isDefinedAt(Object message) {
         boolean handled = receive.isDefinedAt(message);
-        if (context.system().settings().config().getBoolean(ActorPath.Scheme + ".actor.debug.receive")) {
+        LogEvent.Level currentLevel = context.system().eventStream().logLevel();
+        if (currentLevel != LogEvent.Level.OFF && LogEvent.Level.DEBUG.ordinal() >= currentLevel.ordinal()) {
             log.debug("received {} message {}{}",
                     handled ? "handled" : "unhandled",
                     message,

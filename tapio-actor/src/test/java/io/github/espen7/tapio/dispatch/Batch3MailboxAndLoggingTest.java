@@ -49,9 +49,9 @@ class Batch3MailboxAndLoggingTest {
     static final class LoggingReceiveActor extends AbstractActor {
         @Override
         public Receive createReceive() {
-            return LoggingReceive.create(getContext(), receiveBuilder()
+            return LoggingReceive.create(receiveBuilder()
                     .match(String.class, "ping"::equals, msg -> {})
-                    .build());
+                    .build(), getContext());
         }
     }
 
