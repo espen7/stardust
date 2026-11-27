@@ -463,7 +463,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         if (value instanceof CountDownLatch latch) {
             boolean interrupted = false;
             try {
-                long timeout = settings.config().getDuration(ActorPath.Scheme + ".actor.creation-timeout").toNanos();
+                long timeout = settings.config().getDuration(ConfigKeys.ACTOR_CREATION_TIMEOUT).toNanos();
                 while (true) {
                     try {
                         if (!latch.await(timeout, TimeUnit.NANOSECONDS)) {
@@ -529,8 +529,8 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     }
 
     private void loadExtensions() {
-        loadExtensions(ActorPath.Scheme + ".library-extensions", true);
-        loadExtensions(ActorPath.Scheme + ".extensions", false);
+        loadExtensions(ConfigKeys.LIBRARY_EXTENSIONS, true);
+        loadExtensions(ConfigKeys.EXTENSIONS, false);
     }
 
     private void loadExtensions(String key, boolean throwOnLoadFail) {
@@ -623,7 +623,7 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     public void close() throws TimeoutException {
         terminate();
         try {
-            whenTerminated.get(settings.config().getDuration(ActorPath.Scheme + ".coordinated-shutdown.close-actor-system-timeout")
+            whenTerminated.get(settings.config().getDuration(ConfigKeys.COORDINATED_SHUTDOWN_CLOSE_ACTOR_SYSTEM_TIMEOUT)
                     .toNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();

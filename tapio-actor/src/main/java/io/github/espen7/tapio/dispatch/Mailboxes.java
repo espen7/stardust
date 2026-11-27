@@ -20,6 +20,7 @@ import io.github.espen7.tapio.actor.Actor;
 import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.ConfigKeys;
 import io.github.espen7.tapio.actor.Deploy;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.annotation.InternalApi;
@@ -39,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class Mailboxes {
     /** 默认 Mailbox 的 ID，也是其完整配置路径。 */
-    public static final String DefaultMailboxId = ActorPath.Scheme + ".actor.default-mailbox";
+    public static final String DefaultMailboxId = ConfigKeys.ACTOR_DEFAULT_MAILBOX;
     /** 未设置 mailbox requirement 时的哨兵值。 */
     public static final String NoMailboxRequirement = "";
     /** 由容量直接构造有界 mailbox 的 id 前缀。 */
@@ -356,8 +357,7 @@ public final class Mailboxes {
 
     private Map<Class<?>, String> loadMailboxBindings() {
         ClassLoader classLoader = settings.config().getClass().getClassLoader();
-        Config requirements = settings.config().getConfig(
-                ActorPath.Scheme + ".actor.mailbox.requirements");
+        Config requirements = settings.config().getConfig(ConfigKeys.ACTOR_MAILBOX_REQUIREMENTS);
         Map<Class<?>, String> bindings = new HashMap<>();
         for (var entry : requirements.root().entrySet()) {
             String className = entry.getKey();

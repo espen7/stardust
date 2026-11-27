@@ -107,11 +107,11 @@ public final class CoordinatedShutdown {
         this.system = system;
         Config config = system.settings().config();
         this.phases = phasesFromConfig(config);
-        if (config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.run-by-jvm-shutdown-hook")) {
+        if (config.getBoolean(ConfigKeys.COORDINATED_SHUTDOWN_RUN_BY_JVM_SHUTDOWN_HOOK)) {
             this.jvmShutdownHook = addCancellableJvmShutdownHook(() -> {
                 try {
                     runAll(jvmExitReason()).toCompletableFuture().get(
-                            config.getDuration(ActorPath.Scheme + ".coordinated-shutdown.close-actor-system-timeout")
+                            config.getDuration(ConfigKeys.COORDINATED_SHUTDOWN_CLOSE_ACTOR_SYSTEM_TIMEOUT)
                                     .toNanos(), TimeUnit.NANOSECONDS);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
@@ -498,8 +498,8 @@ public final class CoordinatedShutdown {
     }
 
     private static Map<String, Phase> phasesFromConfig(Config config) {
-        Config phaseConfig = config.getConfig(ActorPath.Scheme + ".coordinated-shutdown.phases");
-        Duration defaultTimeout = config.getDuration(ActorPath.Scheme + ".coordinated-shutdown.default-phase-timeout");
+        Config phaseConfig = config.getConfig(ConfigKeys.COORDINATED_SHUTDOWN_PHASES);
+        Duration defaultTimeout = config.getDuration(ConfigKeys.COORDINATED_SHUTDOWN_DEFAULT_PHASE_TIMEOUT);
         Map<String, Phase> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : phaseConfig.root().unwrapped().entrySet()) {
             Config current = phaseConfig.getConfig(entry.getKey());

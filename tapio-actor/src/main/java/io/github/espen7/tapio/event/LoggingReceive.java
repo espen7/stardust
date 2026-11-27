@@ -15,7 +15,7 @@ package io.github.espen7.tapio.event;
 
 import io.github.espen7.tapio.actor.AbstractActor;
 import io.github.espen7.tapio.actor.ActorContext;
-import io.github.espen7.tapio.actor.ActorPath;
+import io.github.espen7.tapio.actor.ConfigKeys;
 import io.github.espen7.tapio.japi.pf.PartialFunction;
 
 import java.util.Objects;
@@ -66,7 +66,7 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
         if (receive.onMessage() instanceof LoggingReceive) {
             return receive;
         }
-        if (context.system().settings().config().getBoolean(ActorPath.Scheme + ".actor.debug.receive")) {
+        if (context.system().settings().config().getBoolean(ConfigKeys.ACTOR_DEBUG_RECEIVE)) {
             return new AbstractActor.Receive(new LoggingReceive(receive.onMessage(), context));
         }
         return receive;

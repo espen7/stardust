@@ -89,22 +89,22 @@ public class LightArrayRevolverScheduler extends Scheduler implements Closeable 
     public LightArrayRevolverScheduler(Config config, LoggingAdapter log, ThreadFactory threadFactory) {
         this.log = log;
         this.threadFactory = threadFactory;
-        wheelSize = config.getInt(ActorPath.Scheme + ".scheduler.ticks-per-wheel");
+        wheelSize = config.getInt(ConfigKeys.SCHEDULER_TICKS_PER_WHEEL);
         if ((wheelSize & (wheelSize - 1)) != 0) {
             throw new IllegalArgumentException("requirement failed: ticks-per-wheel must be a power of 2");
         }
-        long tickMillis = config.getDuration(ActorPath.Scheme + ".scheduler.tick-duration").toMillis();
+        long tickMillis = config.getDuration(ConfigKeys.SCHEDULER_TICK_DURATION).toMillis();
         long minimum = windows ? 10 : 1;
         if (tickMillis < minimum) {
             String message = "requirement failed: minimum supported tapio.scheduler.tick-duration"
                     + (windows ? " on Windows" : "") + " is " + minimum + "ms";
-            if (config.getBoolean(ActorPath.Scheme + ".scheduler.error-on-tick-duration-verification-failed")) {
+            if (config.getBoolean(ConfigKeys.SCHEDULER_ERROR_ON_TICK_DURATION_VERIFICATION_FAILED)) {
                 throw new IllegalArgumentException(message);
             }
             log.warning(message + ", adjusted to " + minimum + "ms now.");
             tickMillis = minimum;
         }
-        shutdownTimeout = Duration.ofMillis(config.getDuration(ActorPath.Scheme + ".scheduler.shutdown-timeout").toMillis());
+        shutdownTimeout = Duration.ofMillis(config.getDuration(ConfigKeys.SCHEDULER_SHUTDOWN_TIMEOUT).toMillis());
         start = clock();
         tickNanos = TimeUnit.MILLISECONDS.toNanos(tickMillis);
         wheelMask = wheelSize - 1;

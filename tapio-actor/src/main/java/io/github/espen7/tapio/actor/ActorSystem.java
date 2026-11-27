@@ -172,42 +172,42 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             this.classLoader = classLoader;
             this.name = name;
             this.setup = setup == null ? ActorSystemSetup.empty() : setup;
-            LogLevel = config.getString(ActorPath.Scheme + ".loglevel");
-            LoggingFilter = config.getString(ActorPath.Scheme + ".logging-filter");
-            LogConfigOnStart = config.getBoolean(ActorPath.Scheme + ".log-config-on-start");
-            StdoutLogLevel = config.getString(ActorPath.Scheme + ".stdout-loglevel");
-            Loggers = List.copyOf(config.getStringList(ActorPath.Scheme + ".loggers"));
-            LoggersDispatcher = config.getString(ActorPath.Scheme + ".loggers-dispatcher");
-            LoggerStartTimeout = Duration.ofMillis(config.getDuration(ActorPath.Scheme + ".logger-startup-timeout").toMillis());
-            LogDeadLetters = switch (config.getString(ActorPath.Scheme + ".log-dead-letters").toLowerCase(Locale.ROOT)) {
+            LogLevel = config.getString(ConfigKeys.LOG_LEVEL);
+            LoggingFilter = config.getString(ConfigKeys.LOGGING_FILTER);
+            LogConfigOnStart = config.getBoolean(ConfigKeys.LOG_CONFIG_ON_START);
+            StdoutLogLevel = config.getString(ConfigKeys.STDOUT_LOG_LEVEL);
+            Loggers = List.copyOf(config.getStringList(ConfigKeys.LOGGERS));
+            LoggersDispatcher = config.getString(ConfigKeys.LOGGERS_DISPATCHER);
+            LoggerStartTimeout = Duration.ofMillis(config.getDuration(ConfigKeys.LOGGER_STARTUP_TIMEOUT).toMillis());
+            LogDeadLetters = switch (config.getString(ConfigKeys.LOG_DEAD_LETTERS).toLowerCase(Locale.ROOT)) {
                 case "off", "false" -> 0;
                 case "on", "true" -> Integer.MAX_VALUE;
-                default -> config.getInt(ActorPath.Scheme + ".log-dead-letters");
+                default -> config.getInt(ConfigKeys.LOG_DEAD_LETTERS);
             };
-            LogDeadLettersDuringShutdown = config.getBoolean(ActorPath.Scheme + ".log-dead-letters-during-shutdown");
-            String key = ActorPath.Scheme + ".log-dead-letters-suspend-duration";
+            LogDeadLettersDuringShutdown = config.getBoolean(ConfigKeys.LOG_DEAD_LETTERS_DURING_SHUTDOWN);
+            String key = ConfigKeys.LOG_DEAD_LETTERS_SUSPEND_DURATION;
             logDeadLettersSuspendDurationDescription = config.getString(key);
             LogDeadLettersSuspendDuration = logDeadLettersSuspendDurationDescription.equalsIgnoreCase("infinite")
                     ? null : Duration.ofMillis(config.getDuration(key).toMillis());
-            DebugLifecycle = config.getBoolean(ActorPath.Scheme + ".actor.debug.lifecycle");
-            DebugAutoReceive = config.getBoolean(ActorPath.Scheme + ".actor.debug.autoreceive");
-            DebugUnhandledMessage = config.getBoolean(ActorPath.Scheme + ".actor.debug.unhandled");
-            DebugEventStream = config.getBoolean(ActorPath.Scheme + ".actor.debug.event-stream");
-            SupervisorStrategyClass = config.getString(
-                    ActorPath.Scheme + ".actor.guardian-supervisor-strategy");
+            DebugLifecycle = config.getBoolean(ConfigKeys.ACTOR_DEBUG_LIFECYCLE);
+            DebugAutoReceive = config.getBoolean(ConfigKeys.ACTOR_DEBUG_AUTORECEIVE);
+            DebugUnhandledMessage = config.getBoolean(ConfigKeys.ACTOR_DEBUG_UNHANDLED);
+            DebugEventStream = config.getBoolean(ConfigKeys.ACTOR_DEBUG_EVENT_STREAM);
+            SupervisorStrategyClass = config.getString(ConfigKeys.ACTOR_GUARDIAN_SUPERVISOR_STRATEGY);
             UnstartedPushTimeout = Duration.ofMillis(config.getDuration(
-                    ActorPath.Scheme + ".actor.unstarted-push-timeout").toMillis());
-            SchedulerClass = config.getString(ActorPath.Scheme + ".scheduler.implementation");
-            Daemonicity = config.getBoolean(ActorPath.Scheme + ".daemonic");
-            JvmExitOnFatalError = config.getBoolean(ActorPath.Scheme + ".jvm-exit-on-fatal-error");
+                    ConfigKeys.ACTOR_UNSTARTED_PUSH_TIMEOUT).toMillis());
+            SchedulerClass = config.getString(ConfigKeys.SCHEDULER_IMPLEMENTATION);
+            Daemonicity = config.getBoolean(ConfigKeys.DAEMONIC);
+            JvmExitOnFatalError = config.getBoolean(ConfigKeys.JVM_EXIT_ON_FATAL_ERROR);
             CoordinatedShutdownTerminateActorSystem =
-                    config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.terminate-actor-system");
+                    config.getBoolean(ConfigKeys.COORDINATED_SHUTDOWN_TERMINATE_ACTOR_SYSTEM);
             CoordinatedShutdownRunByActorSystemTerminate =
-                    config.getBoolean(ActorPath.Scheme + ".coordinated-shutdown.run-by-actor-system-terminate");
+                    config.getBoolean(ConfigKeys.COORDINATED_SHUTDOWN_RUN_BY_ACTOR_SYSTEM_TERMINATE);
             if (CoordinatedShutdownRunByActorSystemTerminate && !CoordinatedShutdownTerminateActorSystem) {
                 throw new ConfigurationException(
-                        "tapio.coordinated-shutdown.run-by-actor-system-terminate=on and "
-                                + "tapio.coordinated-shutdown.terminate-actor-system=off is not a supported configuration combination.");
+                        ConfigKeys.COORDINATED_SHUTDOWN_RUN_BY_ACTOR_SYSTEM_TERMINATE + "=on and "
+                                + ConfigKeys.COORDINATED_SHUTDOWN_TERMINATE_ACTOR_SYSTEM
+                                + "=off is not a supported configuration combination.");
             }
         }
 

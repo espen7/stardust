@@ -38,7 +38,7 @@ public final class Deployer {
      * @param settings 所属系统的有效配置
      */
     public Deployer(ActorSystem.Settings settings) {
-        this.config = settings.config().getConfig(ActorPath.Scheme + ".actor.deployment");
+        this.config = settings.config().getConfig(ConfigKeys.ACTOR_DEPLOYMENT);
         this.defaultDeployment = config.getConfig("default");
         WildcardIndex<Deploy> index = new WildcardIndex<>();
         for (var entry : config.root().entrySet()) {

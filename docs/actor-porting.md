@@ -2,7 +2,7 @@
 
 移植对照基线为 Pekko commit `85ab376242152046740a63307304a2e062990f67`。Java 包前缀为
 `io.github.espen7.tapio`，相对包路径、class 名称和 method 名称尽量与 Pekko 一致。
-`ActorPath.Scheme` 统一提供 `tapio` ActorPath scheme 和 runtime 配置根，避免在 runtime 类中重复硬编码。
+`ActorPath.Scheme` 统一提供 `tapio` ActorPath scheme 和 runtime 配置根；内部 `@InternalApi` 常量类 `io.github.espen7.tapio.actor.ConfigKeys` 集中收口 `tapio.*` 配置路径常量（Pekko 上游在各处直接内联 `"pekko.*"` 字符串，此常量表仅作 Java 侧内部配置键管理，不构成对外 Pekko 契约）。
 本记录按迁移批次更新；“本批对账完成”只表示所列契约已有实现和定向测试，不代表整个 Classic Actor
 迁移完成，也不代表通过 Pekko 完整测试套件或达到全量源码 parity。
 

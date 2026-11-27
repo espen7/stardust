@@ -16,10 +16,10 @@ package io.github.espen7.tapio.event;
 import com.typesafe.config.Config;
 import io.github.espen7.tapio.actor.Actor;
 import io.github.espen7.tapio.actor.ActorLogMarker;
-import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.AllDeadLetters;
+import io.github.espen7.tapio.actor.ConfigKeys;
 import io.github.espen7.tapio.actor.CoordinatedShutdown;
 import io.github.espen7.tapio.actor.DeadLetter;
 import io.github.espen7.tapio.actor.DeadLetterActorRef;
@@ -56,7 +56,7 @@ public final class DeadLetterListener extends Actor {
         this.maxCount = settings.LogDeadLetters;
         this.isAlwaysLoggingDeadLetters = maxCount == Integer.MAX_VALUE;
         this.logDeadLettersDuringShutdown = settings.LogDeadLettersDuringShutdown;
-        this.coordinatedShutdownConfig = settings.config().getConfig(ActorPath.Scheme + ".coordinated-shutdown");
+        this.coordinatedShutdownConfig = settings.config().getConfig(ConfigKeys.COORDINATED_SHUTDOWN);
         this.suspendDuration = settings.LogDeadLettersSuspendDuration;
         this.suspendDescription = settings.LogDeadLettersSuspendDuration == null
                 ? "infinite" : settings.LogDeadLettersSuspendDuration.toString();

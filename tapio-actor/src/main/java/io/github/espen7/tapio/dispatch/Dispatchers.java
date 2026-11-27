@@ -18,8 +18,8 @@ import com.typesafe.config.ConfigFactory;
 import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.annotation.DoNotInherit;
 import io.github.espen7.tapio.annotation.InternalApi;
-import io.github.espen7.tapio.actor.ActorPath;
 import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.ConfigKeys;
 import io.github.espen7.tapio.event.LoggingAdapter;
 
 import java.util.Map;
@@ -33,10 +33,10 @@ import java.util.concurrent.ConcurrentHashMap;
 @DoNotInherit
 public class Dispatchers {
     /** 默认 Dispatcher 的 ID，也是其完整配置路径。 */
-    public static final String DefaultDispatcherId = ActorPath.Scheme + ".actor.default-dispatcher";
-    /** INTERNAL API：Pekko 内部 Dispatcher 的配置路径。 */
+    public static final String DefaultDispatcherId = ConfigKeys.ACTOR_DEFAULT_DISPATCHER;
+    /** INTERNAL API：Tapio 内部 Dispatcher 的配置路径。 */
     @InternalApi
-    public static final String InternalDispatcherId = ActorPath.Scheme + ".actor.internal-dispatcher";
+    public static final String InternalDispatcherId = ConfigKeys.ACTOR_INTERNAL_DISPATCHER;
     private static final int MaxDispatcherAliasDepth = 20;
 
     private final ActorSystem.Settings settings;
