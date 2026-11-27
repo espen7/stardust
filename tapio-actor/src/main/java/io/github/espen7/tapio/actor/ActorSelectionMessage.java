@@ -13,9 +13,12 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 import java.util.List;
 
 /** 携带尚待遍历的 ActorSelection 路径元素。 */
-record ActorSelectionMessage(Object message, List<SelectionPathElement> elements, boolean wildcardFanOut)
+@InternalApi
+public record ActorSelectionMessage(Object message, List<SelectionPathElement> elements, boolean wildcardFanOut)
         implements AutoReceivedMessage, PossiblyHarmful, WrappedMessage {
 }

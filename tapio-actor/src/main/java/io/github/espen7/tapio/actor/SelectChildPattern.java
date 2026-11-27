@@ -13,12 +13,14 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.util.Glob;
 
 import java.io.Serializable;
 
 /** 按通配符模式选择直接子 Actor。 */
-record SelectChildPattern(String patternStr) implements SelectionPathElement, Serializable {
+@InternalApi
+public record SelectChildPattern(String patternStr) implements SelectionPathElement, Serializable {
     boolean matches(String name) {
         return Glob.matches(patternStr, name);
     }

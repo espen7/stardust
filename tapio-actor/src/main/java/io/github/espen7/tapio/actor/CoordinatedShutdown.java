@@ -15,6 +15,8 @@ package io.github.espen7.tapio.actor;
 
 import com.typesafe.config.Config;
 import io.github.espen7.tapio.Done;
+import io.github.espen7.tapio.event.Logging;
+import io.github.espen7.tapio.event.LoggingAdapter;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -33,13 +35,14 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
  * 按 Pekko 阶段图执行 ActorSystem 关闭任务。
  */
-public final class CoordinatedShutdown {
+public final class CoordinatedShutdown implements Extension {
     /** 首个服务解绑前阶段。 */
     public static final String PhaseBeforeServiceUnbind = "before-service-unbind";
     /** 停止接受新的服务请求阶段。 */
@@ -87,16 +90,44 @@ public final class CoordinatedShutdown {
         }
     }
 
+    /** 集群节点被 Down 触发的关闭原因。 */
+    public static final class ClusterDowningReason implements Reason {
+        /** 单例实例。 */
+        public static final ClusterDowningReason INSTANCE = new ClusterDowningReason();
+
+        private ClusterDowningReason() {
+        }
+    }
+
+    /** 集群节点优雅离开触发的关闭原因。 */
+    public static final class ClusterLeavingReason implements Reason {
+        /** 单例实例。 */
+        public static final ClusterLeavingReason INSTANCE = new ClusterLeavingReason();
+
+        private ClusterLeavingReason() {
+        }
+    }
+
     private static final Reason UNKNOWN_REASON = new UnknownReason();
     private static final Reason ACTOR_SYSTEM_TERMINATE_REASON = new ActorSystemTerminateReason();
     private static final Reason JVM_EXIT_REASON = new JvmExitReason();
 
     private final ActorSystemImpl system;
+    private static final ExtensionId<CoordinatedShutdown> ID = new AbstractExtensionId<>() {
+        @Override
+        public CoordinatedShutdown createExtension(ExtendedActorSystem system) {
+            return ((ActorSystemImpl) system).coordinatedShutdown();
+        }
+    };
+
     private final Map<String, Phase> phases;
     private final Map<String, CopyOnWriteArrayList<TaskDefinition>> tasks = new ConcurrentHashMap<>();
     private final AtomicReference<Reason> runStarted = new AtomicReference<>();
     private final CompletableFuture<Done> runPromise = new CompletableFuture<>();
+    private final AtomicLong terminationWatcherSeq = new AtomicLong();
+    private final LoggingAdapter log;
     private final Cancellable jvmShutdownHook;
+    private volatile boolean runningJvmHook;
 
     /**
      * 创建并读取当前 ActorSystem 的关闭阶段配置。
@@ -105,18 +136,22 @@ public final class CoordinatedShutdown {
      */
     public CoordinatedShutdown(ActorSystemImpl system) {
         this.system = system;
+        this.log = Logging.getLogger(system, CoordinatedShutdown.class.getSimpleName(), CoordinatedShutdown.class);
         Config config = system.settings().config();
         this.phases = phasesFromConfig(config);
         if (config.getBoolean(ConfigKeys.COORDINATED_SHUTDOWN_RUN_BY_JVM_SHUTDOWN_HOOK)) {
             this.jvmShutdownHook = addCancellableJvmShutdownHook(() -> {
+                runningJvmHook = true;
                 try {
-                    runAll(jvmExitReason()).toCompletableFuture().get(
-                            config.getDuration(ConfigKeys.COORDINATED_SHUTDOWN_CLOSE_ACTOR_SYSTEM_TIMEOUT)
-                                    .toNanos(), TimeUnit.NANOSECONDS);
+                    Duration waitTimeout = totalTimeout();
+                    if (waitTimeout.compareTo(Duration.ofSeconds(3)) < 0) {
+                        waitTimeout = Duration.ofSeconds(3);
+                    }
+                    runAll(jvmExitReason()).toCompletableFuture().get(waitTimeout.toNanos(), TimeUnit.NANOSECONDS);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
-                } catch (ExecutionException | TimeoutException ignored) {
-                    /* JVM shutdown is already in progress; the phase timeout is authoritative. */
+                } catch (ExecutionException | TimeoutException error) {
+                    log.warning("CoordinatedShutdown from JVM shutdown failed: {}", error.getMessage());
                 }
             });
         } else {
@@ -125,11 +160,32 @@ public final class CoordinatedShutdown {
     }
 
     void cancelJvmShutdownHook() {
-        jvmShutdownHook.cancel();
+        if (!runningJvmHook) {
+            jvmShutdownHook.cancel();
+        }
     }
 
+    boolean isRunningJvmHook() {
+        return runningJvmHook;
+    }
+
+    /**
+     * 返回所属 {@link ActorSystem} 的 {@link CoordinatedShutdown} 扩展实例。
+     *
+     * @param system 目标 ActorSystem
+     * @return CoordinatedShutdown 实例
+     */
     public static CoordinatedShutdown get(ActorSystem system) {
-        return ((ActorSystemImpl) system).coordinatedShutdown();
+        return ID.get(system);
+    }
+
+    /**
+     * 返回 {@link CoordinatedShutdown} 的 {@link ExtensionId}。
+     *
+     * @return ExtensionId
+     */
+    public static ExtensionId<CoordinatedShutdown> lookup() {
+        return ID;
     }
 
     /**
@@ -204,7 +260,7 @@ public final class CoordinatedShutdown {
                 return CompletableFuture.completedFuture(Done.done());
             }
             system.systemActorOf(Props.create(TerminationWatcher.class, actor, stopMsg, result),
-                    "CoordinatedShutdownTerminationWatcher-" + taskName + "-" + System.nanoTime());
+                    "CoordinatedShutdownTerminationWatcher-" + terminationWatcherSeq.incrementAndGet());
             return result;
         });
     }
@@ -392,7 +448,12 @@ public final class CoordinatedShutdown {
      */
     public Duration totalTimeout() {
         Duration total = Duration.ZERO;
-        for (String phase : tasks.keySet()) total = total.plus(timeout(phase));
+        for (String phaseName : tasks.keySet()) {
+            Phase phase = phases.get(phaseName);
+            if (phase != null && phase.enabled) {
+                total = total.plus(phase.timeout);
+            }
+        }
         return total;
     }
 
@@ -429,7 +490,13 @@ public final class CoordinatedShutdown {
                     CompletionStage<Done> stage = task.task.get();
                     CompletableFuture<Done> future = stage.toCompletableFuture();
                     CompletableFuture<Done> effective = recover
-                            ? future.handle((value, error) -> Done.done()).toCompletableFuture()
+                            ? future.handle((value, error) -> {
+                                if (error != null) {
+                                    log.warning("Task [{}] failed in CoordinatedShutdown: {}", task.name,
+                                            error.getMessage());
+                                }
+                                return Done.done();
+                            }).toCompletableFuture()
                             : future;
                     effective.whenComplete((done, error) -> {
                         if (error == null) promise.complete(done);
@@ -438,6 +505,7 @@ public final class CoordinatedShutdown {
                     return promise;
                 } catch (Throwable error) {
                     if (recover) {
+                        log.warning("Task [{}] failed in CoordinatedShutdown: {}", task.name, error.getMessage());
                         promise.complete(Done.done());
                     } else {
                         promise.completeExceptionally(error);
@@ -454,8 +522,10 @@ public final class CoordinatedShutdown {
         Cancellable timer;
         try {
             timer = system.scheduler().scheduleOnce(timeout, () -> {
-                if (recover) timeoutFuture.complete(Done.done());
-                else timeoutFuture.completeExceptionally(new TimeoutException("Coordinated shutdown phase ["
+                if (recover) {
+                    log.warning("Coordinated shutdown phase [{}] timed out after [{}]", phase, timeout);
+                    timeoutFuture.complete(Done.done());
+                } else timeoutFuture.completeExceptionally(new TimeoutException("Coordinated shutdown phase ["
                         + phase + "] timed out after " + timeout));
             });
         } catch (IllegalStateException ignored) {

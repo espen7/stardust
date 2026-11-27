@@ -95,7 +95,7 @@ public final class TimerSchedulerImpl extends TimerScheduler {
      */
     public TimerSchedulerImpl(ActorContext ctx) {
         this.ctx = ctx;
-        this.log = Logging.getLogger(ctx.system().eventStream(), ctx.self().path().toString(), TimerScheduler.class);
+        this.log = Logging.getLogger(ctx.system(), ctx.self().path().toString(), TimerScheduler.class);
     }
 
     private int nextTimerGen() {

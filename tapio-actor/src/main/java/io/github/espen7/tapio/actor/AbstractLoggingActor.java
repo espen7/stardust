@@ -23,7 +23,7 @@ public abstract class AbstractLoggingActor extends AbstractActor implements Acto
     /** @return 当前 Actor 的日志适配器 */
     @Override
     public LoggingAdapter log() {
-        if (log == null) log = Logging.getLogger(context.system().eventStream(), self.path().toString(), getClass());
+        if (log == null) log = Logging.getLogger(context.system(), self.path().toString(), getClass());
         return log;
     }
 }

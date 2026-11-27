@@ -38,8 +38,9 @@ public interface StdOutLogger {
 
     /** 输出 WARNING 事件。 */
     default void warning(Warning event) {
-        System.out.printf("[WARN] %s[%s] [%s] [%s]%s %s%n", marker(event), timestamp(event),
-                event.threadName(), event.source(), formatMDC(event), event.message());
+        String trace = event.cause() == null ? "" : Logging.stackTraceFor(event.cause());
+        System.out.printf("[WARN] %s[%s] [%s] [%s]%s %s%s%n", marker(event), timestamp(event),
+                event.threadName(), event.source(), formatMDC(event), event.message(), trace);
     }
 
     /** 输出 INFO 事件。 */

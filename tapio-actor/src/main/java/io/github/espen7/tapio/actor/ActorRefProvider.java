@@ -67,7 +67,7 @@ public abstract class ActorRefProvider {
     public abstract ActorRef deadLetters();
 
     @InternalApi
-    abstract ActorRef ignoreRef();
+    public abstract ActorRef ignoreRef();
 
     /**
      * 返回此 ActorSystem 的根路径。
@@ -83,7 +83,13 @@ public abstract class ActorRefProvider {
      */
     public abstract ActorSystem.Settings settings();
 
-    abstract void init(ActorSystemImpl system);
+    /**
+     * INTERNAL API：初始化 Provider。
+     *
+     * @param system 所属 ActorSystem
+     */
+    @InternalApi
+    public abstract void init(ActorSystemImpl system);
 
     /**
      * 返回此 Provider 使用的部署配置索引。
@@ -149,9 +155,10 @@ public abstract class ActorRefProvider {
      * @param async 是否由 supervisor 异步激活外部挂载的 Actor
      * @return 已初始化的内部引用
      */
-    abstract InternalActorRef actorOf(ActorSystemImpl system, Props props, InternalActorRef supervisor,
-                                      ActorPath path, boolean systemService, Optional<Deploy> deploy,
-                                      boolean lookupDeploy, boolean async);
+    @InternalApi
+    public abstract InternalActorRef actorOf(ActorSystemImpl system, Props props, InternalActorRef supervisor,
+                                             ActorPath path, boolean systemService, Optional<Deploy> deploy,
+                                             boolean lookupDeploy, boolean async);
 
     /**
      * 从绝对路径字符串解析 ActorRef。字符串可包含 incarnation UID。
@@ -191,9 +198,12 @@ public abstract class ActorRefProvider {
      */
     public abstract Address getDefaultAddress();
 
-    abstract Serialization.Information serializationInformation();
+    @InternalApi
+    public abstract Serialization.Information serializationInformation();
 
-    abstract String addressString();
+    @InternalApi
+    public abstract String addressString();
 
-    abstract long systemUid();
+    @InternalApi
+    public abstract long systemUid();
 }

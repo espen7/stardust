@@ -142,7 +142,7 @@ class RepointableActorRef extends ActorRefWithCell implements RepointableRef {
     }
 
     @Override
-    InternalActorRef getParent() {
+    public InternalActorRef getParent() {
         return underlying().parent();
     }
 
@@ -157,7 +157,7 @@ class RepointableActorRef extends ActorRefWithCell implements RepointableRef {
     }
 
     @Override
-    InternalActorRef getChild(Iterator<String> names) {
+    public InternalActorRef getChild(Iterator<String> names) {
         while (names.hasNext()) {
             String name = names.next();
             if (name.isEmpty()) continue;

@@ -30,7 +30,7 @@ public abstract class AbstractLoggingActorWithTimers extends AbstractActorWithTi
     @Override
     public LoggingAdapter log() {
         if (log == null) {
-            log = Logging.getLogger(context.system().eventStream(), self.path().toString(), getClass());
+            log = Logging.getLogger(context.system(), self.path().toString(), getClass());
         }
         return log;
     }

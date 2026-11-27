@@ -29,12 +29,19 @@ public final class LoggingAdapter {
     private final EventStream eventStream;
     private final String source;
     private final Class<?> sourceClass;
+    private final LoggingFilter loggingFilter;
     private Map<String, Object> mdc = Map.of();
 
     LoggingAdapter(EventStream eventStream, String source, Class<?> sourceClass) {
+        this(eventStream, source, sourceClass,
+                new DefaultLoggingFilter(Objects.requireNonNull(eventStream, "eventStream")::logLevel));
+    }
+
+    LoggingAdapter(EventStream eventStream, String source, Class<?> sourceClass, LoggingFilter loggingFilter) {
         this.eventStream = Objects.requireNonNull(eventStream, "eventStream");
         this.source = Objects.requireNonNull(source, "source");
         this.sourceClass = Objects.requireNonNull(sourceClass, "sourceClass");
+        this.loggingFilter = Objects.requireNonNull(loggingFilter, "loggingFilter");
     }
 
     /**
@@ -43,7 +50,7 @@ public final class LoggingAdapter {
      * @return DEBUG 日志是否启用
      */
     public boolean isDebugEnabled() {
-        return eventStream.isEnabled(LogEvent.Level.DEBUG);
+        return loggingFilter.isDebugEnabled(sourceClass, source);
     }
 
     /**
@@ -52,7 +59,7 @@ public final class LoggingAdapter {
      * @return INFO 日志是否启用
      */
     public boolean isInfoEnabled() {
-        return eventStream.isEnabled(LogEvent.Level.INFO);
+        return loggingFilter.isInfoEnabled(sourceClass, source);
     }
 
     /**
@@ -61,7 +68,7 @@ public final class LoggingAdapter {
      * @return WARNING 日志是否启用
      */
     public boolean isWarningEnabled() {
-        return eventStream.isEnabled(LogEvent.Level.WARNING);
+        return loggingFilter.isWarningEnabled(sourceClass, source);
     }
 
     /**
@@ -70,7 +77,7 @@ public final class LoggingAdapter {
      * @return ERROR 日志是否启用
      */
     public boolean isErrorEnabled() {
-        return eventStream.isEnabled(LogEvent.Level.ERROR);
+        return loggingFilter.isErrorEnabled(sourceClass, source);
     }
 
     /**
@@ -370,7 +377,14 @@ public final class LoggingAdapter {
 
     private void publish(LogEvent.Level level, String template, Throwable cause, LogMarker marker,
                          Object... arguments) {
-        if (!eventStream.isEnabled(level)) return;
+        boolean enabled = switch (level) {
+            case DEBUG -> isDebugEnabled();
+            case INFO -> isInfoEnabled();
+            case WARNING -> isWarningEnabled();
+            case ERROR -> isErrorEnabled();
+            case OFF -> false;
+        };
+        if (!enabled) return;
         String message = format(template, arguments);
         LogEvent event = switch (level) {
             case DEBUG -> new Debug(source, sourceClass, message, cause, marker, mdc);

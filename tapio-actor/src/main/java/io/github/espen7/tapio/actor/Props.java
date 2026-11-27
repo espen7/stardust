@@ -200,6 +200,16 @@ public final class Props implements Serializable {
     }
 
     /**
+     * 返回使用指定部署配置的新 Props。
+     *
+     * @param d 部署配置
+     * @return 合并部署配置后的新 Props
+     */
+    public Props withDeploy(Deploy d) {
+        return new Props(d, clazz, creator);
+    }
+
+    /**
      * 返回使用指定 Dispatcher 的新 Props。
      *
      * @param d Dispatcher id
@@ -207,7 +217,7 @@ public final class Props implements Serializable {
      */
     public Props withDispatcher(String d) {
         if (Deploy.NoDispatcherGiven.equals(deploy.dispatcher()) || !d.equals(deploy.dispatcher())) {
-            return new Props(new Deploy(deploy.path(), d, deploy.mailbox()), clazz, creator);
+            return new Props(new Deploy(deploy.path(), deploy.scope(), d, deploy.mailbox()), clazz, creator);
         }
         return this;
     }
@@ -220,7 +230,7 @@ public final class Props implements Serializable {
      */
     public Props withMailbox(String m) {
         if (Deploy.NoMailboxGiven.equals(deploy.mailbox()) || !m.equals(deploy.mailbox())) {
-            return new Props(new Deploy(deploy.path(), deploy.dispatcher(), m), clazz, creator);
+            return new Props(new Deploy(deploy.path(), deploy.scope(), deploy.dispatcher(), m), clazz, creator);
         }
         return this;
     }

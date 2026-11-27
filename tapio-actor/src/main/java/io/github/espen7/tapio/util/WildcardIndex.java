@@ -131,7 +131,7 @@ public final class WildcardIndex<T> {
         }
 
         boolean isEmpty() {
-            return data == null && children.isEmpty();
+            return data == null && children.isEmpty() && wildcardSuffixChildren.isEmpty();
         }
 
         WildcardTree<T> insert(Iterator<String> elems, T d) {
@@ -144,7 +144,7 @@ public final class WildcardIndex<T> {
             } else if (!"*".equals(e) && !"**".equals(e) && e.endsWith("*")) {
                 String base = e.substring(0, e.length() - 1);
                 Map<String, WildcardTree<T>> updated = new HashMap<>(wildcardSuffixChildren);
-                updated.put(base, wildcardSuffixChildren.getOrDefault(e, new WildcardTree<>()).insert(elems, d));
+                updated.put(base, wildcardSuffixChildren.getOrDefault(base, new WildcardTree<>()).insert(elems, d));
                 return new WildcardTree<>(data, children, updated);
             }
             Map<String, WildcardTree<T>> updated = new HashMap<>(children);

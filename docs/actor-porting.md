@@ -1,6 +1,6 @@
 # Actor 源码移植记录
 
-移植对照基线为 Pekko commit `85ab376242152046740a63307304a2e062990f67`。Java 包前缀为
+移植对照基线为 Pekko commit `6f92b11eb5c958f56a197c7f8d8b6367e66e3a8c`。Java 包前缀为
 `io.github.espen7.tapio`，相对包路径、class 名称和 method 名称尽量与 Pekko 一致。
 `ActorPath.Scheme` 统一提供 `tapio` ActorPath scheme 和 runtime 配置根；内部 `@InternalApi` 常量类 `io.github.espen7.tapio.actor.ConfigKeys` 集中收口 `tapio.*` 配置路径常量（Pekko 上游在各处直接内联 `"pekko.*"` 字符串，此常量表仅作 Java 侧内部配置键管理，不构成对外 Pekko 契约）。
 本记录按迁移批次更新；“本批对账完成”只表示所列契约已有实现和定向测试，不代表整个 Classic Actor
@@ -484,7 +484,7 @@ logging filter 和启动时配置日志仍未移植；serialization 不在当前
 - `ActorPath.toStringWithoutAddress` 只返回 path elements，不包含 address。
 
 Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.0 许可证。固定源码位于
-[Pekko actor/src/main](https://github.com/apache/pekko/tree/85ab376242152046740a63307304a2e062990f67/actor/src/main)。
+[Pekko actor/src/main](https://github.com/apache/pekko/tree/6f92b11eb5c958f56a197c7f8d8b6367e66e3a8c/actor/src/main)。
 
 ## Extension、DynamicAccess 与虚拟线程执行器
 
@@ -527,4 +527,28 @@ Tapio 是独立 Java 移植，不复制 Pekko 源文件。Pekko 使用 Apache-2.
   - `dispatch/{BlockContext,CanAwait,ExecutionContext}` 与 `util/{NonFatal,NoStackTrace}` 为 Scala 标准库接口/工具在 Java 侧的最小等价替代。
   - `SubchannelClassification extends LoggingBus`：Java 不支持多继承且 `SubchannelClassification` 持有订阅索引状态，故以抽象类单继承承载（上游为 `EventStream extends LoggingBus with SubchannelClassification`）。
   - `ActorCell.makeChild`：`LocalActorRefProvider.actorOf` 不声明受检 `InterruptedException`，故在 `catch (Throwable)` 中以 `instanceof InterruptedException` 分支对齐上游处理。
-- **范围外/未移植项**：`Deploy` 其余远端/router 字段、Java 序列化 `writeReplace()`、Remote/Cluster/Sharding/Typed/Routing/I/O 均不在首版范围内。
+
+## Remoting、Cluster、DistributedData 与 Cluster Sharding
+
+在 `6f92b11eb5c958f56a197c7f8d8b6367e66e3a8c` 基线基础上，新增以下模块以支持分布式 Classic Actor 与集群分片：
+
+- **`tapio-actor` 序列化与 SPI 准备**：
+  - 移植 `io.github.espen7.tapio.serialization.*`（`Serializer`、`SerializerWithStringManifest`、`ByteBufferSerializer`、`BaseSerializer`、`Serialization`、`SerializationExtension`、`LongSerializer`、`IntSerializer`、`StringSerializer`、`BooleanSerializer`、`ByteArraySerializer`、`JavaSerializer`、`DisabledJavaSerializer`、`NullSerializer`）。
+  - 补充 `Scope` / `LocalScope` / `NoScopeGiven`、`Deploy.withScope`、`Props.withDeploy`、`AddressTerminated` / `AddressTerminatedTopic`、`CoordinatedShutdown` 的集群关闭原因，以及 `ActorSystemImpl` 动态 `ActorRefProvider` 加载。
+- **`tapio-remote`**：
+  - 基于 Netty `4.2.21.Final` 移植 Classic Remoting（`NettyTransport`、`TapioProtocolTransport`、`TapioPduCodec`、`EndpointManager`、`Remoting`、`RemoteActorRefProvider`、`RemoteActorRef`、`RemoteDaemon`）。
+  - 移植 `PhiAccrualFailureDetector`、`DeadlineFailureDetector`、`RemoteWatcher`、`MessageSerializer` 及 `ProtobufSerializer` / `MiscMessageSerializer` / `MessageContainerSerializer` / `SystemMessageSerializer` / `DaemonMsgCreateSerializer`（使用 `protobuf-java` `4.36.2` `CodedInputStream`/`CodedOutputStream` 直接编解码线协议，避免构建期 `protoc` 依赖）。
+- **`tapio-cluster`**：
+  - 移植 `Cluster`、`ClusterActorRefProvider`、`ClusterDaemon`、`ClusterReadView`、`Gossip`、`VectorClock`、`Reachability`、`Member` / `MemberStatus`、`ClusterEvent`、`ClusterHeartbeatSender` / `ClusterHeartbeatReceiver`、`ClusterMessageSerializer` 与 `SplitBrainResolver`（`DowningProvider`、`DowningStrategy` 及其子类与 `IndirectlyConnected` 间接触达拓扑裁决）。
+- **`tapio-cluster-tools`**：
+  - 移植 `ClusterSingletonManager` 与 `ClusterSingletonProxy`（含 oldest 节点交接与消息缓冲）。
+- **`tapio-distributed-data`**：
+  - 移植 `DistributedData`、`Replicator`、`ORSet`、`LWWRegister`、`VersionVector`、`SelfUniqueAddress` 与 `ReplicatorMessageSerializer`（支持 `WriteLocal`/`WriteMajority`/`WriteAll`、`ReadLocal`/`ReadMajority`/`ReadAll`、`Subscribe`/`Changed` 与节点间 Gossip 同步）。
+- **`tapio-cluster-sharding`（`ddata` 模式）**：
+  - 移植 `ClusterSharding`、`ClusterShardingSettings`、`ShardRegion`（含 `HashCodeMessageExtractor`、`Passivate`、`StartEntity`、`GracefulShutdown`）、`Shard`、`ShardCoordinator` / `DDataShardCoordinator`、`ClusterShardAllocationMixin` / `AbstractLeastShardAllocationStrategy` / `LeastShardAllocationStrategy`、`ConsistentHashingShardAllocationStrategy`、`ExternalShardAllocation` / `ExternalShardAllocationStrategy`、`ShardingQueries`、`DDataRememberEntitiesProvider` / `CoordinatorStore` / `ShardStore` 与 `ClusterShardingMessageSerializer`。
+  - **显式排除项**：`Typed`（Pekko Typed）、`Persistence`、`Streams`、`Artery`（依赖 `pekko-stream` 与 `aeron`）不在移植范围内；`state-store-mode = "persistence"` 与 `remember-entities-store = "eventsourced"` 在 `ClusterShardingSettings` 构造期显式校验并拒绝。
+- **`tapio-coordination`（`Lease` SPI）**：
+  - 移植 `Lease`、`LeaseProvider`、`LeaseSettings`、`LeaseUsageSettings`、`TimeoutSettings`、`LeaseException`、`LeaseTimeoutException`。
+  - 已接入 SBR `LeaseMajority`（`lease-majority` 策略）、`ClusterSingletonManager` 的 `use-lease` 及 `ClusterSharding` 的 `use-lease`（透传至 `ShardCoordinator` 单例）；具体第三方存储后端（如 Kubernetes Lease）由应用或后续发现模块提供。
+- **`tapio-discovery`**：
+  - 移植 `Discovery`、`ServiceDiscovery`、`Lookup`、`ConfigServiceDiscovery`（`tapio.discovery.method = "config"`）与 `AggregateServiceDiscovery`（对应 `pekko/discovery`，不包含属于 `pekko-management` 的 `kubernetes-api` 与 `ClusterBootstrap`）。

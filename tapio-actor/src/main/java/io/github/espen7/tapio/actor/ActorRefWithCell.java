@@ -22,7 +22,7 @@ public abstract class ActorRefWithCell extends InternalActorRef {
 
     abstract ActorSystemImpl system();
 
-    abstract InternalActorRef getParent();
+    public abstract InternalActorRef getParent();
 
     abstract InternalActorRef getSingleChild(String name);
 

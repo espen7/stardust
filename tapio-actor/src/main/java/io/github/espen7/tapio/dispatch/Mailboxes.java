@@ -282,7 +282,7 @@ public final class Mailboxes {
 
     private MailboxType instantiateMailboxType(String fqcn, String id, Config conf) {
         try {
-            Class<?> type = Class.forName(fqcn, true, settings.config().getClass().getClassLoader());
+            Class<?> type = Class.forName(fqcn, true, settings.classLoader());
             return (MailboxType) type.getConstructor(ActorSystem.Settings.class, Config.class)
                     .newInstance(settings, conf);
         } catch (ReflectiveOperationException | ClassCastException exception) {
@@ -317,7 +317,7 @@ public final class Mailboxes {
         String requirement = config.getString("mailbox-requirement");
         if (NoMailboxRequirement.equals(requirement)) return MessageQueue.class;
         try {
-            return Class.forName(requirement, true, settings.config().getClass().getClassLoader());
+            return Class.forName(requirement, true, settings.classLoader());
         } catch (ClassNotFoundException exception) {
             throw new ConfigurationException(
                     "Type [" + requirement + "] specified as mailbox-requirement can't be loaded", exception);
@@ -356,7 +356,7 @@ public final class Mailboxes {
     }
 
     private Map<Class<?>, String> loadMailboxBindings() {
-        ClassLoader classLoader = settings.config().getClass().getClassLoader();
+        ClassLoader classLoader = settings.classLoader();
         Config requirements = settings.config().getConfig(ConfigKeys.ACTOR_MAILBOX_REQUIREMENTS);
         Map<Class<?>, String> bindings = new HashMap<>();
         for (var entry : requirements.root().entrySet()) {

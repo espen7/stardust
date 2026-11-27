@@ -90,7 +90,7 @@ public final class DeadLetterListener extends Actor {
 
     private void incrementCount() {
         if (count == Integer.MAX_VALUE) {
-            Logging.getLogger(eventStream, self.path().toString(), getClass())
+            Logging.getLogger(context.system(), self.path().toString(), getClass())
                     .info("Resetting DeadLetterListener counter after reaching Int.MaxValue.");
             count = 1;
         } else {

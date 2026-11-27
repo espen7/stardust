@@ -13,6 +13,8 @@
  */
 package io.github.espen7.tapio.event;
 
+import io.github.espen7.tapio.actor.ActorSystem;
+import io.github.espen7.tapio.actor.ExtendedActorSystem;
 import io.github.espen7.tapio.util.NoStackTrace;
 
 import java.io.PrintWriter;
@@ -22,6 +24,34 @@ import java.util.Objects;
 /** 创建绑定 EventStream 和 source 元数据的 LoggingAdapter。 */
 public final class Logging {
     private Logging() {
+    }
+
+    /**
+     * 创建绑定到 {@link ActorSystem} 及其 {@link LoggingFilter} 的 {@link LoggingAdapter}。
+     *
+     * @param system 目标 ActorSystem
+     * @param source 日志 source
+     * @param sourceClass 日志 source class
+     * @return LoggingAdapter
+     */
+    public static LoggingAdapter getLogger(ActorSystem system, String source, Class<?> sourceClass) {
+        Objects.requireNonNull(system, "system");
+        if (system instanceof ExtendedActorSystem extended) {
+            return new LoggingAdapter(system.eventStream(), source, sourceClass, extended.logFilter());
+        }
+        return new LoggingAdapter(system.eventStream(), source, sourceClass);
+    }
+
+    /**
+     * 创建绑定到 {@link ActorSystem} 及其 {@link LoggingFilter} 的 {@link LoggingAdapter}。
+     *
+     * @param system 目标 ActorSystem
+     * @param source 日志 source 对象
+     * @param sourceClass 日志 source class
+     * @return LoggingAdapter
+     */
+    public static LoggingAdapter getLogger(ActorSystem system, Object source, Class<?> sourceClass) {
+        return getLogger(system, Objects.toString(source), sourceClass);
     }
 
     /**

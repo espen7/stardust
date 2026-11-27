@@ -15,6 +15,7 @@ package io.github.espen7.tapio.actor;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
+import io.github.espen7.tapio.ConfigurationException;
 import io.github.espen7.tapio.Done;
 import io.github.espen7.tapio.actor.setup.ActorSystemSetup;
 import io.github.espen7.tapio.dispatch.MessageDispatcher;
@@ -78,8 +79,8 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     private final LoggingAdapter log;
     /** 当前系统的日志过滤器。 */
     private final LoggingFilter logFilter;
-    /** 创建本地 ActorRef、guardian 和临时引用的 Provider。 */
-    private final LocalActorRefProvider provider;
+    /** 创建本地或远程 ActorRef、guardian 和临时引用的 Provider。 */
+    private final ActorRefProvider provider;
     /** 系统级 dead-letter listener；关闭期间可按配置保留或停止。 */
     private volatile ActorRef logDeadLetterListener;
     /** 管理阶段化关闭任务和 JVM shutdown hook。 */
@@ -126,17 +127,17 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         this.dynamicAccess = createDynamicAccess();
         this.eventStream = new EventStream(this, settings.DebugEventStream);
         eventStream.startStdoutLogger(settings);
-        this.log = Logging.getLogger(eventStream, ActorPath.Scheme + "://" + name, getClass());
         this.logFilter = createLoggingFilter();
+        this.log = Logging.getLogger(this, ActorPath.Scheme + "://" + name, getClass());
         this.threadFactory = new MonitorableThreadFactory(name, settings.Daemonicity, classLoader,
                 uncaughtExceptionHandler());
         MessageDispatcher startedDispatcher = null;
         Scheduler startedScheduler = null;
         CoordinatedShutdown startedShutdown = null;
-        LocalActorRefProvider startedProvider = null;
+        ActorRefProvider startedProvider = null;
         try {
             this.scheduler = startedScheduler = createScheduler();
-            this.provider = startedProvider = new LocalActorRefProvider(this);
+            this.provider = startedProvider = createProvider();
             this.mailboxes = new Mailboxes(settings, eventStream, provider.deadLetters());
             this.dispatchers = new Dispatchers(settings, this);
             this.dispatcher = startedDispatcher = dispatchers.defaultGlobalDispatcher();
@@ -161,15 +162,10 @@ public class ActorSystemImpl extends ExtendedActorSystem {
                 this.logDeadLetterListener = systemActorOf(Props.create(DeadLetterListener.class), "deadLetterListener");
             }
             eventStream.startUnsubscriber();
+            registerPhaseActorSystemTerminate();
             loadExtensions();
             if (settings.LogConfigOnStart) {
                 logConfiguration();
-            }
-            if (settings.CoordinatedShutdownTerminateActorSystem) {
-                coordinatedShutdown.addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-system", () -> {
-                    finalTerminate();
-                    return whenTerminated.thenApply(ignored -> Done.done());
-                });
             }
             return this;
         } catch (RuntimeException | Error error) {
@@ -178,15 +174,38 @@ public class ActorSystemImpl extends ExtendedActorSystem {
         }
     }
 
+    private void registerPhaseActorSystemTerminate() {
+        Config baseConf = settings.config().getConfig(ConfigKeys.COORDINATED_SHUTDOWN);
+        coordinatedShutdown.addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-system", () -> {
+            Config confForReason = CoordinatedShutdown.confWithOverrides(baseConf, coordinatedShutdown.shutdownReason());
+            boolean terminateSystem = confForReason.getBoolean(ConfigKeys.COORDINATED_SHUTDOWN_TERMINATE_ACTOR_SYSTEM_KEY);
+            boolean exitJvm = confForReason.getBoolean(ConfigKeys.COORDINATED_SHUTDOWN_EXIT_JVM_KEY);
+            int exitCode = confForReason.getInt(ConfigKeys.COORDINATED_SHUTDOWN_EXIT_CODE_KEY);
+            if (terminateSystem) {
+                finalTerminate();
+                return whenTerminated.thenApply(ignored -> {
+                    if (exitJvm && !coordinatedShutdown.isRunningJvmHook()) {
+                        System.exit(exitCode);
+                    }
+                    return Done.done();
+                });
+            }
+            if (exitJvm && !coordinatedShutdown.isRunningJvmHook()) {
+                System.exit(exitCode);
+            }
+            return CompletableFuture.completedFuture(Done.done());
+        });
+    }
+
     private static void abortStartup(Throwable error, CoordinatedShutdown startedShutdown,
-                                     LocalActorRefProvider startedProvider, Scheduler startedScheduler,
+                                     ActorRefProvider startedProvider, Scheduler startedScheduler,
                                      MessageDispatcher startedDispatcher) {
         if (error instanceof Error && !NonFatal.apply(error)) return;
         if (startedShutdown != null) startedShutdown.cancelJvmShutdownHook();
         boolean terminationInitiated = false;
         if (startedProvider != null) {
             try {
-                LocalActorRef guardian = startedProvider.guardian();
+                InternalActorRef guardian = startedProvider.guardian();
                 if (guardian == null) guardian = startedProvider.rootGuardian();
                 if (guardian != null) {
                     guardian.stop();
@@ -284,12 +303,39 @@ public class ActorSystemImpl extends ExtendedActorSystem {
     }
 
     /**
-     * 返回本地 ActorRefProvider。
+     * 返回当前系统的 ActorRefProvider。
      *
      * @return 当前系统的 Provider
      */
-    public LocalActorRefProvider provider() {
+    @Override
+    public ActorRefProvider provider() {
         return provider;
+    }
+
+    private ActorRefProvider createProvider() {
+        try {
+            return dynamicAccess.createInstanceFor(
+                    settings.ProviderClass,
+                    ActorRefProvider.class,
+                    java.util.List.of(java.util.Map.entry(ActorSystemImpl.class, this)));
+        } catch (NoSuchMethodException e) {
+            try {
+                return dynamicAccess.createInstanceFor(
+                        settings.ProviderClass,
+                        ActorRefProvider.class,
+                        java.util.List.of(java.util.Map.entry(ExtendedActorSystem.class, this)));
+            } catch (Throwable t) {
+                if (t instanceof RuntimeException re) throw re;
+                if (t instanceof Error err) throw err;
+                throw new ConfigurationException(
+                        "Cannot instantiate ActorRefProvider [" + settings.ProviderClass + "]", t);
+            }
+        } catch (Throwable t) {
+            if (t instanceof RuntimeException re) throw re;
+            if (t instanceof Error err) throw err;
+            throw new ConfigurationException(
+                    "Cannot instantiate ActorRefProvider [" + settings.ProviderClass + "]", t);
+        }
     }
 
     /**

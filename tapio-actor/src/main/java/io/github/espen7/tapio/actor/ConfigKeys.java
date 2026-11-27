@@ -209,4 +209,60 @@ public final class ConfigKeys {
      * CoordinatedShutdown 默认阶段超时配置键。
      */
     public static final String COORDINATED_SHUTDOWN_DEFAULT_PHASE_TIMEOUT = "tapio.coordinated-shutdown.default-phase-timeout";
+
+    /**
+     * CoordinatedShutdown 退出 JVM 开关键名。
+     */
+    public static final String COORDINATED_SHUTDOWN_EXIT_JVM_KEY = "exit-jvm";
+
+    /**
+     * CoordinatedShutdown 退出码键名。
+     */
+    public static final String COORDINATED_SHUTDOWN_EXIT_CODE_KEY = "exit-code";
+
+    /**
+     * CoordinatedShutdown 终止 ActorSystem 开关键名。
+     */
+    public static final String COORDINATED_SHUTDOWN_TERMINATE_ACTOR_SYSTEM_KEY = "terminate-actor-system";
+
+    /**
+     * ActorRefProvider 选择配置键。
+     */
+    public static final String ACTOR_PROVIDER = "tapio.actor.provider";
+
+    /**
+     * 是否允许 Java 默认序列化的配置键。
+     */
+    public static final String ACTOR_ALLOW_JAVA_SERIALIZATION = "tapio.actor.allow-java-serialization";
+
+    /**
+     * 反序列化最大嵌套深度配置键。
+     */
+    public static final String ACTOR_SERIALIZATION_MAX_NESTING_DEPTH = "tapio.actor.serialization-max-nesting-depth";
+
+    /**
+     * 使用 Java 序列化时是否打印告警的配置键。
+     */
+    public static final String ACTOR_WARN_ABOUT_JAVA_SERIALIZER_USAGE = "tapio.actor.warn-about-java-serializer-usage";
+
+    /**
+     * 无序列化校验警告抑制配置键。
+     */
+    public static final String ACTOR_WARN_ON_NO_SERIALIZATION_VERIFICATION =
+            "tapio.actor.warn-on-no-serialization-verification";
+
+    /**
+     * 序列化器注册表配置段路径。
+     */
+    public static final String ACTOR_SERIALIZERS = "tapio.actor.serializers";
+
+    /**
+     * 类到序列化器别名绑定表配置段路径。
+     */
+    public static final String ACTOR_SERIALIZATION_BINDINGS = "tapio.actor.serialization-bindings";
+
+    /**
+     * 序列化器唯一 ID 映射表配置段路径。
+     */
+    public static final String ACTOR_SERIALIZATION_IDENTIFIERS = "tapio.actor.serialization-identifiers";
 }

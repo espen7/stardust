@@ -13,6 +13,7 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.event.Warning;
 import io.github.espen7.tapio.japi.pf.FSMStateFunctionBuilder;
 import io.github.espen7.tapio.japi.pf.FSMTransitionHandlerBuilder;
 import io.github.espen7.tapio.japi.pf.PartialFunction;
@@ -20,9 +21,12 @@ import io.github.espen7.tapio.japi.pf.PartialFunction;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -36,9 +40,45 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
     private record TimeoutMarker(long generation) {
     }
 
+    private record ListenerTerminated(ActorRef actorRef) {
+    }
+
+    private enum TimerMode {
+        SINGLE(false),
+        FIXED_DELAY(true),
+        FIXED_RATE(true);
+
+        private final boolean repeat;
+
+        TimerMode(boolean repeat) {
+            this.repeat = repeat;
+        }
+    }
+
+    private record NamedTimerMsg(String name, Object msg, TimerMode mode, int generation, AbstractFSM<?, ?> owner) {
+    }
+
+    private static final class NamedTimer {
+        private final Cancellable task;
+        private final int generation;
+
+        private NamedTimer(Cancellable task, int generation) {
+            this.task = task;
+            this.generation = generation;
+        }
+
+        private void cancel() {
+            task.cancel();
+        }
+    }
+
     private final Map<S, PartialFunction<FSM.Event<D>, FSM.State<S, D>>> stateFunctions = new HashMap<>();
     private final Map<S, Duration> stateTimeouts = new HashMap<>();
     private final List<BiConsumer<S, S>> transitionHandlers = new ArrayList<>();
+    private final Set<ActorRef> listeners = new LinkedHashSet<>();
+    private final Set<ActorRef> watchedListeners = new HashSet<>();
+    private final Map<String, NamedTimer> timers = new HashMap<>();
+    private int timerGeneration;
 
     private PartialFunction<FSM.Event<D>, FSM.State<S, D>> handleEvent;
     private Consumer<FSM.StopEvent<S, D>> terminateEvent = ignored -> {
@@ -56,6 +96,12 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
     protected final FSMStateFunctionBuilder<S, D> matchEvent(
             Class<?> eventType, java.util.function.BiFunction<Object, D, FSM.State<S, D>> apply) {
         return new FSMStateFunctionBuilder<S, D>().matchEvent(Object.class, eventType::isInstance, apply);
+    }
+
+    /** 创建按事件值 {@code equals} 匹配的状态函数构建器。 */
+    protected final FSMStateFunctionBuilder<S, D> matchEventEquals(
+            Object event, java.util.function.BiFunction<Object, D, FSM.State<S, D>> apply) {
+        return new FSMStateFunctionBuilder<S, D>().matchEventEquals(event, apply);
     }
 
     /** 返回新的 {@link FSMStateFunctionBuilder}。 */
@@ -178,6 +224,96 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
         makeTransition(currentState);
     }
 
+    /**
+     * 显式设置或更新指定状态的默认超时时间。
+     *
+     * @param state 目标状态
+     * @param timeout 超时时间；{@code null} 表示移除默认超时
+     */
+    public final void setStateTimeout(S state, Duration timeout) {
+        if (timeout == null) {
+            stateTimeouts.remove(state);
+        } else {
+            stateTimeouts.put(state, timeout);
+        }
+    }
+
+    /**
+     * 启动单次命名定时器，到期后向当前 FSM 发送 {@code msg}。
+     *
+     * @param name 定时器名称
+     * @param msg 到期消息
+     * @param delay 延迟时长
+     */
+    public final void startSingleTimer(String name, Object msg, Duration delay) {
+        startNamedTimer(name, msg, delay, TimerMode.SINGLE);
+    }
+
+    /**
+     * 启动固定延迟命名定时器，周期性向当前 FSM 发送 {@code msg}。
+     *
+     * @param name 定时器名称
+     * @param msg 定时消息
+     * @param delay 固定延迟
+     */
+    public final void startTimerWithFixedDelay(String name, Object msg, Duration delay) {
+        startNamedTimer(name, msg, delay, TimerMode.FIXED_DELAY);
+    }
+
+    /**
+     * 启动固定频率命名定时器，按固定周期向当前 FSM 发送 {@code msg}。
+     *
+     * @param name 定时器名称
+     * @param msg 定时消息
+     * @param interval 固定周期
+     */
+    public final void startTimerAtFixedRate(String name, Object msg, Duration interval) {
+        startNamedTimer(name, msg, interval, TimerMode.FIXED_RATE);
+    }
+
+    private void startNamedTimer(String name, Object msg, Duration timeout, TimerMode mode) {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(msg, "msg");
+        Objects.requireNonNull(timeout, "timeout");
+        NamedTimer previous = timers.get(name);
+        if (previous != null) {
+            previous.cancel();
+        }
+        int gen = ++timerGeneration;
+        NamedTimerMsg timerMsg = new NamedTimerMsg(name, msg, mode, gen, this);
+        Scheduler scheduler = getContext().system().scheduler();
+        Cancellable task = switch (mode) {
+            case SINGLE -> scheduler.scheduleOnce(timeout, getSelf(), timerMsg, getContext().dispatcher(), getSelf());
+            case FIXED_DELAY -> scheduler.scheduleWithFixedDelay(
+                    timeout, timeout, getSelf(), timerMsg, getContext().dispatcher(), getSelf());
+            case FIXED_RATE -> scheduler.scheduleAtFixedRate(
+                    timeout, timeout, getSelf(), timerMsg, getContext().dispatcher(), getSelf());
+        };
+        timers.put(name, new NamedTimer(task, gen));
+    }
+
+    /**
+     * 取消指定名称的定时器。
+     *
+     * @param name 定时器名称
+     */
+    public final void cancelTimer(String name) {
+        NamedTimer existing = timers.remove(name);
+        if (existing != null) {
+            existing.cancel();
+        }
+    }
+
+    /**
+     * 查询指定名称的定时器当前是否处于激活状态。
+     *
+     * @param name 定时器名称
+     * @return 是否激活
+     */
+    public final boolean isTimerActive(String name) {
+        return timers.containsKey(name);
+    }
+
     @Override
     public Receive createReceive() {
         return receiveBuilder()
@@ -186,8 +322,41 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
                         processMsg(FSM.StateTimeout);
                     }
                 })
+                .match(NamedTimerMsg.class, timerMsg -> {
+                    NamedTimer active = timers.get(timerMsg.name());
+                    if (timerMsg.owner() == this && active != null && active.generation == timerMsg.generation()) {
+                        if (!timerMsg.mode().repeat) {
+                            timers.remove(timerMsg.name());
+                        }
+                        processMsg(timerMsg.msg());
+                    }
+                })
+                .match(FSM.SubscribeTransitionCallBack.class, sub -> {
+                    addListener(sub.actorRef());
+                    sub.actorRef().tell(new FSM.CurrentState<>(getSelf(), currentState.stateName()), getSelf());
+                })
+                .match(FSM.UnsubscribeTransitionCallBack.class, unsub -> removeListener(unsub.actorRef()))
+                .match(ListenerTerminated.class, term -> {
+                    listeners.remove(term.actorRef());
+                    watchedListeners.remove(term.actorRef());
+                })
                 .matchAny(this::processMsg)
                 .build();
+    }
+
+    private void addListener(ActorRef actorRef) {
+        if (actorRef == null) return;
+        listeners.add(actorRef);
+        if (watchedListeners.add(actorRef)) {
+            getContext().watchWith(actorRef, new ListenerTerminated(actorRef));
+        }
+    }
+
+    private void removeListener(ActorRef actorRef) {
+        listeners.remove(actorRef);
+        if (watchedListeners.remove(actorRef)) {
+            getContext().unwatch(actorRef);
+        }
     }
 
     private void processMsg(Object msg) throws Exception {
@@ -199,8 +368,10 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
         } else if (handleEvent != null && handleEvent.isDefinedAt(event)) {
             next = handleEvent.apply(event);
         } else {
-            unhandled(msg);
-            return;
+            getContext().getSystem().eventStream().publish(
+                    new Warning(getSelf().path().toString(), getClass(),
+                            "unhandled event " + msg + " in state " + currentState.stateName()));
+            next = stay();
         }
         applyState(next);
     }
@@ -232,12 +403,18 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
                 for (BiConsumer<S, S> handler : transitionHandlers) {
                     handler.accept(oldStateName, next.stateName());
                 }
+                if (!listeners.isEmpty()) {
+                    FSM.Transition<S> transition = new FSM.Transition<>(getSelf(), oldStateName, next.stateName());
+                    for (ActorRef listener : List.copyOf(listeners)) {
+                        listener.tell(transition, getSelf());
+                    }
+                }
             }
             this.currentState = next;
         } finally {
             this.nextState = null;
         }
-        Duration timeout = next.timeout() != null ? next.timeout() : stateTimeouts.get(next.stateName());
+        Duration timeout = next.timeoutOverridden() ? next.timeout() : stateTimeouts.get(next.stateName());
         if (timeout != null && !timeout.isNegative()) {
             long gen = ++timeoutGeneration;
             timeoutTask = getContext().system().scheduler().scheduleOnce(
@@ -270,7 +447,7 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
     protected void logTermination(FSM.Reason reason) {
         if (reason instanceof FSM.Failure(Object cause)) {
             io.github.espen7.tapio.event.LoggingAdapter adapter = io.github.espen7.tapio.event.Logging.getLogger(
-                    getContext().system().eventStream(), getSelf().path().toString(), getClass());
+                    getContext().system(), getSelf().path().toString(), getClass());
             if (cause instanceof Throwable throwable) {
                 adapter.error(throwable, "terminating due to Failure");
             } else {
@@ -282,6 +459,8 @@ public abstract class AbstractFSM<S, D> extends AbstractActor {
     @Override
     public void postStop() throws Exception {
         try {
+            timers.values().forEach(NamedTimer::cancel);
+            timers.clear();
             if (currentState != null && currentState.stopReason() == null) {
                 terminate(currentState.withStopReason(FSM.Shutdown.INSTANCE));
             }

@@ -13,17 +13,20 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 /** 消息用于协调 system guardian 的终止。 */
-final class SystemGuardian {
+@InternalApi
+public final class SystemGuardian {
     private SystemGuardian() {
     }
 
     /** sender 请求注册为 termination hook。 */
-    enum RegisterTerminationHook { INSTANCE }
+    public enum RegisterTerminationHook { INSTANCE }
 
     /** 通知已注册的 hook 开始终止。 */
-    enum TerminationHook { INSTANCE }
+    public enum TerminationHook { INSTANCE }
 
     /** sender 已完成终止任务。 */
-    enum TerminationHookDone { INSTANCE }
+    public enum TerminationHookDone { INSTANCE }
 }

@@ -81,9 +81,9 @@ public class LocalActorRefProvider extends ActorRefProvider {
         this.system = system;
         this.deployer = new Deployer(system.settings());
         this.rootPath = new RootActorPath(new Address(ActorPath.Scheme, system.name()));
-        this.log = Logging.getLogger(system.eventStream(), LocalActorRefProvider.class.getSimpleName(),
+        this.log = Logging.getLogger(system, LocalActorRefProvider.class.getSimpleName(),
                 LocalActorRefProvider.class);
-        this.logDeser = Logging.getLogger(system.eventStream(), getClass().getName() + ".Deserialization",
+        this.logDeser = Logging.getLogger(system, getClass().getName() + ".Deserialization",
                 LocalActorRefProvider.class);
         this.deadLetters = new DeadLetterActorRef(this, rootPath.child("deadLetters"), system.eventStream());
         this.ignoreRef = new IgnoreActorRef(this);
@@ -140,12 +140,13 @@ public class LocalActorRefProvider extends ActorRefProvider {
     }
 
     @Override
-    void init(ActorSystemImpl system) {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public void init(ActorSystemImpl system) {
         this.rootGuardian = new LocalActorRef(system, Props.create(Guardian.class, rootGuardianStrategy()),
                 system.dispatchers().internalDispatcher(), system.mailboxes().lookup(Mailboxes.DefaultMailboxId),
                 theOneWhoWalksTheBubblesOfSpaceTime, rootPath, rootPath.name(), false) {
             @Override
-            InternalActorRef getParent() {
+            public InternalActorRef getParent() {
                 return this;
             }
 
@@ -227,7 +228,8 @@ public class LocalActorRefProvider extends ActorRefProvider {
      * 引用前以 {@link ConfigurationException} 抛出。</p>
      */
     @Override
-    InternalActorRef actorOf(ActorSystemImpl system, Props props, InternalActorRef supervisor,
+    @io.github.espen7.tapio.annotation.InternalApi
+    public InternalActorRef actorOf(ActorSystemImpl system, Props props, InternalActorRef supervisor,
                               ActorPath path, boolean systemService, Optional<Deploy> deploy,
                               boolean lookupDeploy, boolean async) {
         Props props2 = resolveProps(props, supervisor, lookupDeploy ? deployer.lookup(path) : deploy);
@@ -318,7 +320,8 @@ public class LocalActorRefProvider extends ActorRefProvider {
     }
 
     @Override
-    ActorRef ignoreRef() {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public ActorRef ignoreRef() {
         return ignoreRef;
     }
 
@@ -350,7 +353,8 @@ public class LocalActorRefProvider extends ActorRefProvider {
         return deadLetters;
     }
 
-    InternalActorRef resolveActorRef(InternalActorRef ref, List<String> pathElements) {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public InternalActorRef resolveActorRef(InternalActorRef ref, List<String> pathElements) {
         if (pathElements.isEmpty()) {
             logDeser.debug("Resolve (deserialization) of empty path doesn't match an active actor, using deadLetters.");
             return deadLetters;
@@ -382,7 +386,8 @@ public class LocalActorRefProvider extends ActorRefProvider {
     }
 
     @Override
-    Serialization.Information serializationInformation() {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public Serialization.Information serializationInformation() {
         Serialization.Information cached = serializationInformationCache;
         if (cached != null) return cached;
         if (system.provider() != this) throw new IllegalStateException("Too early access of serializationInformation");
@@ -392,12 +397,14 @@ public class LocalActorRefProvider extends ActorRefProvider {
     }
 
     @Override
-    String addressString() {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public String addressString() {
         return getDefaultAddress().toString();
     }
 
     @Override
-    long systemUid() {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public long systemUid() {
         return systemUid;
     }
 

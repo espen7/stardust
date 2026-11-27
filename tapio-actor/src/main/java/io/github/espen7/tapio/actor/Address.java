@@ -14,6 +14,7 @@
 package io.github.espen7.tapio.actor;
 
 import java.io.Serializable;
+import java.util.Comparator;
 import java.util.Optional;
 
 /**
@@ -25,6 +26,12 @@ import java.util.Optional;
  * @param port 端口，局部地址使用 {@code null}
  */
 public record Address(String protocol, String system, String host, Integer port) implements Serializable {
+    /** 地址标准全序比较器。 */
+    public static final Comparator<Address> ADDRESS_ORDERING = Comparator
+            .comparing(Address::protocol)
+            .thenComparing(Address::system)
+            .thenComparing(a -> a.host() == null ? "" : a.host())
+            .thenComparingInt(a -> a.port() == null ? -1 : a.port());
     /**
      * 创建局部地址。
      *

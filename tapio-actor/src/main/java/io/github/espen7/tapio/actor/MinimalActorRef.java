@@ -55,7 +55,7 @@ public abstract class MinimalActorRef extends InternalActorRef implements LocalR
     }
 
     @Override
-    InternalActorRef getParent() {
+    public InternalActorRef getParent() {
         return Nobody.INSTANCE;
     }
 }

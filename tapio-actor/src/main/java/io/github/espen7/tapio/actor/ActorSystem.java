@@ -119,6 +119,18 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
         /** 编程式传入的 {@link ActorSystemSetup}。 */
         public final ActorSystemSetup setup;
 
+        /** ActorRefProvider 全限定类名。 */
+        public final String ProviderClass;
+        /** 当前 Provider 是否启用 Cluster。 */
+        public final boolean HasCluster;
+        /** 是否允许使用 Java 默认序列化，默认关闭。 */
+        public final boolean AllowJavaSerialization;
+        /** 反序列化允许的最大嵌套深度，默认 32。 */
+        public final int SerializationMaxNestingDepth;
+        /** 使用 Java 序列化时是否输出安全告警，默认开启。 */
+        public final boolean WarnAboutJavaSerializerUsage;
+        /** 无序列化校验类是否抑制警告，默认开启。 */
+        public final boolean WarnOnNoSerializationVerification;
         /** 系统日志级别，默认 {@code INFO}。 */
         public final String LogLevel;
         /** 日志过滤器全限定类名。 */
@@ -172,6 +184,20 @@ public abstract class ActorSystem implements ActorRefFactory, AutoCloseable {
             this.classLoader = classLoader;
             this.name = name;
             this.setup = setup == null ? ActorSystemSetup.empty() : setup;
+            String providerName = config.getString(ConfigKeys.ACTOR_PROVIDER);
+            ProviderClass = switch (providerName) {
+                case "local" -> LocalActorRefProvider.class.getName();
+                case "remote" -> "io.github.espen7.tapio.remote.RemoteActorRefProvider";
+                case "cluster" -> "io.github.espen7.tapio.cluster.ClusterActorRefProvider";
+                default -> providerName;
+            };
+            HasCluster = "cluster".equals(providerName)
+                    || "io.github.espen7.tapio.cluster.ClusterActorRefProvider".equals(ProviderClass);
+            AllowJavaSerialization = config.getBoolean(ConfigKeys.ACTOR_ALLOW_JAVA_SERIALIZATION);
+            SerializationMaxNestingDepth = config.getInt(ConfigKeys.ACTOR_SERIALIZATION_MAX_NESTING_DEPTH);
+            WarnAboutJavaSerializerUsage = config.getBoolean(ConfigKeys.ACTOR_WARN_ABOUT_JAVA_SERIALIZER_USAGE);
+            WarnOnNoSerializationVerification =
+                    config.getBoolean(ConfigKeys.ACTOR_WARN_ON_NO_SERIALIZATION_VERIFICATION);
             LogLevel = config.getString(ConfigKeys.LOG_LEVEL);
             LoggingFilter = config.getString(ConfigKeys.LOGGING_FILTER);
             LogConfigOnStart = config.getBoolean(ConfigKeys.LOG_CONFIG_ON_START);

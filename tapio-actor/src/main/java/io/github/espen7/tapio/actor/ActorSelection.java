@@ -142,7 +142,8 @@ public final class ActorSelection implements Serializable {
         });
     }
 
-    static void deliverSelection(InternalActorRef anchor, ActorRef sender, ActorSelectionMessage selection) {
+    @io.github.espen7.tapio.annotation.InternalApi
+    public static void deliverSelection(InternalActorRef anchor, ActorRef sender, ActorSelectionMessage selection) {
         List<SelectionPathElement> elements = selection.elements();
         if (elements.isEmpty()) {
             anchor.tell(selection.message(), sender);

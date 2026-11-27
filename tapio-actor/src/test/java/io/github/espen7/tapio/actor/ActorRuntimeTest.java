@@ -117,7 +117,7 @@ class ActorRuntimeTest {
     void internalDispatcherIsSharedByGuardiansAndSeparateFromUserActors() throws Exception {
         system = ActorSystem.create("internal-dispatcher");
         MessageDispatcher internal = system.dispatchers().internalDispatcher();
-        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        LocalActorRefProvider provider = (LocalActorRefProvider) ((ActorSystemImpl) system).provider();
 
         assertNotSame(system.dispatcher(), internal);
         assertSame(internal, system.dispatchers().lookup("tapio.actor.internal-dispatcher"));
@@ -144,7 +144,7 @@ class ActorRuntimeTest {
                 }
                 """));
         MessageDispatcher internal = system.dispatchers().internalDispatcher();
-        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        LocalActorRefProvider provider = (LocalActorRefProvider) ((ActorSystemImpl) system).provider();
 
         assertSame(internal, system.dispatchers().lookup("dispatchers.internal-target"));
         assertEquals(3, internal.throughput());
@@ -245,7 +245,7 @@ class ActorRuntimeTest {
     @Test
     void rootGuardianResolvesBuiltInTopLevelPaths() {
         system = ActorSystem.create("root-guardian");
-        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        LocalActorRefProvider provider = (LocalActorRefProvider) ((ActorSystemImpl) system).provider();
         LocalActorRef root = provider.rootGuardian();
         LocalActorRef user = provider.guardian();
         LocalActorRef systemGuardian = provider.systemGuardian();
@@ -1076,7 +1076,7 @@ class ActorRuntimeTest {
         BlockingQueue<Object> events = new LinkedBlockingQueue<>();
         ActorRef subscriber = system.actorOf(Props.create(EventSubscriberActor.class, events), "subscriber");
         system.eventStream().subscribe(subscriber, DeadLetter.class);
-        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        ActorRefProvider provider = ((ActorSystemImpl) system).provider();
         VirtualPathContainer temp = (VirtualPathContainer) provider.tempContainer();
 
         CompletionStage<Object> result = Patterns.ask(actor, "request", Duration.ofSeconds(WAIT_SECONDS));
@@ -1259,7 +1259,7 @@ class ActorRuntimeTest {
     @Test
     void terminateCompletesSystemTerminationStage() throws Exception {
         system = ActorSystem.create("terminate");
-        LocalActorRefProvider provider = ((ActorSystemImpl) system).provider();
+        ActorRefProvider provider = ((ActorSystemImpl) system).provider();
         BlockingQueue<String> stopped = new LinkedBlockingQueue<>();
         Props props = Props.create(StopProbe.class, stopped);
         ActorRef actor = system.actorOf(props, "actor");

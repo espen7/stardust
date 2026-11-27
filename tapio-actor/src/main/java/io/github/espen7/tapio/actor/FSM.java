@@ -15,6 +15,7 @@ package io.github.espen7.tapio.actor;
 
 import io.github.espen7.tapio.annotation.DoNotInherit;
 
+import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,13 +40,29 @@ public final class FSM {
         return StateTimeout;
     }
 
+    /** 订阅 FSM 状态转换通知的消息（先收到 {@link CurrentState}，后续收到 {@link Transition}）。 */
+    public record SubscribeTransitionCallBack(ActorRef actorRef) implements Serializable {
+    }
+
+    /** 取消订阅 FSM 状态转换通知的消息。 */
+    public record UnsubscribeTransitionCallBack(ActorRef actorRef) implements Serializable {
+    }
+
+    /** 订阅时立即发送给监听者的当前状态快照。 */
+    public record CurrentState<S>(ActorRef fsmRef, S state) implements Serializable {
+    }
+
+    /** 状态发生转换时发送给所有已订阅监听者的通知。 */
+    public record Transition<S>(ActorRef fsmRef, S from, S to) implements Serializable {
+    }
+
     /** 包装当前消息与状态数据的事件对象。 */
-    public record Event<D>(Object event, D stateData) {
+    public record Event<D>(Object event, D stateData) implements Serializable {
     }
 
     /** FSM 停止原因。 */
     @DoNotInherit
-    public sealed interface Reason permits Normal, Shutdown, Failure {
+    public sealed interface Reason extends Serializable permits Normal, Shutdown, Failure {
     }
 
     /** 正常停止原因。 */
@@ -54,6 +71,10 @@ public final class FSM {
 
         private Normal() {
         }
+
+        private Object readResolve() {
+            return INSTANCE;
+        }
     }
 
     /** 收到外部关闭指令的停止原因。 */
@@ -61,6 +82,10 @@ public final class FSM {
         public static final Shutdown INSTANCE = new Shutdown();
 
         private Shutdown() {
+        }
+
+        private Object readResolve() {
+            return INSTANCE;
         }
     }
 
@@ -79,7 +104,7 @@ public final class FSM {
     }
 
     /** FSM 终止回调接收的事件对象。 */
-    public record StopEvent<S, D>(Reason reason, S currentState, D stateData) {
+    public record StopEvent<S, D>(Reason reason, S currentState, D stateData) implements Serializable {
     }
 
     /**
@@ -95,14 +120,21 @@ public final class FSM {
         private final Reason stopReason;
         private final List<Object> replies;
         private final boolean notifying;
+        private final boolean timeoutOverridden;
 
         State(S stateName, D stateData, Duration timeout, Reason stopReason, List<Object> replies, boolean notifying) {
+            this(stateName, stateData, timeout, stopReason, replies, notifying, false);
+        }
+
+        State(S stateName, D stateData, Duration timeout, Reason stopReason, List<Object> replies,
+              boolean notifying, boolean timeoutOverridden) {
             this.stateName = stateName;
             this.stateData = stateData;
             this.timeout = timeout;
             this.stopReason = stopReason;
             this.replies = replies;
             this.notifying = notifying;
+            this.timeoutOverridden = timeoutOverridden;
         }
 
         /** 返回目标状态名。 */
@@ -134,14 +166,18 @@ public final class FSM {
             return notifying;
         }
 
+        boolean timeoutOverridden() {
+            return timeoutOverridden;
+        }
+
         /** 指定转换后的新状态数据。 */
         public State<S, D> using(D nextStateData) {
-            return new State<>(stateName, nextStateData, timeout, stopReason, replies, notifying);
+            return new State<>(stateName, nextStateData, timeout, stopReason, replies, notifying, timeoutOverridden);
         }
 
         /** 指定本状态的超时时长（{@code null} 表示取消默认超时）。 */
         public State<S, D> forMax(Duration duration) {
-            return new State<>(stateName, stateData, duration, stopReason, replies, notifying);
+            return new State<>(stateName, stateData, duration, stopReason, replies, notifying, true);
         }
 
         /** 追加一条向当前 sender 发送的回复消息。 */
@@ -149,15 +185,15 @@ public final class FSM {
             List<Object> next = new ArrayList<>(replies.size() + 1);
             next.add(replyValue);
             next.addAll(replies);
-            return new State<>(stateName, stateData, timeout, stopReason, List.copyOf(next), notifying);
+            return new State<>(stateName, stateData, timeout, stopReason, List.copyOf(next), notifying, timeoutOverridden);
         }
 
         State<S, D> withStopReason(Reason reason) {
-            return new State<>(stateName, stateData, timeout, reason, replies, notifying);
+            return new State<>(stateName, stateData, timeout, reason, replies, notifying, timeoutOverridden);
         }
 
         State<S, D> withNotifying(boolean value) {
-            return new State<>(stateName, stateData, timeout, stopReason, replies, value);
+            return new State<>(stateName, stateData, timeout, stopReason, replies, value, timeoutOverridden);
         }
     }
 }

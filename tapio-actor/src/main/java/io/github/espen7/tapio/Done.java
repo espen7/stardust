@@ -43,6 +43,10 @@ public final class Done implements Serializable {
         return INSTANCE;
     }
 
+    private Object readResolve() {
+        return INSTANCE;
+    }
+
     @Override
     public String toString() {
         return "Done";

@@ -52,7 +52,7 @@ public final class LoggingReceive implements PartialFunction<Object, Void> {
         this.label = label;
         Class<?> sourceClass = context instanceof io.github.espen7.tapio.actor.ActorCell cell && cell.actor() != null
                 ? cell.actor().getClass() : context.getClass();
-        this.log = Logging.getLogger(context.system().eventStream(), context.self().path().toString(), sourceClass);
+        this.log = Logging.getLogger(context.system(), context.self().path().toString(), sourceClass);
     }
 
     /**

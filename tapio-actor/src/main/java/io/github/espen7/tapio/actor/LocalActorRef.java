@@ -71,7 +71,7 @@ public class LocalActorRef extends ActorRefWithCell implements LocalRef {
     }
 
     @Override
-    InternalActorRef getParent() {
+    public InternalActorRef getParent() {
         return actorCell.parent();
     }
 
@@ -91,7 +91,7 @@ public class LocalActorRef extends ActorRefWithCell implements LocalRef {
     }
 
     @Override
-    InternalActorRef getChild(Iterator<String> names) {
+    public InternalActorRef getChild(Iterator<String> names) {
         InternalActorRef ref = this;
         while (names.hasNext() && ref instanceof LocalActorRef local) {
             String name = names.next();

@@ -32,6 +32,10 @@ public abstract class PoisonPill implements AutoReceivedMessage, PossiblyHarmful
         return INSTANCE;
     }
 
+    protected final Object readResolve() {
+        return INSTANCE;
+    }
+
     @Override
     public String toString() {
         return "PoisonPill";

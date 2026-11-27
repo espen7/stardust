@@ -112,14 +112,21 @@ public class CircuitBreaker {
 
     /** 配置指数退避因子（需 {@code >= 1.0}）。 */
     public CircuitBreaker withExponentialBackoff(Duration maxResetTimeout) {
-        return new CircuitBreaker(scheduler, maxFailures, callTimeout, resetTimeout,
-                Objects.requireNonNull(maxResetTimeout), 2.0, randomFactor, executor);
+        return copyWith(Objects.requireNonNull(maxResetTimeout), 2.0, randomFactor);
     }
 
     /** 配置随机抖动因子。 */
     public CircuitBreaker withRandomFactor(double randomFactor) {
-        return new CircuitBreaker(scheduler, maxFailures, callTimeout, resetTimeout,
-                maxResetTimeout, exponentialBackoffFactor, randomFactor, executor);
+        return copyWith(maxResetTimeout, exponentialBackoffFactor, randomFactor);
+    }
+
+    private CircuitBreaker copyWith(Duration nextMaxResetTimeout, double nextBackoffFactor, double nextRandomFactor) {
+        CircuitBreaker copy = new CircuitBreaker(scheduler, maxFailures, callTimeout, resetTimeout,
+                nextMaxResetTimeout, nextBackoffFactor, nextRandomFactor, executor);
+        copy.onOpenListeners.addAll(onOpenListeners);
+        copy.onHalfOpenListeners.addAll(onHalfOpenListeners);
+        copy.onCloseListeners.addAll(onCloseListeners);
+        return copy;
     }
 
     /** 注册进入 {@code Open} 状态时的回调。 */
@@ -184,12 +191,12 @@ public class CircuitBreaker {
                                                          BiFunction<T, Throwable, Boolean> defineFailure) {
         State state = currentState.get();
         if (state instanceof ClosedState) {
-            return callThrough(body, defineFailure);
+            return callThrough(state, body, defineFailure);
         } else if (state instanceof OpenState) {
             return CompletableFuture.failedFuture(new CircuitBreakerOpenException(openState.remainingDuration()));
         } else if (state instanceof HalfOpenState half) {
             if (half.tryAcquire()) {
-                return callThrough(body, defineFailure);
+                return callThrough(state, body, defineFailure);
             }
             return CompletableFuture.failedFuture(new CircuitBreakerOpenException(Duration.ZERO));
         }
@@ -202,7 +209,7 @@ public class CircuitBreaker {
     public <T> T callWithSyncCircuitBreaker(Callable<T> body) throws Exception {
         State state = currentState.get();
         if (state instanceof ClosedState || (state instanceof HalfOpenState half && half.tryAcquire())) {
-            return executeSync(body);
+            return executeSync(state, body);
         } else if (state instanceof OpenState) {
             throw new CircuitBreakerOpenException(openState.remainingDuration());
         } else if (state instanceof HalfOpenState) {
@@ -214,22 +221,22 @@ public class CircuitBreaker {
     /**
      * 核心异步调用路径，对齐上游 {@code State.callThrough}。
      */
-    private <T> CompletionStage<T> callThrough(Supplier<CompletionStage<T>> body,
+    private <T> CompletionStage<T> callThrough(State originState, Supplier<CompletionStage<T>> body,
                                                BiFunction<T, Throwable, Boolean> defineFailure) {
         CompletionStage<T> stage;
         try {
             stage = body.get();
         } catch (Throwable error) {
             if (!NonFatal.apply(error)) throw error;
-            currentState.get().callFails();
+            originState.callFails();
             return CompletableFuture.failedFuture(error);
         }
         if (callTimeout.isZero()) {
             return stage.whenComplete((value, error) -> {
                 if (error != null) {
-                    currentState.get().callFails();
+                    originState.callFails();
                 } else {
-                    currentState.get().callSucceeds();
+                    originState.callSucceeds();
                 }
             });
         }
@@ -246,20 +253,27 @@ public class CircuitBreaker {
         });
         return result.whenComplete((value, error) -> {
             if (Boolean.TRUE.equals(defineFailure.apply(value, error))) {
-                currentState.get().callFails();
+                originState.callFails();
             } else {
-                currentState.get().callSucceeds();
+                originState.callSucceeds();
             }
         });
     }
 
-    private <T> T executeSync(Callable<T> body) throws Exception {
+    private <T> T executeSync(State originState, Callable<T> body) throws Exception {
+        long startNanos = callTimeout.isZero() ? 0L : System.nanoTime();
         try {
             T result = body.call();
-            currentState.get().callSucceeds();
+            if (!callTimeout.isZero() && System.nanoTime() - startNanos >= callTimeout.toNanos()) {
+                originState.callFails();
+                throw new TimeoutException("Call exceeded callTimeout of " + callTimeout);
+            }
+            originState.callSucceeds();
             return result;
+        } catch (TimeoutException timeoutException) {
+            throw timeoutException;
         } catch (Throwable error) {
-            currentState.get().callFails();
+            originState.callFails();
             if (error instanceof Exception ex) throw ex;
             if (error instanceof Error fatal) throw fatal;
             throw new RuntimeException(error);

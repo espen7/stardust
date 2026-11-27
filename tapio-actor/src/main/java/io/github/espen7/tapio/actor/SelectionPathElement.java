@@ -13,6 +13,9 @@
  */
 package io.github.espen7.tapio.actor;
 
+import io.github.espen7.tapio.annotation.InternalApi;
+
 /** ActorSelection 编译后的单个路径元素。 */
-sealed interface SelectionPathElement permits SelectChildName, SelectChildPattern, SelectParent {
+@InternalApi
+public sealed interface SelectionPathElement permits SelectChildName, SelectChildPattern, SelectParent {
 }

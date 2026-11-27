@@ -24,13 +24,14 @@ import io.github.espen7.tapio.event.EventStream;
  *
  * <p>始终处于终止状态，处理指向此引用的 DeathWatch 消息，并将无法投递的普通消息发布到 EventStream。
  */
-class EmptyLocalActorRef extends MinimalActorRef {
+@io.github.espen7.tapio.annotation.InternalApi
+public class EmptyLocalActorRef extends MinimalActorRef {
     private final ActorRefProvider provider;
     private final ActorPath path;
     /** 发布 dead letters 和 DeathWatch 通知所用的 EventStream。 */
     protected final EventStream eventStream;
 
-    EmptyLocalActorRef(ActorRefProvider provider, ActorPath path, EventStream eventStream) {
+    public EmptyLocalActorRef(ActorRefProvider provider, ActorPath path, EventStream eventStream) {
         this.provider = provider;
         this.path = path;
         this.eventStream = eventStream;
