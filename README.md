@@ -43,19 +43,18 @@ Tapio is in early development. Public APIs and configuration may change before t
 | Built-in `default-executor`, `fork-join-executor`, `thread-pool-executor`, and `virtual-thread-executor` (plus `virtualize = on`) configuration | Available in `tapio-actor` |
 | Props and deployment binding of Dispatcher/Mailbox, unbounded/bounded/deque/priority/control-aware mailboxes | Available in `tapio-actor` |
 | EventStream with automatic unsubscription on subscriber termination, structured logging, `LoggingReceive`, `LoggingFilter`, `log-config-on-start`, default logger startup/shutdown and dynamic levels, local ActorSelection, `ask`/`pipe`/`gracefulStop`/`BackoffSupervisor`/`CircuitBreaker`, `Timers`, `Stash`, `AbstractFSM`, `Extension`/`DynamicAccess`, and one-shot and periodic scheduling | Available in `tapio-actor` |
-| Routing | Planned |
 | Classic Remoting (Netty 4.2 TCP, Phi Accrual Failure Detector, RemoteWatcher, Serialization) | Available in `tapio-remote` |
-| Cluster Membership, Gossip, Reachability, and Split Brain Resolver | Available in `tapio-cluster` |
-| Cluster Singleton (`ClusterSingletonManager` / `ClusterSingletonProxy`) | Available in `tapio-cluster-tools` |
-| Distributed Data (`Replicator`, `ORSet`, `LWWRegister`, `VersionVector`) | Available in `tapio-distributed-data` |
-| Cluster Sharding (`ddata` mode, `LeastShardAllocationStrategy`, `Passivate`, `remember-entities`) | Available in `tapio-cluster-sharding` |
+| Cluster Membership, Gossip, Reachability, and Split Brain Resolver (incl. `IndirectlyConnected` & `LeaseMajority`) | Available in `tapio-cluster` |
+| Cluster Singleton (`ClusterSingletonManager` with HandOver / `ClusterSingletonProxy`) | Available in `tapio-cluster-tools` |
+| Distributed Data (`Replicator`, `ORSet`, `LWWRegister`, `VersionVector`, per-role filtering) | Available in `tapio-distributed-data` |
+| Cluster Sharding (`ddata` mode, `ClusterShardingGuardian`, `LeastShard`/`ConsistentHashing`/`External` strategies, `EntityPassivationStrategy`, `ClusterShardingHealthCheck`, `remember-entities`) | Available in `tapio-cluster-sharding` |
 | Distributed Lease SPI (`Lease`, `LeaseProvider`, SBR `lease-majority`, Singleton/Sharding `use-lease`) | Available in `tapio-coordination` |
 | Service Discovery (`config`, `aggregate`) | Available in `tapio-discovery` |
-| Kubernetes-based cluster discovery & Bootstrap | Planned |
+| Kubernetes-based cluster discovery & Bootstrap (`pekko-management`) | Planned |
 
 `Available` means the runtime contract is implemented and covered by Tapio tests. It does not mean full Pekko source parity or that the complete Pekko test suite has been run. Affinity/custom executors remain incomplete.
 
-The scope does not include the complete Akka/Pekko ecosystem: **Typed Actors (Pekko Typed), Persistence, Streams, and Artery are explicitly excluded**, as are routing and unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
+The scope does not include the complete Akka/Pekko ecosystem: **Typed Actors (Pekko Typed), Persistence, Streams, Artery, Routing, and I/O are explicitly excluded**, as are unrelated enterprise integrations. The scope can expand when a component directly supports the actor platform and its target workloads.
 
 ## Quick Start
 

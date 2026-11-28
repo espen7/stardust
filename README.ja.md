@@ -40,17 +40,21 @@ Tapio は現在、初期開発段階です。最初の安定版までは公開 A
 | PoisonPill、Kill、ReceiveTimeout、`watchWith`、restart lifecycle の処理 | `tapio-actor` で提供中 |
 | 通常 Dispatcher のライフサイクル、ネストした task の batching、lazy executor の再生成、inhabitants、アイドル時 shutdown | `tapio-actor` で提供中 |
 | guardian 用の internal Dispatcher と、Actor ごとに専用スレッドを提供する PinnedDispatcher | `tapio-actor` で提供中 |
-| 組み込みの `default-executor`、`fork-join-executor`、`thread-pool-executor` 設定 | `tapio-actor` で提供中 |
-| Dispatcher/Mailbox の Props・デプロイ設定による結合、無制限/上限付き mailbox | `tapio-actor` で提供中 |
-| EventStream（subscriber 終了時の自動 unsubscribe）、構造化ログ、デフォルト logger の起動/停止と動的レベル、`ask`、一回限りと周期のスケジューリング | `tapio-actor` で提供中 |
-| Routing | 計画中 |
-| Cluster Sharding | 計画中 |
-| Kubernetes によるクラスタディスカバリ | 計画中 |
-| クラスタ機能に必要な transport と membership | Tapio の限定的なコンポーネントとして計画中 |
+| 組み込みの `default-executor`、`fork-join-executor`、`thread-pool-executor`、`virtual-thread-executor`（`virtualize = on` を含む）設定 | `tapio-actor` で提供中 |
+| Dispatcher/Mailbox の Props・デプロイ設定による結合、unbounded/bounded/deque/priority/control-aware mailbox | `tapio-actor` で提供中 |
+| EventStream（subscriber 終了時の自動 unsubscribe）、構造化ログ、`LoggingReceive`、`LoggingFilter`、`log-config-on-start`、デフォルト logger の起動/停止と動的レベル、ローカル ActorSelection、`ask`/`pipe`/`gracefulStop`/`BackoffSupervisor`/`CircuitBreaker`、`Timers`、`Stash`、`AbstractFSM`、`Extension`/`DynamicAccess`、一回限りと周期のスケジューリング | `tapio-actor` で提供中 |
+| Classic Remoting（Netty 4.2 TCP、Phi Accrual 障害検知、`RemoteWatcher`、シリアライズ） | `tapio-remote` で提供中 |
+| Cluster メンバーシップ、Gossip、到達性、Split Brain Resolver（`IndirectlyConnected` と `LeaseMajority` を含む） | `tapio-cluster` で提供中 |
+| Cluster Singleton（HandOver ハンドシェイク対応 `ClusterSingletonManager` / `ClusterSingletonProxy`） | `tapio-cluster-tools` で提供中 |
+| Distributed Data（`Replicator`、`ORSet`、`LWWRegister`、`VersionVector`、ロール別分離） | `tapio-distributed-data` で提供中 |
+| Cluster Sharding（`ddata` モード、`ClusterShardingGuardian`、`LeastShard`/`ConsistentHashing`/`External` 戦略、`EntityPassivationStrategy`、`ClusterShardingHealthCheck`、`remember-entities`） | `tapio-cluster-sharding` で提供中 |
+| 分散 Lease SPI（`Lease`、`LeaseProvider`、SBR `lease-majority`、Singleton/Sharding `use-lease`） | `tapio-coordination` で提供中 |
+| サービスディスカバリ（`config`、`aggregate`） | `tapio-discovery` で提供中 |
+| Kubernetes クラスタディスカバリと Bootstrap（`pekko-management`） | 計画中 |
 
-「提供中」は、ローカル runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。virtual/affinity/カスタム executor、logger mailbox 以外の高度な mailbox、logging filter、起動時の設定ログは未実装のままです。
+「提供中」は、runtime の契約が実装され、Tapio のテストでカバーされていることを意味します。Pekko ソースとの完全な一致や、Pekko の全テストスイートの通過を意味するものではありません。affinity/カスタム executor は未実装のままです。
 
-初期範囲には、Akka/Pekko の完全なエコシステムは含めません。Typed API、Streams、Persistence、大規模な serialization 統合、完全な remote 互換性、無関係なエンタープライズ統合は対象外です。Actor プラットフォームと対象ワークロードに直接役立つ機能を優先します。
+現在の範囲には、Akka/Pekko の完全なエコシステムは含めません。**Typed API（Pekko Typed）、Persistence、Streams、Artery、Routing、I/O は明示的に対象外**とし、無関係なエンタープライズ統合も含みません。Actor プラットフォームと対象ワークロードに直接役立つ機能を優先します。
 
 ## クイックスタート
 

@@ -140,13 +140,66 @@ public abstract class DowningStrategy {
             case DOWN_UNREACHABLE -> List.copyOf(unreachable);
             case DOWN_REACHABLE -> members.stream().filter(m -> !unreachable.contains(m)).toList();
             case DOWN_ALL -> new ArrayList<>(members);
-            case DOWN_INDIRECTLY_CONNECTED -> members.stream()
-                    .filter(m -> indirect.contains(m.uniqueAddress()) || unreachable.contains(m))
-                    .toList();
+            case DOWN_INDIRECTLY_CONNECTED -> {
+                Set<UniqueAddress> additional = additionalNodesToDownWhenIndirectlyConnected(members, unreachable, indirect);
+                yield members.stream()
+                        .filter(m -> indirect.contains(m.uniqueAddress()) || additional.contains(m.uniqueAddress()))
+                        .toList();
+            }
             case REVERSE_DOWN_INDIRECTLY_CONNECTED -> members.stream()
                     .filter(m -> indirect.contains(m.uniqueAddress()) || !unreachable.contains(m))
                     .toList();
         };
+    }
+
+    private Set<UniqueAddress> additionalNodesToDownWhenIndirectlyConnected(
+            Set<Member> members,
+            Set<Member> unreachable,
+            Set<UniqueAddress> indirect) {
+        Set<UniqueAddress> unreachButNotIndirect = new HashSet<>();
+        for (Member m : unreachable) {
+            if (!indirect.contains(m.uniqueAddress())) {
+                unreachButNotIndirect.add(m.uniqueAddress());
+            }
+        }
+        if (unreachButNotIndirect.isEmpty()) {
+            return Set.of();
+        }
+        Reachability originalReachability = this.reachability;
+        try {
+            Set<UniqueAddress> intersection = indirectlyConnectedFromIntersectionOfObserversAndSubjects();
+            Set<UniqueAddress> seenGossip = indirectlyConnectedFromSeenCurrentGossip();
+            Set<UniqueAddress> downable = new HashSet<>();
+            for (Member m : members) {
+                if (m.status() != MemberStatus.Down && m.status() != MemberStatus.Exiting) {
+                    downable.add(m.uniqueAddress());
+                }
+            }
+            List<Reachability.Record> filteredRecords = originalReachability.records().stream()
+                    .filter(r -> downable.contains(r.observer()) && downable.contains(r.subject())
+                            && !(intersection.contains(r.observer()) && intersection.contains(r.subject()))
+                            && !(seenGossip.contains(r.observer()) && seenGossip.contains(r.subject())))
+                    .toList();
+            this.reachability = new Reachability(filteredRecords, originalReachability.versions());
+            Set<UniqueAddress> filteredUnreachableUas = this.reachability.allUnreachableOrTerminated();
+            Set<Member> filteredUnreachable = new HashSet<>();
+            for (Member m : members) {
+                if (filteredUnreachableUas.contains(m.uniqueAddress())) {
+                    filteredUnreachable.add(m);
+                }
+            }
+            if (hasIndirectlyConnected()) {
+                return downable;
+            }
+            List<Member> additional = decideAndSelect(members, filteredUnreachable);
+            Set<UniqueAddress> result = new HashSet<>();
+            for (Member m : additional) {
+                result.add(m.uniqueAddress());
+            }
+            return result;
+        } finally {
+            this.reachability = originalReachability;
+        }
     }
 
     /**

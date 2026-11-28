@@ -142,6 +142,15 @@ public final class ShardRegion extends AbstractLoggingActor {
             implements ClusterShardingSerializable {
     }
 
+    /** 查询整个集群各 ShardRegion 的统计信息。 */
+    public record GetClusterShardingStats(Duration timeout) implements ClusterShardingSerializable {
+    }
+
+    /** 全集群分片统计响应。 */
+    public record ClusterShardingStats(Map<Address, ShardRegionStats> regions)
+            implements ClusterShardingSerializable {
+    }
+
     /** 查询当前所有注册 region 的节点地址。 */
     public enum GetCurrentRegions implements ClusterShardingSerializable {
         INSTANCE
@@ -309,6 +318,13 @@ public final class ShardRegion extends AbstractLoggingActor {
                 .match(GracefulShutdown.class, ignored -> startGracefulShutdown())
                 .match(GetCurrentRegions.class, ignored -> handleGetCurrentRegions())
                 .match(GetShardRegionStats.class, ignored -> handleGetShardRegionStats())
+                .match(GetClusterShardingStats.class, msg -> {
+                    if (coordinator != null) {
+                        coordinator.forward(msg, getContext());
+                    } else {
+                        getSender().tell(new ClusterShardingStats(Map.of()), getSelf());
+                    }
+                })
                 .match(HandOffBufferedMessage.class, this::rebufferHandOffMessage)
                 .matchAny(this::deliverMessage)
                 .build();

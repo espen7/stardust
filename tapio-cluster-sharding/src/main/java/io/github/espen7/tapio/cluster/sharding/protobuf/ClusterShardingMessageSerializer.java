@@ -64,6 +64,8 @@ public class ClusterShardingMessageSerializer extends SerializerWithStringManife
     private static final String GET_CURRENT_REGIONS_MANIFEST = "AT";
     private static final String CURRENT_REGIONS_MANIFEST = "AU";
     private static final String SHARD_LOCATIONS_MANIFEST = "AV";
+    private static final String GET_CLUSTER_SHARDING_STATS_MANIFEST = "AW";
+    private static final String CLUSTER_SHARDING_STATS_MANIFEST = "AX";
 
     private static final byte[] EMPTY_BYTES = new byte[0];
 
@@ -110,6 +112,8 @@ public class ClusterShardingMessageSerializer extends SerializerWithStringManife
             case ShardRegion.GetCurrentRegions ignored -> GET_CURRENT_REGIONS_MANIFEST;
             case ShardRegion.CurrentRegions ignored -> CURRENT_REGIONS_MANIFEST;
             case ShardLocations ignored -> SHARD_LOCATIONS_MANIFEST;
+            case ShardRegion.GetClusterShardingStats ignored -> GET_CLUSTER_SHARDING_STATS_MANIFEST;
+            case ShardRegion.ClusterShardingStats ignored -> CLUSTER_SHARDING_STATS_MANIFEST;
             default -> throw new IllegalArgumentException("Unsupported sharding message: " + o.getClass().getName());
         };
     }
@@ -140,6 +144,8 @@ public class ClusterShardingMessageSerializer extends SerializerWithStringManife
                 case ShardRegion.GetCurrentRegions ignored -> EMPTY_BYTES;
                 case ShardRegion.CurrentRegions cr -> encodeCurrentRegions(cr);
                 case ShardLocations sl -> encodeShardLocations(sl);
+                case ShardRegion.GetClusterShardingStats g -> encodeGetClusterShardingStats(g);
+                case ShardRegion.ClusterShardingStats c -> encodeClusterShardingStats(c);
                 default -> throw new IllegalArgumentException(
                         "Unsupported sharding message: " + o.getClass().getName());
             };
@@ -176,6 +182,8 @@ public class ClusterShardingMessageSerializer extends SerializerWithStringManife
                 case GET_CURRENT_REGIONS_MANIFEST -> ShardRegion.GetCurrentRegions.INSTANCE;
                 case CURRENT_REGIONS_MANIFEST -> decodeCurrentRegions(in);
                 case SHARD_LOCATIONS_MANIFEST -> decodeShardLocations(in);
+                case GET_CLUSTER_SHARDING_STATS_MANIFEST -> decodeGetClusterShardingStats(in);
+                case CLUSTER_SHARDING_STATS_MANIFEST -> decodeClusterShardingStats(in);
                 default -> throw new NotSerializableException("Unknown sharding manifest: " + manifest);
             };
         } catch (IOException e) {
@@ -516,5 +524,72 @@ public class ClusterShardingMessageSerializer extends SerializerWithStringManife
             }
         }
         return new ShardLocations(locs);
+    }
+
+    private byte[] encodeGetClusterShardingStats(ShardRegion.GetClusterShardingStats g) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        CodedOutputStream out = CodedOutputStream.newInstance(baos);
+        out.writeInt64(1, g.timeout().toNanos());
+        out.flush();
+        return baos.toByteArray();
+    }
+
+    private ShardRegion.GetClusterShardingStats decodeGetClusterShardingStats(CodedInputStream in)
+            throws IOException {
+        long nanos = 0L;
+        while (!in.isAtEnd()) {
+            int tag = in.readTag();
+            if ((tag >>> 3) == 1) {
+                nanos = in.readInt64();
+            } else {
+                in.skipField(tag);
+            }
+        }
+        return new ShardRegion.GetClusterShardingStats(java.time.Duration.ofNanos(nanos));
+    }
+
+    private byte[] encodeClusterShardingStats(ShardRegion.ClusterShardingStats stats) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        CodedOutputStream out = CodedOutputStream.newInstance(baos);
+        for (Map.Entry<Address, ShardRegion.ShardRegionStats> entry : stats.regions().entrySet()) {
+            ByteArrayOutputStream eBaos = new ByteArrayOutputStream();
+            CodedOutputStream eOut = CodedOutputStream.newInstance(eBaos);
+            ByteArrayOutputStream addrBaos = new ByteArrayOutputStream();
+            CodedOutputStream addrOut = CodedOutputStream.newInstance(addrBaos);
+            WireFormats.writeAddressData(addrOut, entry.getKey());
+            addrOut.flush();
+            eOut.writeByteArray(1, addrBaos.toByteArray());
+            eOut.writeByteArray(2, encodeShardRegionStats(entry.getValue()));
+            eOut.flush();
+            out.writeByteArray(1, eBaos.toByteArray());
+        }
+        out.flush();
+        return baos.toByteArray();
+    }
+
+    private ShardRegion.ClusterShardingStats decodeClusterShardingStats(CodedInputStream in) throws IOException {
+        Map<Address, ShardRegion.ShardRegionStats> regions = new HashMap<>();
+        while (!in.isAtEnd()) {
+            int tag = in.readTag();
+            if ((tag >>> 3) == 1) {
+                CodedInputStream eIn = CodedInputStream.newInstance(in.readByteArray());
+                Address addr = null;
+                ShardRegion.ShardRegionStats regionStats = null;
+                while (!eIn.isAtEnd()) {
+                    int eTag = eIn.readTag();
+                    switch (eTag >>> 3) {
+                        case 1 -> addr = WireFormats.readAddressData(CodedInputStream.newInstance(eIn.readByteArray()));
+                        case 2 -> regionStats = decodeShardRegionStats(CodedInputStream.newInstance(eIn.readByteArray()));
+                        default -> eIn.skipField(eTag);
+                    }
+                }
+                if (addr != null && regionStats != null) {
+                    regions.put(addr, regionStats);
+                }
+            } else {
+                in.skipField(tag);
+            }
+        }
+        return new ShardRegion.ClusterShardingStats(regions);
     }
 }

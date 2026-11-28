@@ -24,6 +24,7 @@ import io.github.espen7.tapio.cluster.ClusterEvent;
 import io.github.espen7.tapio.cluster.Member;
 import io.github.espen7.tapio.coordination.lease.Lease;
 import io.github.espen7.tapio.coordination.lease.LeaseProvider;
+import io.github.espen7.tapio.remote.ThisActorSystemQuarantinedEvent;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -92,6 +93,7 @@ public final class SplitBrainResolver extends AbstractLoggingActor {
                 ClusterEvent.MemberEvent.class,
                 ClusterEvent.ReachabilityEvent.class,
                 ClusterEvent.LeaderChanged.class);
+        getContext().getSystem().eventStream().subscribe(getSelf(), ThisActorSystemQuarantinedEvent.class);
     }
 
     @Override
@@ -99,6 +101,7 @@ public final class SplitBrainResolver extends AbstractLoggingActor {
         if (decideTimer != null) {
             decideTimer.cancel();
         }
+        getContext().getSystem().eventStream().unsubscribe(getSelf());
         cluster.unsubscribe(getSelf());
     }
 
@@ -137,6 +140,11 @@ public final class SplitBrainResolver extends AbstractLoggingActor {
                     rescheduleIfNeeded();
                 })
                 .match(ClusterEvent.LeaderChanged.class, ev -> leader = ev.leader().orElse(null))
+                .match(ThisActorSystemQuarantinedEvent.class, ev -> {
+                    log().warning("SBR downing self [{}] because it was quarantined by [{}]",
+                            cluster.selfAddress(), ev.remoteAddress());
+                    cluster.down(cluster.selfAddress());
+                })
                 .match(DecideTick.class, tick -> decide())
                 .match(AcquireLeaseTick.class, tick -> acquireLeaseNow())
                 .match(AcquireLeaseResult.class, this::onAcquireLeaseResult)

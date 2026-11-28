@@ -18,6 +18,7 @@ import io.github.espen7.tapio.actor.Cancellable;
 import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.actor.Terminated;
 import io.github.espen7.tapio.annotation.InternalApi;
+import io.github.espen7.tapio.cluster.sharding.internal.EntityPassivationStrategy;
 import io.github.espen7.tapio.cluster.sharding.internal.RememberEntitiesStore;
 
 import java.net.URLEncoder;
@@ -90,7 +91,7 @@ public final class Shard extends AbstractLoggingActor {
 
     private final Map<ActorRef, String> idByRef = new HashMap<>();
     private final Map<String, ActorRef> refById = new HashMap<>();
-    private final Map<String, Long> lastActivityNanos = new HashMap<>();
+    private final EntityPassivationStrategy passivationStrategy;
     private final Map<String, List<BufferedMessage>> messageBuffers = new HashMap<>();
     private final Set<ActorRef> passivating = new HashSet<>();
 
@@ -114,6 +115,7 @@ public final class Shard extends AbstractLoggingActor {
         this.rememberEntitiesStore = rememberEntitiesStoreProps == null
                 ? null
                 : getContext().actorOf(rememberEntitiesStoreProps, "rememberEntitiesStore");
+        this.passivationStrategy = EntityPassivationStrategy.create(settings);
     }
 
     @Override
@@ -121,12 +123,8 @@ public final class Shard extends AbstractLoggingActor {
         if (rememberEntitiesStore != null) {
             rememberEntitiesStore.tell(RememberEntitiesStore.ShardStore.GetEntities.INSTANCE, getSelf());
         }
-        Duration idleTimeout = settings.passivateIdleEntityAfter();
-        if (idleTimeout != null && !idleTimeout.isZero() && !idleTimeout.isNegative()) {
-            Duration checkInterval = idleTimeout.dividedBy(2);
-            if (checkInterval.toMillis() < 50) {
-                checkInterval = Duration.ofMillis(50);
-            }
+        Duration checkInterval = passivationStrategy.interval();
+        if (!checkInterval.isZero() && !checkInterval.isNegative()) {
             idleCheckTask = getContext().getSystem().scheduler().scheduleWithFixedDelay(
                     checkInterval,
                     checkInterval,
@@ -192,7 +190,7 @@ public final class Shard extends AbstractLoggingActor {
             return;
         }
         ActorRef entity = getOrCreateEntity(entityId);
-        lastActivityNanos.put(entityId, System.nanoTime());
+        touchEntity(entityId);
         entity.tell(payload, getSender());
     }
 
@@ -206,12 +204,21 @@ public final class Shard extends AbstractLoggingActor {
         getContext().watch(created);
         refById.put(entityId, created);
         idByRef.put(created, entityId);
-        lastActivityNanos.put(entityId, System.nanoTime());
+        touchEntity(entityId);
         if (rememberEntitiesStore != null) {
             rememberEntitiesStore.tell(
                     new RememberEntitiesStore.ShardStore.Update(Set.of(entityId), Set.of()), getSelf());
         }
         return created;
+    }
+
+    private void touchEntity(String entityId) {
+        for (String toPassivate : passivationStrategy.entityTouched(entityId)) {
+            ActorRef ref = refById.get(toPassivate);
+            if (ref != null) {
+                passivate(ref, handOffStopMessage);
+            }
+        }
     }
 
     private void passivate(ActorRef entity, Object stopMessage) {
@@ -228,16 +235,10 @@ public final class Shard extends AbstractLoggingActor {
         if (handingOff || refById.isEmpty()) {
             return;
         }
-        long thresholdNanos = settings.passivateIdleEntityAfter().toNanos();
-        long now = System.nanoTime();
-        for (Map.Entry<String, ActorRef> entry : List.copyOf(refById.entrySet())) {
-            String entityId = entry.getKey();
-            ActorRef ref = entry.getValue();
-            if (!passivating.contains(ref)) {
-                long last = lastActivityNanos.getOrDefault(entityId, now);
-                if (now - last >= thresholdNanos) {
-                    passivate(ref, handOffStopMessage);
-                }
+        for (String entityId : passivationStrategy.checkIdle()) {
+            ActorRef ref = refById.get(entityId);
+            if (ref != null && !passivating.contains(ref)) {
+                passivate(ref, handOffStopMessage);
             }
         }
     }
@@ -263,7 +264,7 @@ public final class Shard extends AbstractLoggingActor {
             return;
         }
         refById.remove(entityId);
-        lastActivityNanos.remove(entityId);
+        passivationStrategy.entityTerminated(entityId);
         boolean wasPassivating = passivating.remove(ref);
         if (!handingOff && wasPassivating && rememberEntitiesStore != null) {
             rememberEntitiesStore.tell(
@@ -273,7 +274,7 @@ public final class Shard extends AbstractLoggingActor {
         if (buffered != null && !buffered.isEmpty() && !handingOff) {
             ActorRef entity = getOrCreateEntity(entityId);
             for (BufferedMessage bm : buffered) {
-                lastActivityNanos.put(entityId, System.nanoTime());
+                touchEntity(entityId);
                 entity.tell(bm.message(), bm.sender());
             }
         }

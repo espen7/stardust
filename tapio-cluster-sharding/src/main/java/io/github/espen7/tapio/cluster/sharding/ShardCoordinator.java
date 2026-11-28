@@ -14,6 +14,7 @@ package io.github.espen7.tapio.cluster.sharding;
 
 import io.github.espen7.tapio.actor.AbstractLoggingActor;
 import io.github.espen7.tapio.actor.ActorRef;
+import io.github.espen7.tapio.actor.Address;
 import io.github.espen7.tapio.actor.Cancellable;
 import io.github.espen7.tapio.actor.DeadLetterSuppression;
 import io.github.espen7.tapio.actor.Deploy;
@@ -21,7 +22,9 @@ import io.github.espen7.tapio.actor.Props;
 import io.github.espen7.tapio.actor.Terminated;
 import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.annotation.InternalStableApi;
+import io.github.espen7.tapio.cluster.Cluster;
 import io.github.espen7.tapio.cluster.sharding.internal.RememberEntitiesStore;
+import io.github.espen7.tapio.pattern.Patterns;
 
 import java.io.Serializable;
 import java.time.Duration;
@@ -32,6 +35,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -303,6 +307,7 @@ public abstract class ShardCoordinator extends AbstractLoggingActor {
             case RebalanceResult rr -> handleRebalanceResult(rr);
             case Internal.BeginHandOffAck ack -> handleBeginHandOffAck(ack.shard(), getSender());
             case Internal.ShardStopped stopped -> handleShardStopped(stopped.shard());
+            case ShardRegion.GetClusterShardingStats req -> handleGetClusterShardingStats(req, getSender());
             case Terminated t -> handleTerminated(t.actor());
             default -> {
                 return false;
@@ -475,6 +480,38 @@ public abstract class ShardCoordinator extends AbstractLoggingActor {
     }
 
     protected void onShardAllocated(String shardId) {
+    }
+
+    private void handleGetClusterShardingStats(ShardRegion.GetClusterShardingStats req, ActorRef replyTo) {
+        if (state.regions().isEmpty()) {
+            replyTo.tell(new ShardRegion.ClusterShardingStats(Map.of()), getSelf());
+            return;
+        }
+        Address selfAddr = Cluster.get(getContext().getSystem()).selfAddress();
+        List<ActorRef> regionList = List.copyOf(state.regions().keySet());
+        List<CompletableFuture<Map.Entry<Address, ShardRegion.ShardRegionStats>>> futures = new ArrayList<>();
+        for (ActorRef region : regionList) {
+            CompletableFuture<Map.Entry<Address, ShardRegion.ShardRegionStats>> f = Patterns
+                    .ask(region, ShardRegion.GetShardRegionStats.INSTANCE, req.timeout())
+                    .toCompletableFuture()
+                    .thenApply(resp -> {
+                        Address addr = region.path().address();
+                        Address resolved = addr.host() == null ? selfAddr : addr;
+                        return Map.entry(resolved, (ShardRegion.ShardRegionStats) resp);
+                    });
+            futures.add(f);
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                .thenApply(v -> {
+                    Map<Address, ShardRegion.ShardRegionStats> result = new HashMap<>();
+                    for (var f : futures) {
+                        var entry = f.join();
+                        result.put(entry.getKey(), entry.getValue());
+                    }
+                    return new ShardRegion.ClusterShardingStats(Map.copyOf(result));
+                })
+                .exceptionally(err -> new ShardRegion.ClusterShardingStats(Map.of()))
+                .thenAccept(stats -> replyTo.tell(stats, getSelf()));
     }
 
     protected abstract void persistState();

@@ -40,17 +40,21 @@ Tapio 目前处于早期开发阶段。第一个稳定版本发布前，公开 A
 | PoisonPill、Kill、ReceiveTimeout、`watchWith` 和 restart 生命周期处理 | `tapio-actor` 已提供 |
 | 普通 Dispatcher 生命周期、嵌套任务 batching、lazy executor 重建、inhabitants、空闲 shutdown | `tapio-actor` 已提供 |
 | guardian 使用的 internal Dispatcher，以及为单个 Actor 提供专用线程的 PinnedDispatcher | `tapio-actor` 已提供 |
-| 内置 `default-executor`、`fork-join-executor` 和 `thread-pool-executor` 配置 | `tapio-actor` 已提供 |
-| Dispatcher/Mailbox 的 Props 与部署绑定、无界/有界 mailbox | `tapio-actor` 已提供 |
-| EventStream（订阅者终止时自动退订）、结构化日志、默认 logger 启动/关闭与动态级别、`ask`、一次性与周期调度 | `tapio-actor` 已提供 |
-| 路由（Routing） | 计划中 |
-| Cluster Sharding | 计划中 |
-| Kubernetes 集群发现 | 计划中 |
-| 集群功能所需的传输和成员关系组件 | 作为 Tapio 聚焦组件计划实现 |
+| 内置 `default-executor`、`fork-join-executor`、`thread-pool-executor` 与 `virtual-thread-executor`（含 `virtualize = on`）配置 | `tapio-actor` 已提供 |
+| Dispatcher/Mailbox 的 Props 与部署绑定、无界/有界/双端/优先级/控制感知 mailbox | `tapio-actor` 已提供 |
+| EventStream（订阅者终止时自动退订）、结构化日志、`LoggingReceive`、`LoggingFilter`、`log-config-on-start`、默认 logger 启动/关闭与动态级别、本地 ActorSelection、`ask`/`pipe`/`gracefulStop`/`BackoffSupervisor`/`CircuitBreaker`、`Timers`、`Stash`、`AbstractFSM`、`Extension`/`DynamicAccess`、一次性与周期调度 | `tapio-actor` 已提供 |
+| Classic Remoting（Netty 4.2 TCP、Phi Accrual 失效检测、`RemoteWatcher`、序列化） | `tapio-remote` 已提供 |
+| Cluster 成员管理、Gossip、可达性矩阵与 Split Brain Resolver（含 `IndirectlyConnected` 与 `LeaseMajority`） | `tapio-cluster` 已提供 |
+| Cluster Singleton（含完整 HandOver 握手的 `ClusterSingletonManager` / `ClusterSingletonProxy`） | `tapio-cluster-tools` 已提供 |
+| Distributed Data（`Replicator`、`ORSet`、`LWWRegister`、`VersionVector`、按角色隔离） | `tapio-distributed-data` 已提供 |
+| Cluster Sharding（`ddata` 模式、`ClusterShardingGuardian`、`LeastShard`/`ConsistentHashing`/`External` 策略、`EntityPassivationStrategy`、`ClusterShardingHealthCheck`、`remember-entities`） | `tapio-cluster-sharding` 已提供 |
+| 分布式租约 SPI（`Lease`、`LeaseProvider`、SBR `lease-majority`、Singleton/Sharding `use-lease`） | `tapio-coordination` 已提供 |
+| 服务发现（`config`、`aggregate`） | `tapio-discovery` 已提供 |
+| Kubernetes 集群发现与 Bootstrap（`pekko-management`） | 计划中 |
 
-「已提供」表示本地 runtime 契约已有实现并有 Tapio 测试覆盖。这不代表与 Pekko 全量源码一致，也不代表已通过 Pekko 完整测试套件。virtual/affinity/自定义 executor、logger mailbox 之外的高级 mailbox、logging filter 和启动时配置日志仍未完成。
+「已提供」表示对应 runtime 契约已有实现并有 Tapio 测试覆盖。这不代表与 Pekko 全量源码一致，也不代表已通过 Pekko 完整测试套件。affinity/自定义 executor 仍未完成。
 
-首期范围不包含完整的 Akka/Pekko 生态：**Typed Actor（Pekko Typed）明确不迁移**，同时不包含 Streams、Persistence、大范围序列化集成、完整 Remote 兼容，以及无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
+当前范围不包含完整的 Akka/Pekko 生态：**Typed Actor（Pekko Typed）、Persistence、Streams、Artery、Routing 与 I/O 明确不迁移**，同时不包含无关的企业集成。只有直接服务于 Actor 平台和目标业务的组件，才会进入后续范围。
 
 ## 快速开始
 

@@ -13,12 +13,15 @@
 package io.github.espen7.tapio.cluster.sharding;
 
 import io.github.espen7.tapio.actor.AbstractExtensionId;
+import io.github.espen7.tapio.actor.AbstractLoggingActor;
 import io.github.espen7.tapio.actor.ActorRef;
 import io.github.espen7.tapio.actor.ActorSystem;
 import io.github.espen7.tapio.actor.ExtendedActorSystem;
 import io.github.espen7.tapio.actor.Extension;
 import io.github.espen7.tapio.actor.PoisonPill;
 import io.github.espen7.tapio.actor.Props;
+import io.github.espen7.tapio.actor.Status;
+import io.github.espen7.tapio.annotation.InternalApi;
 import io.github.espen7.tapio.cluster.Cluster;
 import io.github.espen7.tapio.cluster.ClusterSettings;
 import io.github.espen7.tapio.cluster.ddata.Replicator;
@@ -28,19 +31,24 @@ import io.github.espen7.tapio.cluster.sharding.internal.LeastShardAllocationStra
 import io.github.espen7.tapio.cluster.sharding.internal.RememberEntitiesStore;
 import io.github.espen7.tapio.cluster.singleton.ClusterSingletonManager;
 import io.github.espen7.tapio.cluster.singleton.ClusterSingletonManagerSettings;
+import io.github.espen7.tapio.coordination.lease.LeaseUsageSettings;
+import io.github.espen7.tapio.pattern.Patterns;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
- * 集群分片扩展入口（基于 DData 模式），负责在集群节点上启动 {@link ShardRegion} 与 {@link ShardCoordinator} 单例。
+ * 集群分片扩展入口（基于 DData 模式），通过内部 {@code ClusterShardingGuardian} Actor 托管分片区域与协调器单例。
  */
 public final class ClusterSharding implements Extension {
 
@@ -54,28 +62,199 @@ public final class ClusterSharding implements Extension {
 
     /**
      * 获取或创建关联的 {@link ClusterSharding} 扩展实例。
-     *
-     * @param system ActorSystem
-     * @return ClusterSharding 扩展
      */
     public static ClusterSharding get(ActorSystem system) {
         return Id.apply(system);
     }
 
+    /** INTERNAL API：Guardian 启动 Region 命令。 */
+    @InternalApi
+    record Start(
+            String typeName,
+            Function<String, Props> entityPropsFactory,
+            ClusterShardingSettings settings,
+            ShardRegion.MessageExtractor messageExtractor,
+            ShardAllocationStrategy allocationStrategy,
+            Object handOffStopMessage) {
+    }
+
+    /** INTERNAL API：Guardian 启动 Proxy 命令。 */
+    @InternalApi
+    record StartProxy(
+            String typeName,
+            ClusterShardingSettings settings,
+            ShardRegion.MessageExtractor messageExtractor) {
+    }
+
+    /** INTERNAL API：Guardian 启动结果。 */
+    @InternalApi
+    record Started(ActorRef shardRegion) {
+    }
+
+    /**
+     * INTERNAL API：串行管理按角色隔离的 {@link Replicator}、{@link ShardCoordinator} 单例与 {@link ShardRegion} 的 Guardian Actor。
+     */
+    @InternalApi
+    static final class ClusterShardingGuardian extends AbstractLoggingActor {
+        private final Cluster cluster;
+        private final int majorityMinCap;
+        private final Map<Optional<String>, ActorRef> replicatorByRole = new HashMap<>();
+
+        ClusterShardingGuardian() {
+            this.cluster = Cluster.get(getContext().getSystem());
+            this.majorityMinCap = getContext().getSystem().settings().config()
+                    .getInt("tapio.cluster.sharding.distributed-data.majority-min-cap");
+        }
+
+        @Override
+        public Receive createReceive() {
+            return receiveBuilder()
+                    .match(Start.class, this::onStart)
+                    .match(StartProxy.class, this::onStartProxy)
+                    .build();
+        }
+
+        private void onStart(Start cmd) {
+            try {
+                String encName = URLEncoder.encode(cmd.typeName(), StandardCharsets.UTF_8);
+                String coordinatorPath = getSelf().path()
+                        .child(encName + "Coordinator")
+                        .child("singleton")
+                        .toStringWithoutAddress();
+
+                Optional<ActorRef> existing = getContext().findChild(encName);
+                ActorRef region;
+                if (existing.isPresent()) {
+                    region = existing.get();
+                } else {
+                    ActorRef shardReplicator = replicator(cmd.settings().role());
+                    ActorRef coordinatorReplicator = replicator(cmd.settings().coordinatorSingletonSettings().role());
+                    RememberEntitiesStore.Provider rememberProvider = cmd.settings().rememberEntities()
+                            ? new DDataRememberEntitiesProvider(
+                                    cmd.typeName(), cmd.settings(), majorityMinCap, shardReplicator)
+                            : null;
+
+                    startCoordinatorIfNeeded(
+                            cmd.typeName(), encName, cmd.allocationStrategy(),
+                            coordinatorReplicator, rememberProvider, cmd.settings());
+
+                    region = getContext().actorOf(
+                            ShardRegion.props(
+                                    cmd.typeName(),
+                                    cmd.entityPropsFactory(),
+                                    cmd.settings(),
+                                    coordinatorPath,
+                                    cmd.messageExtractor(),
+                                    cmd.handOffStopMessage(),
+                                    rememberProvider),
+                            encName);
+                }
+                getSender().tell(new Started(region), getSelf());
+            } catch (Throwable e) {
+                getSender().tell(new Status.Failure(e), getSelf());
+            }
+        }
+
+        private void onStartProxy(StartProxy cmd) {
+            try {
+                String encType = URLEncoder.encode(cmd.typeName(), StandardCharsets.UTF_8);
+                String proxyName = URLEncoder.encode(cmd.typeName() + "Proxy", StandardCharsets.UTF_8);
+                String coordinatorPath = getSelf().path()
+                        .child(encType + "Coordinator")
+                        .child("singleton")
+                        .toStringWithoutAddress();
+
+                Optional<ActorRef> existing = getContext().findChild(proxyName);
+                ActorRef proxy = existing.orElseGet(() -> getContext().actorOf(
+                        ShardRegion.proxyProps(
+                                cmd.typeName(),
+                                cmd.settings(),
+                                coordinatorPath,
+                                cmd.messageExtractor()),
+                        proxyName));
+                getSender().tell(new Started(proxy), getSelf());
+            } catch (Throwable e) {
+                getSender().tell(new Status.Failure(e), getSelf());
+            }
+        }
+
+        private void startCoordinatorIfNeeded(
+                String typeName,
+                String encName,
+                ShardAllocationStrategy allocationStrategy,
+                ActorRef coordinatorReplicator,
+                RememberEntitiesStore.Provider rememberProvider,
+                ClusterShardingSettings settings) {
+            String coordinatorManagerName = encName + "Coordinator";
+            if (getContext().findChild(coordinatorManagerName).isPresent()) {
+                return;
+            }
+            ClusterSingletonManagerSettings singletonSettings = settings.coordinatorSingletonSettings()
+                    .withSingletonName("singleton");
+            if (singletonSettings.leaseUsageSettings().isEmpty()
+                    && getContext().getSystem().settings().config().hasPath("tapio.cluster.sharding.use-lease")) {
+                String leaseImpl = getContext().getSystem().settings().config()
+                        .getString("tapio.cluster.sharding.use-lease");
+                if (leaseImpl != null && !leaseImpl.isBlank()) {
+                    Duration retry = getContext().getSystem().settings().config()
+                            .getDuration("tapio.cluster.sharding.lease-retry-interval");
+                    singletonSettings = singletonSettings.withLeaseUsageSettings(
+                            new LeaseUsageSettings(leaseImpl, retry));
+                }
+            }
+            Props coordinatorProps = ShardCoordinator.props(
+                    typeName,
+                    settings,
+                    allocationStrategy,
+                    coordinatorReplicator,
+                    majorityMinCap,
+                    rememberProvider);
+            getContext().actorOf(
+                    ClusterSingletonManager.props(
+                            coordinatorProps,
+                            ShardCoordinator.Internal.Terminate.INSTANCE,
+                            singletonSettings),
+                    coordinatorManagerName);
+        }
+
+        private ActorRef replicator(Optional<String> role) {
+            ActorRef existing = replicatorByRole.get(role);
+            if (existing != null && getContext().findChild(existing.path().name()).isPresent()) {
+                return existing;
+            }
+            String name = role.filter(r -> !r.isEmpty())
+                    .map(r -> URLEncoder.encode(r, StandardCharsets.UTF_8) + "Replicator")
+                    .orElse("replicator");
+            ActorRef ref = getContext().actorOf(Replicator.props(replicatorSettings(role)), name);
+            replicatorByRole.put(role, ref);
+            return ref;
+        }
+
+        private ReplicatorSettings replicatorSettings(Optional<String> role) {
+            ReplicatorSettings configured = ReplicatorSettings.create(
+                    getContext().getSystem().settings().config()
+                            .getConfig("tapio.cluster.sharding.distributed-data"));
+            Set<String> replicatorRoles = new HashSet<>();
+            replicatorRoles.add(ClusterSettings.DcRolePrefix + cluster.settings().SelfDataCenter);
+            role.filter(r -> !r.isEmpty()).ifPresent(replicatorRoles::add);
+            return configured.withRoles(replicatorRoles);
+        }
+    }
+
     private final ExtendedActorSystem system;
     private final Cluster cluster;
-    private final String guardianName;
-    private final int majorityMinCap;
+    private final ActorRef guardian;
+    private final Duration startTimeout = Duration.ofSeconds(10);
     private final Map<String, ActorRef> regions = new ConcurrentHashMap<>();
     private final Map<String, ActorRef> proxies = new ConcurrentHashMap<>();
-    private final Map<Optional<String>, ActorRef> replicatorByRole = new ConcurrentHashMap<>();
 
     private ClusterSharding(ExtendedActorSystem system) {
         this.system = system;
         this.cluster = Cluster.get(system);
-        var shardingConfig = system.settings().config().getConfig("tapio.cluster.sharding");
-        this.guardianName = shardingConfig.getString("guardian-name");
-        this.majorityMinCap = shardingConfig.getInt("distributed-data.majority-min-cap");
+        String guardianName = system.settings().config().getString("tapio.cluster.sharding.guardian-name");
+        this.guardian = system.actorOf(
+                Props.create(ClusterShardingGuardian.class, ClusterShardingGuardian::new),
+                guardianName);
     }
 
     /**
@@ -115,62 +294,14 @@ public final class ClusterSharding implements Extension {
         if (existing != null) {
             return existing;
         }
-
         boolean matchesRole = settings.role().map(r -> cluster.selfMember().hasRole(r)).orElse(true);
         if (!matchesRole) {
             return startProxy(typeName, settings.role(), messageExtractor);
         }
-
-        String encodedType = URLEncoder.encode(typeName, StandardCharsets.UTF_8);
-        String coordinatorName = encodedType + "Coordinator";
-        String coordinatorSingletonPath = "/user/" + guardianName + "-" + coordinatorName;
-
-        ActorRef shardReplicator = replicator(settings.role());
-        ActorRef coordinatorReplicator = replicator(settings.coordinatorSingletonSettings().role());
-        RememberEntitiesStore.Provider rememberProvider = settings.rememberEntities()
-                ? new DDataRememberEntitiesProvider(typeName, settings, majorityMinCap, shardReplicator)
-                : null;
-
-        ClusterSingletonManagerSettings singletonSettings = settings.coordinatorSingletonSettings()
-                .withSingletonName("singleton");
-        if (settings.coordinatorSingletonSettings().leaseUsageSettings().isEmpty()
-                && system.settings().config().hasPath("tapio.cluster.sharding.use-lease")) {
-            String leaseImpl = system.settings().config().getString("tapio.cluster.sharding.use-lease");
-            if (leaseImpl != null && !leaseImpl.isBlank()) {
-                java.time.Duration retry = system.settings().config()
-                        .getDuration("tapio.cluster.sharding.lease-retry-interval");
-                singletonSettings = singletonSettings.withLeaseUsageSettings(
-                        new io.github.espen7.tapio.coordination.lease.LeaseUsageSettings(leaseImpl, retry));
-            }
-        }
-        Props coordinatorProps = ShardCoordinator.props(
-                typeName,
-                settings,
-                allocationStrategy,
-                coordinatorReplicator,
-                majorityMinCap,
-                rememberProvider);
-
-        system.actorOf(
-                ClusterSingletonManager.props(
-                        coordinatorProps,
-                        ShardCoordinator.Internal.Terminate.INSTANCE,
-                        singletonSettings),
-                guardianName + "-" + coordinatorName);
-
-        String coordinatorPath = coordinatorSingletonPath + "/singleton";
-        ActorRef region = system.actorOf(
-                ShardRegion.props(
-                        typeName,
-                        entityPropsFactory,
-                        settings,
-                        coordinatorPath,
-                        messageExtractor,
-                        handOffStopMessage,
-                        rememberProvider),
-                guardianName + "-" + encodedType);
-        regions.put(typeName, region);
-        return region;
+        ActorRef region = askGuardian(new Start(
+                typeName, entityPropsFactory, settings, messageExtractor, allocationStrategy, handOffStopMessage));
+        regions.putIfAbsent(typeName, region);
+        return regions.get(typeName);
     }
 
     /**
@@ -178,7 +309,7 @@ public final class ClusterSharding implements Extension {
      */
     public ActorRef startProxy(
             String typeName,
-            java.util.Optional<String> role,
+            Optional<String> role,
             ShardRegion.MessageExtractor messageExtractor) {
         ActorRef existing = proxies.get(typeName);
         if (existing != null) {
@@ -186,13 +317,31 @@ public final class ClusterSharding implements Extension {
         }
         ClusterShardingSettings settings = ClusterShardingSettings.create(system)
                 .withRole(role.orElse(""));
-        String encodedType = URLEncoder.encode(typeName, StandardCharsets.UTF_8);
-        String coordinatorPath = "/user/" + guardianName + "-" + encodedType + "Coordinator/singleton";
-        ActorRef proxy = system.actorOf(
-                ShardRegion.proxyProps(typeName, settings, coordinatorPath, messageExtractor),
-                guardianName + "-" + encodedType + "Proxy");
-        proxies.put(typeName, proxy);
-        return proxy;
+        ActorRef proxy = askGuardian(new StartProxy(typeName, settings, messageExtractor));
+        proxies.putIfAbsent(typeName, proxy);
+        return proxies.get(typeName);
+    }
+
+    private ActorRef askGuardian(Object cmd) {
+        try {
+            Object reply = Patterns.ask(guardian, cmd, startTimeout)
+                    .toCompletableFuture()
+                    .get(startTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            if (reply instanceof Started s) {
+                return s.shardRegion();
+            }
+            if (reply instanceof Status.Failure f) {
+                if (f.cause() instanceof RuntimeException re) {
+                    throw re;
+                }
+                throw new IllegalStateException("ClusterSharding guardian failed", f.cause());
+            }
+            throw new IllegalStateException("Unexpected reply from ClusterShardingGuardian: " + reply);
+        } catch (RuntimeException re) {
+            throw re;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to start ClusterSharding", e);
+        }
     }
 
     /**
@@ -220,22 +369,5 @@ public final class ClusterSharding implements Extension {
                 tuning.leastShardAllocationRelativeLimit(),
                 tuning.leastShardAllocationRebalanceThreshold(),
                 tuning.leastShardAllocationMaxSimultaneousRebalance());
-    }
-
-    private ActorRef replicator(Optional<String> role) {
-        return replicatorByRole.computeIfAbsent(role, r -> {
-            String name = r.map(s -> URLEncoder.encode(s, StandardCharsets.UTF_8) + "Replicator")
-                    .orElse("replicator");
-            return system.actorOf(Replicator.props(replicatorSettings(r)), guardianName + "-" + name);
-        });
-    }
-
-    private ReplicatorSettings replicatorSettings(Optional<String> role) {
-        ReplicatorSettings configured = ReplicatorSettings.create(
-                system.settings().config().getConfig("tapio.cluster.sharding.distributed-data"));
-        Set<String> replicatorRoles = new HashSet<>();
-        replicatorRoles.add(ClusterSettings.DcRolePrefix + cluster.settings().SelfDataCenter);
-        role.filter(r -> !r.isEmpty()).ifPresent(replicatorRoles::add);
-        return configured.withRoles(replicatorRoles);
     }
 }

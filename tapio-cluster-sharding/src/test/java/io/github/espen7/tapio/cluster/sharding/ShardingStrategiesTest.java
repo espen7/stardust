@@ -22,6 +22,7 @@ import io.github.espen7.tapio.cluster.Cluster;
 import io.github.espen7.tapio.cluster.ClusterEvent;
 import io.github.espen7.tapio.cluster.sharding.external.ExternalShardAllocation;
 import io.github.espen7.tapio.cluster.sharding.external.ExternalShardAllocationStrategy;
+import io.github.espen7.tapio.cluster.sharding.internal.EntityPassivationStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -66,6 +67,18 @@ class ShardingStrategiesTest {
                 Duration.ofSeconds(2));
         assertEquals(3, result.queried());
         assertTrue(result.toString().contains("[2] responsive, [1] failed"));
+
+        var lru = EntityPassivationStrategy.create("lru", 2, Duration.ZERO);
+        assertEquals(List.of(), lru.entityTouched("e1"));
+        assertEquals(List.of(), lru.entityTouched("e2"));
+        assertEquals(List.of(), lru.entityTouched("e1"));
+        assertEquals(List.of("e2"), lru.entityTouched("e3"));
+
+        var lfu = EntityPassivationStrategy.create("lfu", 2, Duration.ZERO);
+        lfu.entityTouched("a");
+        lfu.entityTouched("a");
+        lfu.entityTouched("b");
+        assertEquals(List.of("b"), lfu.entityTouched("c"));
     }
 
     @Test
@@ -102,6 +115,12 @@ class ShardingStrategiesTest {
             ActorRef extChosen = ext.allocateShard(dummyRegion, "shard-1", Map.of(dummyRegion, List.of()))
                     .toCompletableFuture().get(3, TimeUnit.SECONDS);
             assertEquals(dummyRegion, extChosen);
+
+            var hc = new ClusterShardingHealthCheck(
+                    sys,
+                    new ClusterShardingHealthCheckSettings(Set.of(), Duration.ofSeconds(1), Duration.ofSeconds(5)),
+                    name -> dummyRegion);
+            assertTrue(hc.get().toCompletableFuture().get(3, TimeUnit.SECONDS));
         } finally {
             sys.terminate().toCompletableFuture().get(5, TimeUnit.SECONDS);
         }
